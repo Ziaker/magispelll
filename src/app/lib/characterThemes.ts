@@ -23,7 +23,7 @@
  * Personagens jogáveis
  * EXTENSÃO: Sincronize com outros arquivos ao adicionar novos
  */
-export type Character = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
+export type Character = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
 
 /**
  * Estrutura de tema de cores de um personagem
@@ -158,6 +158,22 @@ export const characterThemes: Record<Character, CharacterTheme> = {
     glow: 'rgba(59, 76, 203, 0.3)', // Brilho azul translúcido
     border: '#3B4CCB',
     darkAccent: '#5C1024', // Vermelho bem escuro (mesmo "peso" visual do azul `dark` acima) - a 2ª metade do fundo duotone, ver getCharacterPanelBackground
+  },
+
+  // PIROMANTE (personagem novo, pedido do usuário: "laranja escuro") - tom de
+  // laranja queimado bem saturado, escolhido de propósito mais escuro/intenso
+  // que o vermelho da Besta e o dourado do Anjo pra não se confundir com
+  // nenhum dos dois lado a lado.
+  piromante: {
+    name: 'PIROMANTE',
+    primary: '#CC5500',      // Laranja queimado
+    secondary: '#7A3300',    // Laranja escuro
+    accent: '#FF8033',       // Laranja vivo brilhante
+    light: '#FFB380',        // Laranja pastel
+    dark: '#3D1900',         // Laranja quase preto
+    glow: 'rgba(204, 85, 0, 0.3)', // Brilho laranja translúcido
+    border: '#CC5500',
+    darkAccent: '#3D1900', // Igual a `dark` (personagem de matiz único, sem duotone como o Coringa)
   },
 };
 

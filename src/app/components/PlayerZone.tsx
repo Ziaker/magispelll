@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { Wand2, Heart as HeartIcon, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair } from 'lucide-react';
+import { Wand2, Heart as HeartIcon, Flame, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair } from 'lucide-react';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -361,6 +361,7 @@ export function PlayerZone({
     anjo: AngelHaloIcon,
     mosqueteiro: Crosshair,
     coringa: JesterHatIcon,
+    piromante: Flame,
   };
 
   const Icon = characterIcons[character];

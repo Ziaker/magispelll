@@ -4,6 +4,7 @@ import type { FieldSlot, CharacterId } from '../lib/gameEngine';
 import { FieldSlotView } from './FieldSlotView';
 import type { CombatValueRevealSpec } from './CombatValueReveal';
 import type { SpotlightState } from '../lib/spotlight';
+import { FireballMeter } from './FireballMeter';
 
 interface BattleFieldProps {
   player1Character: CharacterId;
@@ -84,6 +85,16 @@ interface BattleFieldProps {
   /** Coringa (redesenho completo, "armadilhas"): slot que acabou de ter um Valete/Rei armadilha reagindo (dissipando em fumaça) - repassado para FieldSlotView.tsx (CoringaSmokeBurst.tsx) em vez do burst normal. */
   smokingSlot?: { player: 1 | 2; slotIndex: number } | null;
   /**
+   * Piromante (personagem novo, pedido explícito do usuário: "carta pegando
+   * fogo e se despedaçando") - slot(s) do campo do OPONENTE que acabaram de
+   * ser atingidos por um lançamento da Bola de Fogo - repassado para
+   * FieldSlotView.tsx (FireShatterBurst.tsx) em vez do burst normal. É uma
+   * LISTA (não um único slot como shatteringSlot/smokingSlot acima) porque a
+   * Magia Numeral "Chama Repartida" pode acertar os 3 slots do oponente de
+   * uma vez.
+   */
+  burningSlots?: Array<{ player: 1 | 2; slotIndex: number }>;
+  /**
    * Efeitos de status contínuos (pedido do usuário: "mais efeitos visuais
    * nas magias... como você fez nas torres") - id da carta (principal OU
    * horizontal) atualmente sob a Fúria Selvagem da Besta (valendo o dobro),
@@ -132,6 +143,19 @@ interface BattleFieldProps {
   selectedForTower?: Set<string>;
   onFormTower?: (playerNumber: 1 | 2, slotIndex: number) => void;
   canFormTower?: (playerNumber: 1 | 2, slotIndex: number) => boolean;
+  /**
+   * Piromante (personagem novo) - Bola de Fogo de CADA jogador, mostrada
+   * como um círculo com fogo contínuo ancorado na borda do campo do lado
+   * dele (FireballMeter.tsx), sempre visível (não é um efeito temporário) -
+   * `undefined` para o jogador que não é Piromante (nenhum círculo
+   * aparece). `fireballCap` é o mesmo teto pros dois (20, ou 30 no modo
+   * Towers - getFireballCap em gameEngine.ts).
+   */
+  player1FireballValue?: number;
+  player2FireballValue?: number;
+  fireballCap?: number;
+  player1SpreadArmed?: boolean;
+  player2SpreadArmed?: boolean;
 }
 
 export function BattleField({
@@ -157,6 +181,7 @@ export function BattleField({
   activeMagicLabel,
   shatteringSlot,
   smokingSlot,
+  burningSlots,
   player1DoubledCardId,
   player2DoubledCardId,
   player1BoostedCardId,
@@ -169,6 +194,11 @@ export function BattleField({
   selectedForTower,
   onFormTower,
   canFormTower,
+  player1FireballValue,
+  player2FireballValue,
+  fireballCap,
+  player1SpreadArmed,
+  player2SpreadArmed,
 }: BattleFieldProps) {
   const p1Theme = getCharacterTheme(player1Character);
   const p2Theme = getCharacterTheme(player2Character);
@@ -221,6 +251,7 @@ export function BattleField({
             activeMagicLabel={activeMagicLabel}
             isShattering={Boolean(shatteringSlot && shatteringSlot.player === playerNumber && shatteringSlot.slotIndex === i)}
             isSmoking={Boolean(smokingSlot && smokingSlot.player === playerNumber && smokingSlot.slotIndex === i)}
+            isBurning={Boolean(burningSlots?.some((s) => s.player === playerNumber && s.slotIndex === i))}
             doubledCardId={doubledCardId}
             boostedCardId={boostedCardId}
             boostAmount={boostAmount}
@@ -270,6 +301,9 @@ export function BattleField({
       {/* Campo do Jogador 2 (topo) */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
+          {player2Character === 'piromante' && player2FireballValue !== undefined && (
+            <FireballMeter value={player2FireballValue} cap={fireballCap ?? 20} spreadArmed={player2SpreadArmed} />
+          )}
           <div className="h-px flex-1 bg-gradient-to-r from-transparent" style={{ background: `linear-gradient(to right, transparent, ${p2Theme.primary}40)` }} />
           <p className="text-[11px] uppercase tracking-wider" style={{ color: p2Theme.primary }}>
             {p2Theme.name} - Campo{player2IsAi ? ' (IA)' : ''}
@@ -331,6 +365,9 @@ export function BattleField({
       {/* Campo do Jogador 1 (base) */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
+          {player1Character === 'piromante' && player1FireballValue !== undefined && (
+            <FireballMeter value={player1FireballValue} cap={fireballCap ?? 20} spreadArmed={player1SpreadArmed} />
+          )}
           <div className="h-px flex-1 bg-gradient-to-r from-transparent" style={{ background: `linear-gradient(to right, transparent, ${p1Theme.primary}40)` }} />
           <p className="text-[11px] uppercase tracking-wider" style={{ color: p1Theme.primary }}>
             {p1Theme.name} - Campo{player1IsAi ? ' (IA)' : ''}

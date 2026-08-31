@@ -23,7 +23,7 @@ interface PlayingCardProps {
   magicTooltip?: string;
   /** FIX (item 8): fase em que esta carta de magia pode ser ativada, usada para mostrar um selo colorido no tooltip. */
   magicPhase?: 'draw' | 'strategy' | 'combat';
-  playerCharacter?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
+  playerCharacter?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
   isInHand?: boolean;
   /**
    * FIX (item 10 da 2ª rodada): na fase de Combate, um slot vazio agora vale

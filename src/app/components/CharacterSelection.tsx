@@ -1,6 +1,6 @@
 import { useState, type ComponentType, type CSSProperties } from 'react';
 import { Button } from './ui/button';
-import { ArrowLeft, Wand2, Bot, Dices, Info, Crosshair } from 'lucide-react';
+import { ArrowLeft, Wand2, Bot, Dices, Info, Crosshair, Flame } from 'lucide-react';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { CharacterDivider } from './CharacterDivider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -11,15 +11,15 @@ import { getMonsterEffect } from '../lib/monsterCards';
 import { getNumeralSpellInfo, formatNumeralRequirement } from '../lib/numeralSpells';
 import { PHASE_DISPLAY } from './PlayingCard';
 
-type CharacterId = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
+type CharacterId = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
 
 interface CharacterSelectionProps {
   onBack: () => void;
-  onSelect: (character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa', playerNumber: 1 | 2) => void;
+  onSelect: (character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante', playerNumber: 1 | 2) => void;
   currentPlayer: 1 | 2;
   selectedCharacters: {
-    player1?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
-    player2?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
+    player1?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
+    player2?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
   };
   /**
    * Quais jogadores (nenhum, um ou os dois) são a IA nesta partida - vazio no
@@ -49,6 +49,7 @@ const CHARACTER_ICONS: Record<CharacterId, ComponentType<{ className?: string }>
   anjo: AngelHaloIcon,
   mosqueteiro: Crosshair,
   coringa: JesterHatIcon,
+  piromante: Flame,
 };
 
 /**
@@ -64,6 +65,7 @@ const CHARACTER_TAGLINE: Record<CharacterId, string> = {
   anjo: 'Crescimento e suporte',
   mosqueteiro: 'Descarte e precisão',
   coringa: 'Armadilhas e sabotagem',
+  piromante: 'Combustível e destruição em área',
 };
 
 /**
@@ -246,7 +248,7 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
   // as duas etapas idênticas - em "Contra a IA" (só um lado é IA) o título
   // genérico de sempre continua bastando.
   const isSpectatorMode = aiPlayers.length >= 2;
-  const characterIds: CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa'];
+  const characterIds: CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante'];
   // FIX (pedido do usuário: "as informações... são repulsivas a novos
   // jogadores, resuma os efeitos e permita que a pessoa clique em um botão
   // de 'visão completa das habilidades'") - qual personagem (se algum) tem o

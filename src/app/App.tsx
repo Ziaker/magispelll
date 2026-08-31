@@ -79,7 +79,7 @@ export default function App() {
    * Personagem selecionado para visualizar a ficha detalhada
    * Usado apenas no fluxo: characters -> character-sheet
    */
-  const [selectedCharacter, setSelectedCharacter] = useState<'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | null>(null);
+  const [selectedCharacter, setSelectedCharacter] = useState<'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante' | null>(null);
   
   /**
    * Controla em qual etapa da seleção de personagem estamos
@@ -94,8 +94,8 @@ export default function App() {
    * EXTENSÃO: Para suportar mais jogadores, expandir esta estrutura
    */
   const [selectedCharacters, setSelectedCharacters] = useState<{
-    player1?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
-    player2?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
+    player1?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
+    player2?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
   }>({});
 
   // ===== HANDLERS =====
@@ -116,7 +116,7 @@ export default function App() {
    * da IA em si vive em lib/aiPlayer.ts e é acionada de dentro de
    * GameBoard.tsx, não aqui.
    */
-  const handleCharacterSelect = (character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa', playerNumber: 1 | 2) => {
+  const handleCharacterSelect = (character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante', playerNumber: 1 | 2) => {
     if (playerNumber === 1) {
       // Jogador 1 escolheu - salva escolha e avança para próxima etapa
       setSelectedCharacters({ ...selectedCharacters, player1: character });

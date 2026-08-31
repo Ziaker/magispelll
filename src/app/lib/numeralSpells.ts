@@ -26,7 +26,7 @@
 import type { Card } from './cardUtils';
 import { getSpotlightAdjustedValue, type SpotlightState } from './spotlight';
 
-export type NumeralCharacter = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
+export type NumeralCharacter = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
 
 /** Estrutura mínima de um slot de campo, para não depender do componente React */
 export interface FieldSlotLike {
@@ -83,6 +83,19 @@ export const NUMERAL_SPELLS: Record<NumeralCharacter, NumeralSpellType> = {
     name: 'Mão de Ferro',
     description:
       'No próximo turno, suas cartas de magia (Valete/Rainha/Rei) podem ser transformadas (permanentemente, um botão surge em cada uma) em cartas de número 11, 12 e 13.',
+  },
+  // Piromante (personagem novo) - não altera a Bola de Fogo em si, só o
+  // PRÓXIMO lançamento dela: em vez de mirar 1 slot só, ela se propaga pros
+  // 3 slots do oponente de uma vez, mas com o valor DIVIDIDO entre eles (ver
+  // piromanteSpreadArmed/executeFireballLaunch em gameEngine.ts) - sem prazo
+  // de turno (fica armada até o próximo lançamento acontecer, não importa
+  // quantos turnos demore) - trade-off clássico "1 alvo forte" vs "3 alvos fracos".
+  piromante: {
+    character: 'piromante',
+    requiredNumber: 6,
+    name: 'Chama Repartida',
+    description:
+      'No próximo lançamento da Bola de Fogo, ela se propaga pros 3 slots do campo do oponente de uma vez (em vez de só 1), mas com o valor dividido entre eles em vez do total.',
   },
 };
 

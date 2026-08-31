@@ -7,6 +7,7 @@ import { FlipCard } from './FlipCard';
 import { CharacterMagicBurst } from './CharacterMagicBurst';
 import { MagicCalloutLabel } from './MagicCalloutLabel';
 import { CardShatterBurst } from './CardShatterBurst';
+import { FireShatterBurst } from './FireShatterBurst';
 import { CoringaSmokeBurst } from './CoringaSmokeBurst';
 import { CardImpactBurst } from './CardImpactBurst';
 import { CardKeywords } from './CardKeywords';
@@ -178,6 +179,8 @@ interface FieldSlotViewProps {
   isShattering?: boolean;
   /** Coringa (redesenho completo, "armadilhas"): verdadeiro quando ESTE slot acabou de ter um Valete/Rei armadilha reagindo (dissipando em fumaça) - troca o burst mágico genérico por CoringaSmokeBurst.tsx. Ver BattleField.tsx/GameBoard.tsx. */
   isSmoking?: boolean;
+  /** Piromante (personagem novo, pedido explícito do usuário: "carta pegando fogo e se despedaçando") - verdadeiro quando ESTE slot acabou de ser atingido por um lançamento da Bola de Fogo (obliterado ou reduzido a carta-token) - troca o burst mágico genérico por FireShatterBurst.tsx. Ver BattleField.tsx/GameBoard.tsx. */
+  isBurning?: boolean;
   /** Efeitos de status contínuos (pedido do usuário): id da carta (principal OU horizontal, deste MESMO jogador) atualmente sob a Fúria Selvagem da Besta - ver BattleField.tsx/GameBoard.tsx (`monsterTargetCardId`). */
   doubledCardId?: string;
   /** Mosqueteiro (personagem novo) - id da carta (principal OU horizontal, deste MESMO jogador) reforçada pelo Tiro Certeiro (Rei), e o valor extra que ela recebe - ver BattleField.tsx/GameBoard.tsx (`mosqueteiroBoostedCardId`). */
@@ -235,6 +238,7 @@ export function FieldSlotView({
   activeMagicLabel,
   isShattering,
   isSmoking,
+  isBurning,
   doubledCardId,
   boostedCardId,
   boostAmount,
@@ -786,6 +790,8 @@ export function FieldSlotView({
                   <CardShatterBurst active={isShattering} />
                 ) : isSmoking ? (
                   <CoringaSmokeBurst active={isSmoking} />
+                ) : isBurning ? (
+                  <FireShatterBurst active={isBurning} />
                 ) : (
                   <CharacterMagicBurst active={isEffectFlashing} character={activeMagicCaster ?? 'mago'} />
                 )}

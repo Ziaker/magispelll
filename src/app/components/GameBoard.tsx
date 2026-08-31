@@ -48,7 +48,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Toaster } from './ui/sonner';
 import { ScrollArea } from './ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
-import { getDisplayValue, isNumeralCard, isPlainNumeralCard, isValidAceTransformTarget, type Card } from '../lib/cardUtils';
+import { getDisplayValue, isNumeralCard, isPlainNumeralCard, isValidAceTransformTarget, getEffectiveCardValue, type Card } from '../lib/cardUtils';
 import { isUntransformedAce } from '../lib/fusion';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { getNumeralSpellInfo } from '../lib/numeralSpells';
@@ -77,6 +77,7 @@ import {
   getMagicActivationContext,
   canFormOrReinforceTower,
   isCoringaRawTrapCard,
+  getFireballCap,
   type CharacterId,
   type GameAction,
   type MagicSelection,
@@ -113,6 +114,8 @@ interface PendingMagic {
   selectedTargetSlot?: number;
   /** Mosqueteiro - Rainha (Rajada Reveladora): ids das cartas do oponente escolhidas para revelar - ver MagicSelection em gameEngine.ts. */
   selectedRevealCardIds?: string[];
+  /** Piromante - verdadeiro quando o jogador escolheu, no diálogo, lançar a Bola de Fogo já acumulada em vez do efeito próprio de alimentar (J/Q/K) - ver MagicSelection.fireballLaunch em gameEngine.ts. */
+  fireballLaunch?: boolean;
 }
 
 export function GameBoard({ onBack, player1Character, player2Character, gameConfig }: GameBoardProps) {
@@ -282,6 +285,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [shatteringSlot, setShatteringSlot] = useState<{ player: 1 | 2; slotIndex: number } | null>(null);
   /** Coringa (redesenho completo, "armadilhas"): slot que acabou de ter um Valete/Rei armadilha reagindo (dissipando em fumaça) - dispara CoringaSmokeBurst.tsx nele. Ver o useEffect de log logo abaixo (Estratégia) e o de combatResolution (Combate). */
   const [smokingSlot, setSmokingSlot] = useState<{ player: 1 | 2; slotIndex: number } | null>(null);
+  /** Piromante (personagem novo, pedido explícito do usuário: "carta pegando fogo e se despedaçando") - slot(s) do oponente que acabaram de ser atingidos por um lançamento da Bola de Fogo - dispara FireShatterBurst.tsx neles. Ver applyMagicEffectPresentation. */
+  const [burningSlots, setBurningSlots] = useState<Array<{ player: 1 | 2; slotIndex: number }>>([]);
   // FIX (item 8 da 6ª rodada): esticado de 1000ms para 1300ms junto com a
   // duração da própria animação em MagicEffectBurst.tsx (0.9s → 1.1s) - sem
   // isso, o estado `active` seria desligado ANTES do burst terminar de
@@ -1346,6 +1351,30 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       if (pm.selectedRevealCardIds?.length) cardIds.push(...pm.selectedRevealCardIds);
     } else if (pm.character === 'mosqueteiro' && pm.type === 'K') {
       if (pm.selectedCards?.[0]) cardIds.push(pm.selectedCards[0]);
+    } else if (pm.character === 'piromante') {
+      if (pm.fireballLaunch) {
+        // Lançamento da Bola de Fogo: mira o slot único escolhido, ou os 3
+        // slots do oponente de uma vez com "Chama Repartida" armada (ver
+        // executeFireballLaunch em gameEngine.ts) - usado só para o flash
+        // genérico (o burst de fogo de verdade é o FireShatterBurst, ver
+        // applyMagicEffectPresentation abaixo).
+        const spread = gameState[playerKeyOf(pm.playerNumber)].piromanteSpreadArmed;
+        if (spread) {
+          for (let i = 0; i < 3; i++) slots.push({ player: opponentNumber, slotIndex: i });
+        } else if (pm.selectedTargetSlot !== undefined) {
+          slots.push({ player: opponentNumber, slotIndex: pm.selectedTargetSlot });
+        }
+      } else if (pm.type === 'J') {
+        // Combustão: junta TODAS as cartas <5 da própria mão automaticamente
+        // (sem seleção manual) - calcula aqui a mesma regra de
+        // handleExecuteMagic (gameEngine.ts) só pra saber quais destacar.
+        const ownHand = gameState[playerKeyOf(pm.playerNumber)].hand;
+        ownHand.forEach((c) => {
+          if (c.id !== pm.cardId && isPlainNumeralCard(c) && getEffectiveCardValue(c) < 5) cardIds.push(c.id);
+        });
+      } else if (pm.selectedCards?.[0]) {
+        cardIds.push(pm.selectedCards[0]);
+      }
     }
     return { slots, cardIds };
   };
@@ -1371,6 +1400,22 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       const shatterTarget = targets.slots[0];
       setShatteringSlot(shatterTarget);
       setTimeout(() => setShatteringSlot((prev) => (prev === shatterTarget ? null : prev)), delay(EFFECT_FLASH_DURATION_MS));
+    }
+    // Piromante (pedido explícito do usuário: "carta pegando fogo e se
+    // despedaçando") - só quando o lançamento realmente ACERTA algo: nunca
+    // em slots protegidos pela Proteção Divina do Anjo (bloqueia por
+    // completo, ver isSlotProtected/executeFireballLaunch em gameEngine.ts)
+    // nem em slots já vazios (nada pra pegar fogo ali).
+    if (character === 'piromante' && pm.fireballLaunch && targets.slots.length > 0) {
+      const hitSlots = targets.slots.filter((t) => {
+        if (isSlotProtectedFor(t.player, t.slotIndex)) return false;
+        const slot = gameState[playerKeyOf(t.player)].field[t.slotIndex];
+        return Boolean(slot.faceDownCard) || slot.horizontalCards.length > 0 || (slot.towerReserve?.length ?? 0) > 0;
+      });
+      if (hitSlots.length > 0) {
+        setBurningSlots(hitSlots);
+        setTimeout(() => setBurningSlots((prev) => (prev === hitSlots ? [] : prev)), delay(EFFECT_FLASH_DURATION_MS));
+      }
     }
     // FIX (pedido do usuário: "som") - a Destruição de Reforço toca um som de
     // vidro quebrando (card-shatter) em vez do zap genérico de magia, pra
@@ -1409,8 +1454,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
 
   const executeMagicEffect = () => {
     if (!pendingMagic) return;
-    const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds } = pendingMagic;
-    const selection: MagicSelection = { selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds };
+    const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch } = pendingMagic;
+    const selection: MagicSelection = { selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch };
     applyMagicEffectPresentation(pendingMagic);
     dispatch({ type: 'EXECUTE_MAGIC', player: playerNumber, cardId, character, magicType: type, selection });
     setPendingMagic(null);
@@ -1445,6 +1490,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         selectedTargetPlayer: action.selection.selectedTargetPlayer,
         selectedTargetSlot: action.selection.selectedTargetSlot,
         selectedRevealCardIds: action.selection.selectedRevealCardIds,
+        fireballLaunch: action.selection.fireballLaunch,
       });
     } else if (action.type === 'ACTIVATE_SIMPLE_MAGIC') {
       // Só usada pelo Anjo J (Bênção Divina) e K (Reforço Angelical) - as
@@ -2120,6 +2166,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     activeMagicLabel={activeMagicLabel}
                     shatteringSlot={shatteringSlot}
                     smokingSlot={smokingSlot}
+                    burningSlots={burningSlots}
                     player1DoubledCardId={
                       gameState.player1Character === 'besta' && gameState.player1.monsterCard?.monsterUsed
                         ? gameState.player1.monsterTargetCardId
@@ -2140,6 +2187,11 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     selectedForTower={selectedForTower}
                     onFormTower={handleFormTower}
                     canFormTower={(playerNumber, slotIndex) => canFormOrReinforceTower(gameState, playerNumber, slotIndex, Array.from(selectedForTower))}
+                    player1FireballValue={player1Character === 'piromante' ? gameState.player1.fireballValue : undefined}
+                    player2FireballValue={player2Character === 'piromante' ? gameState.player2.fireballValue : undefined}
+                    fireballCap={getFireballCap(gameConfig)}
+                    player1SpreadArmed={gameState.player1.piromanteSpreadArmed}
+                    player2SpreadArmed={gameState.player2.piromanteSpreadArmed}
                   />
                 </div>
                 <SpotlightSidebar spotlight={gameState.spotlight} />
@@ -2555,6 +2607,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     ? 'Selecione (às cegas) até 3 cartas da mão do oponente para descartar, depois escolha o que revelar'
                     : 'Selecione até 3 cartas da sua mão para descartar, depois escolha o que revelar';
                 if (character === 'mosqueteiro' && type === 'K') return 'Selecione uma carta do seu campo para reforçar';
+                if (character === 'piromante') return 'Escolha entre o efeito próprio (alimentar a Bola de Fogo) ou lançar a Bola de Fogo já acumulada';
                 return '';
               })()}
             </DialogDescription>
@@ -3168,6 +3221,142 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   );
                 })()}
 
+                {/* Piromante (personagem novo) - as 3 magias (J/Q/K) sempre
+                    oferecem a MESMA escolha: fazer o efeito próprio de
+                    alimentar a Bola de Fogo, OU lançar a Bola de Fogo já
+                    acumulada contra o oponente (pedido explícito do usuário -
+                    ver MagicSelection.fireballLaunch em gameEngine.ts). O
+                    bloco de escolha é compartilhado pelas 3; só o texto/alvo
+                    do efeito próprio muda por tipo. */}
+                {pendingMagic.character === 'piromante' &&
+                  (() => {
+                    const ctx = getMagicActivationContext(gameState, pendingMagic.playerNumber);
+                    const cap = getFireballCap(gameConfig);
+                    const fireballValue = gameState[ownKey].fireballValue;
+                    const spreadArmed = gameState[ownKey].piromanteSpreadArmed;
+                    const ownEffectAvailable =
+                      pendingMagic.type === 'J'
+                        ? Boolean(ctx.hasFireFuelInHand)
+                        : pendingMagic.type === 'Q'
+                          ? Boolean(ctx.hasRevealedBurnableOpponentCard)
+                          : Boolean(ctx.hasUnbattledHorizontalCardsInOpponentFieldForBurn);
+                    const launchAvailable = Boolean(ctx.canLaunchFireball);
+                    const isLaunch = Boolean(pendingMagic.fireballLaunch);
+
+                    return (
+                      <div className="space-y-3">
+                        <div className="flex gap-2 flex-wrap">
+                          <button
+                            disabled={!ownEffectAvailable}
+                            onClick={() => setPendingMagic({ ...pendingMagic, fireballLaunch: false, selectedTargetSlot: undefined, selectedCards: [] })}
+                            className={`flex-1 min-w-[160px] px-3 py-2 rounded border-2 text-[11px] text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                              !isLaunch ? 'border-[#6CC47A] bg-[#6CC47A]/10 text-[#EFE7D6]' : 'border-[#C59E4F]/30 hover:border-[#C59E4F] text-[#BFB6A6]'
+                            }`}
+                          >
+                            {pendingMagic.type === 'J' && 'Combustão: queime as cartas <5 da mão'}
+                            {pendingMagic.type === 'Q' && 'Roubo Flamejante: queime uma carta revelada do oponente'}
+                            {pendingMagic.type === 'K' && 'Queima do Reforço: queime uma horizontal do oponente'}
+                          </button>
+                          <button
+                            disabled={!launchAvailable}
+                            onClick={() => setPendingMagic({ ...pendingMagic, fireballLaunch: true, selectedCards: undefined })}
+                            className={`flex-1 min-w-[160px] px-3 py-2 rounded border-2 text-[11px] text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                              isLaunch ? 'border-[#FF8033] bg-[#FF8033]/10 text-[#EFE7D6]' : 'border-[#C59E4F]/30 hover:border-[#C59E4F] text-[#BFB6A6]'
+                            }`}
+                          >
+                            🔥 Lançar a Bola de Fogo ({fireballValue}/{cap}){spreadArmed && ' - Chama Repartida armada!'}
+                          </button>
+                        </div>
+
+                        {isLaunch && !spreadArmed && (
+                          <div className="space-y-2">
+                            <p className="text-[#BFB6A6] text-[12px]">Selecione o slot do campo do oponente a atingir:</p>
+                            <div className="flex gap-3">
+                              {gameState[opponentKey].field.map((slot, slotIdx) => {
+                                const protectedSlot = isSlotProtectedFor(opponentNumber, slotIdx);
+                                return (
+                                  <button
+                                    key={slotIdx}
+                                    disabled={protectedSlot}
+                                    onClick={() => setPendingMagic({ ...pendingMagic, selectedTargetSlot: slotIdx })}
+                                    className={`w-20 h-16 border-2 rounded flex flex-col items-center justify-center text-[10px] transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                                      pendingMagic.selectedTargetSlot === slotIdx
+                                        ? 'border-[#FF8033] bg-[#FF8033]/15 text-[#EFE7D6]'
+                                        : 'border-[#C59E4F]/30 hover:border-[#C59E4F] text-[#BFB6A6]'
+                                    }`}
+                                  >
+                                    <span>Slot {slotIdx + 1}</span>
+                                    {protectedSlot && <span className="text-[8px] text-[#7AA7C4]">Protegido</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {isLaunch && spreadArmed && (
+                          <p className="text-[#BFB6A6] text-[11px]">
+                            Chama Repartida armada: a Bola de Fogo vai se dividir e atingir os 3 slots do campo do oponente de uma vez, cada um recebendo 1/3 do valor.
+                          </p>
+                        )}
+
+                        {!isLaunch && pendingMagic.type === 'J' && (
+                          <p className="text-[#BFB6A6] text-[11px]">
+                            Todas as cartas de valor menor que 5 na sua mão serão queimadas automaticamente e somadas à Bola de Fogo.
+                          </p>
+                        )}
+
+                        {!isLaunch && pendingMagic.type === 'Q' && (
+                          <div className="space-y-2">
+                            <p className="text-[#BFB6A6] text-[12px]">Selecione uma carta revelada do oponente (mão ou horizontal, 2-10) para queimar:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {[
+                                ...gameState[opponentKey].hand.filter((c) => c.revealed && getEffectiveCardValue(c) >= 2 && getEffectiveCardValue(c) <= 10),
+                                ...gameState[opponentKey].field.flatMap((slot) =>
+                                  slot.horizontalCards.filter((c) => c.revealed && getEffectiveCardValue(c) >= 2 && getEffectiveCardValue(c) <= 10)
+                                ),
+                              ].map((c) => (
+                                <div
+                                  key={c.id}
+                                  onClick={() => setPendingMagic({ ...pendingMagic, selectedCards: [c.id] })}
+                                  className={`cursor-pointer transition-all hover:scale-105 rounded ${
+                                    (pendingMagic.selectedCards || [])[0] === c.id ? 'ring-2 ring-[#FF8033]' : ''
+                                  }`}
+                                >
+                                  <PlayingCard value={c.value} suit={c.suit} card={c} />
+                                </div>
+                              ))}
+                            </div>
+                            {!ownEffectAvailable && <p className="text-[#8A5A5A] text-[11px]">Nenhuma carta revelada disponível para queimar agora.</p>}
+                          </div>
+                        )}
+
+                        {!isLaunch && pendingMagic.type === 'K' && (
+                          <div className="space-y-2">
+                            <p className="text-[#BFB6A6] text-[12px]">Selecione uma carta horizontal (não combatida) do campo do oponente para queimar:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {gameState[opponentKey].field.flatMap((slot, slotIdx) =>
+                                slot.horizontalCards
+                                  .filter((c) => !c.battled)
+                                  .map((c) => (
+                                    <div
+                                      key={c.id}
+                                      onClick={() => !isSlotProtectedFor(opponentNumber, slotIdx) && setPendingMagic({ ...pendingMagic, selectedCards: [c.id] })}
+                                      className={`cursor-pointer transition-all hover:scale-105 rounded ${
+                                        (pendingMagic.selectedCards || [])[0] === c.id ? 'ring-2 ring-[#FF8033]' : ''
+                                      } ${isSlotProtectedFor(opponentNumber, slotIdx) ? 'opacity-30 pointer-events-none' : ''}`}
+                                    >
+                                      <PlayingCard value={c.value} suit={c.suit} card={c} />
+                                    </div>
+                                  ))
+                              )}
+                            </div>
+                            {!ownEffectAvailable && <p className="text-[#8A5A5A] text-[11px]">Nenhuma horizontal disponível para queimar agora.</p>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                 <div className="flex gap-3 pt-2">
                   <Button
                     onClick={executeMagicEffect}
@@ -3183,6 +3372,15 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                       if (character === 'mosqueteiro' && type === 'J') return !selectedCards || selectedCards.length === 0;
                       if (character === 'mosqueteiro' && type === 'Q') return !selectedCards || selectedCards.length === 0;
                       if (character === 'mosqueteiro' && type === 'K') return !selectedCards || selectedCards.length === 0;
+                      if (character === 'piromante') {
+                        if (pendingMagic.fireballLaunch === undefined) return true; // ainda não escolheu entre efeito próprio e lançar
+                        if (pendingMagic.fireballLaunch) {
+                          const spreadArmed = gameState[playerKeyOf(pendingMagic.playerNumber)].piromanteSpreadArmed;
+                          return !spreadArmed && selectedTargetSlot === undefined;
+                        }
+                        if (type === 'J') return false; // Combustão própria não exige seleção (junta tudo automaticamente)
+                        return !selectedCards || selectedCards.length === 0;
+                      }
                       return false;
                     })()}
                     className="flex-1 bg-[#6CC47A] hover:bg-[#4A8A5A] text-[#0F1113] disabled:opacity-30"

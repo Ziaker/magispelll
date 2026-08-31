@@ -71,6 +71,14 @@ import coringaQSrc from '../../assets/sfx/coringa-q.ogg';
 import coringaKSrc from '../../assets/sfx/coringa-k.ogg';
 import coringaMonsterSrc from '../../assets/sfx/coringa-monster.ogg';
 import coringaNumeralSrc from '../../assets/sfx/coringa-numeral.ogg';
+// Piromante (personagem novo) - Valete/Rainha/Rei + Monstro + Magia Numeral -
+// ver LICENSE.txt (5 sons novos, únicos do projeto vindos do Mixkit, já que
+// nenhum pacote CC0 usado até aqui tem som de fogo/magia de fogo de verdade).
+import piromanteJSrc from '../../assets/sfx/piromante-j.ogg';
+import piromanteQSrc from '../../assets/sfx/piromante-q.ogg';
+import piromanteKSrc from '../../assets/sfx/piromante-k.ogg';
+import piromanteMonsterSrc from '../../assets/sfx/piromante-monster.ogg';
+import piromanteNumeralSrc from '../../assets/sfx/piromante-numeral.ogg';
 
 export type SoundEffectName =
   | 'card-play'
@@ -117,7 +125,13 @@ export type SoundEffectName =
   | 'magic-coringa-q'
   | 'magic-coringa-k'
   | 'monster-coringa'
-  | 'numeral-coringa';
+  | 'numeral-coringa'
+  /** Piromante (personagem novo) - Valete/Rainha/Rei + Monstro + Magia Numeral. */
+  | 'magic-piromante-j'
+  | 'magic-piromante-q'
+  | 'magic-piromante-k'
+  | 'monster-piromante'
+  | 'numeral-piromante';
 
 const SOUND_SOURCES: Record<SoundEffectName, string> = {
   'card-play': cardPlaySrc,
@@ -154,6 +168,11 @@ const SOUND_SOURCES: Record<SoundEffectName, string> = {
   'magic-coringa-k': coringaKSrc,
   'monster-coringa': coringaMonsterSrc,
   'numeral-coringa': coringaNumeralSrc,
+  'magic-piromante-j': piromanteJSrc,
+  'magic-piromante-q': piromanteQSrc,
+  'magic-piromante-k': piromanteKSrc,
+  'monster-piromante': piromanteMonsterSrc,
+  'numeral-piromante': piromanteNumeralSrc,
 };
 
 /**
@@ -165,7 +184,7 @@ const SOUND_SOURCES: Record<SoundEffectName, string> = {
  * própria lógica (som 'card-shatter', ver applyMagicEffectPresentation em
  * GameBoard.tsx), não passa por este mapeamento genérico.
  */
-export function magicSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa', magicType: 'J' | 'Q' | 'K'): SoundEffectName {
+export function magicSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante', magicType: 'J' | 'Q' | 'K'): SoundEffectName {
   if (character === 'mago' && magicType === 'J') return 'magic-mago-j';
   if (character === 'mago' && magicType === 'Q') return 'magic-mago-q';
   if (character === 'besta' && magicType === 'J') return 'magic-besta-j';
@@ -180,24 +199,29 @@ export function magicSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosqueteir
   if (character === 'coringa' && magicType === 'J') return 'magic-coringa-j';
   if (character === 'coringa' && magicType === 'Q') return 'magic-coringa-q';
   if (character === 'coringa' && magicType === 'K') return 'magic-coringa-k';
+  if (character === 'piromante' && magicType === 'J') return 'magic-piromante-j';
+  if (character === 'piromante' && magicType === 'Q') return 'magic-piromante-q';
+  if (character === 'piromante' && magicType === 'K') return 'magic-piromante-k';
   return 'magic-activate'; // Mago K (Destruição de Reforço) - ver comentário acima.
 }
 
 /** Mesma ideia de magicSoundFor, para o efeito do Monstro (🃏) de cada personagem. */
-export function monsterSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa'): SoundEffectName {
+export function monsterSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante'): SoundEffectName {
   if (character === 'mago') return 'monster-mago';
   if (character === 'besta') return 'monster-besta';
   if (character === 'mosqueteiro') return 'monster-mosqueteiro';
   if (character === 'coringa') return 'monster-coringa';
+  if (character === 'piromante') return 'monster-piromante';
   return 'monster-anjo';
 }
 
 /** Mesma ideia de magicSoundFor, para a Magia Numeral de cada personagem. */
-export function numeralSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa'): SoundEffectName {
+export function numeralSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante'): SoundEffectName {
   if (character === 'mago') return 'numeral-mago';
   if (character === 'besta') return 'numeral-besta';
   if (character === 'mosqueteiro') return 'numeral-mosqueteiro';
   if (character === 'coringa') return 'numeral-coringa';
+  if (character === 'piromante') return 'numeral-piromante';
   return 'numeral-anjo';
 }
 

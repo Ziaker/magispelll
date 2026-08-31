@@ -166,3 +166,19 @@ relacionadas a palhaço, espetaculo e sorrisos"):
   Grande Final:
 
     coringa-numeral.ogg  <- Audio/Hit jingles/jingles_HIT10.ogg (Grande Final)
+
+---
+
+Piromante (personagem novo, "momento game design" - mecânica própria da
+Bola de Fogo) - 5 sons novos (Valete/Rainha/Rei + Monstro + Magia Numeral).
+Nenhum dos pacotes CC0 já usados no projeto (Kenney, os 2 do opengameart.org
+acima) tem sons de fogo/magia de fogo de verdade - pesquisados e baixados de
+https://mixkit.co/free-sound-effects/fire/ (Mixkit License - Sound Effects
+Free License: uso livre, incluindo comercial, sem exigência de crédito -
+ver https://mixkit.co/license/), convertidos de .mp3 pra .ogg com ffmpeg:
+
+    piromante-j.ogg        <- "Fast ignition fire" (Combustão)
+    piromante-q.ogg        <- "Fire spell with explosion" (Roubo Flamejante)
+    piromante-k.ogg         <- "Big fire flame burning" (Queima do Reforço)
+    piromante-monster.ogg  <- "Zippo fire close" (Brasa)
+    piromante-numeral.ogg  <- "Fireball spell" (Chama Repartida)
