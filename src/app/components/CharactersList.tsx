@@ -1,6 +1,7 @@
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { ArrowLeft, Sparkles, Zap, Shield, Crosshair, Drama } from 'lucide-react';
+import { ArrowLeft, Wand2, Skull, Crosshair, Drama } from 'lucide-react';
+import { AngelWingsIcon } from './AngelWingsIcon';
 import { getCharacterIconBackground } from '../lib/characterThemes';
 
 interface CharactersListProps {
@@ -13,21 +14,26 @@ export function CharactersList({ onBack, onSelectCharacter }: CharactersListProp
     {
       id: 'mago' as const,
       name: 'MAGO',
-      icon: Sparkles,
+      // FIX (pedido do usuário: "mude o icone do mago pra algo que seja
+      // referente a um mago tipo um cajado ou sparkles" / "besta... mais
+      // ameaçador" / "anjo... aureola com asas") - mesma troca de
+      // CharacterSelection.tsx/PlayerZone.tsx, pra manter a mesma
+      // identidade visual em toda a interface.
+      icon: Wand2,
       color: '#4A90E2',
       description: 'Manipulador de informação que controla o campo de batalha através de revelação de cartas inimigas e substituição estratégica de recursos.',
     },
     {
       id: 'besta' as const,
       name: 'BESTA',
-      icon: Zap,
+      icon: Skull,
       color: '#E24A4A',
       description: 'Guerreiro agressivo que recicla recursos e pressiona constantemente o oponente através de reciclagem do descarte e roubos devastadores.',
     },
     {
       id: 'anjo' as const,
       name: 'ANJO',
-      icon: Shield,
+      icon: AngelWingsIcon,
       color: '#E2B84A',
       description: 'Estrategista de longo prazo que acumula vantagens permanentes através de crescimento sustentado e proteção de recursos.',
     },

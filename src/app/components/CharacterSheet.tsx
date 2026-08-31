@@ -1,6 +1,7 @@
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { ArrowLeft, Sparkles, Zap, Shield, Crosshair, Drama } from 'lucide-react';
+import { ArrowLeft, Wand2, Skull, Crosshair, Drama } from 'lucide-react';
+import { AngelWingsIcon } from './AngelWingsIcon';
 import { CharacterDivider } from './CharacterDivider';
 import { ScrollArea } from './ui/scroll-area';
 import { getCharacterIconBackground } from '../lib/characterThemes';
@@ -14,7 +15,9 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
   const characterData = {
     mago: {
       name: 'MAGO',
-      icon: Sparkles,
+      // FIX (pedido do usuário: ícones de Mago/Besta/Anjo) - ver motivo
+      // completo em CharacterSelection.tsx.
+      icon: Wand2,
       color: '#4A90E2',
       profile: 'Mestre da manipulação de informação e controle tático. O Mago domina através da revelação de cartas inimigas e substituição estratégica de recursos.',
       spells: [
@@ -67,7 +70,7 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
     },
     besta: {
       name: 'BESTA',
-      icon: Zap,
+      icon: Skull,
       color: '#E24A4A',
       profile: 'Guerreiro agressivo que recicla recursos e pressiona constantemente. A Besta vence através de reciclagem do descarte e roubos devastadores.',
       spells: [
@@ -128,7 +131,7 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
     },
     anjo: {
       name: 'ANJO',
-      icon: Shield,
+      icon: AngelWingsIcon,
       color: '#E2B84A',
       profile: 'Estrategista de longo prazo que acumula vantagens permanentes. O Anjo vence através de crescimento sustentado e proteção de recursos.',
       spells: [

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, type ComponentType } from 'react';
 import { Button } from './ui/button';
-import { ArrowLeft, Crown, Heart, PawPrint, Bot, Dices, Info, Crosshair, Drama } from 'lucide-react';
+import { ArrowLeft, Wand2, Skull, Bot, Dices, Info, Crosshair, Drama } from 'lucide-react';
+import { AngelWingsIcon } from './AngelWingsIcon';
 import { CharacterDivider } from './CharacterDivider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { ScrollArea } from './ui/scroll-area';
@@ -31,13 +32,20 @@ interface CharacterSelectionProps {
   aiPlayers?: (1 | 2)[];
 }
 
-const CHARACTER_ICONS: Record<CharacterId, typeof Crown> = {
-  mago: Crown,
-  // FIX (pedido do usuário: "troque o ícone da besta para ser algo
-  // semelhante a uma criatura ao invés de uma pessoa") - ver mesma troca em
-  // PlayerZone.tsx.
-  besta: PawPrint,
-  anjo: Heart,
+// FIX (pedido do usuário: "mude o icone do mago pra algo que seja referente
+// a um mago tipo um cajado ou sparkles" / "mude o icone da besta de novo pra
+// ser algo mais ameaçador" / "mude o icone do anjo para uma aureola com
+// asas") - `Wand2` (cajado com brilho), `Skull` (caveira - mais agressivo
+// que a pegada de pata usada antes) e `AngelWingsIcon` (SVG customizado, ver
+// esse arquivo - lucide-react não tem nenhum ícone de anjo/auréola pronto).
+// Tipo relaxado pra `ComponentType<{ className?: string }>` (em vez de
+// `typeof Crown`, específico do lucide) porque `AngelWingsIcon` não é um
+// ícone lucide - só precisa aceitar `className`, o único prop que este mapa
+// realmente usa em qualquer um dos ícones (ver renderização abaixo).
+const CHARACTER_ICONS: Record<CharacterId, ComponentType<{ className?: string }>> = {
+  mago: Wand2,
+  besta: Skull,
+  anjo: AngelWingsIcon,
   mosqueteiro: Crosshair,
   coringa: Drama,
 };
@@ -293,17 +301,14 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
           </div>
         )}
 
-        {/* FIX (pedido do usuário: "no pré jogo, nas opções de escolha de
-            personagem, ao invés de ficar vertical, mantenha horizontal com
-            uma barra de rolagem") - antes era um grid que EMPILHAVA os
-            personagens verticalmente em telas mais estreitas (`grid-cols-1`
-            até `lg`, só virando 4 colunas lado a lado em telas bem largas,
-            `xl`). Trocado por uma única linha horizontal (`flex`) com
-            largura fixa por card (`w-96` - ver motivo abaixo) e rolagem
-            própria (`overflow-x-auto` + `.themed-scrollbar`, ver
-            globals.css) quando os 5 personagens não cabem de uma vez -
-            continua tudo lado a lado, igual em qualquer largura de janela. */}
-        <div className="flex gap-6 overflow-x-auto pb-4 themed-scrollbar">
+        {/* FIX (pedido do usuário: "volte atrás com a ideia da escolha de
+            personagem ser horizontal") - de volta ao grid original (1
+            coluna em telas estreitas, empilhando verticalmente, até 4
+            colunas lado a lado em telas largas). O fix do "(i)" que vazava
+            do botão "Visão completa" continua de pé, só que agora
+            independente da largura do card - ver `whitespace-normal` no
+            próprio botão, mais abaixo. */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-8">
           {characterIds.map((charId) => {
             const Icon = CHARACTER_ICONS[charId];
             const theme = getCharacterTheme(charId);
@@ -314,18 +319,7 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
             return (
               <div
                 key={charId}
-                // FIX (pedido do usuário: "ajeite o (i) para caber dentro do
-                // retângulo") - causa raiz achada medindo o layout ao vivo: o
-                // texto do botão "Visão completa das habilidades" (que não
-                // quebra linha, `whitespace-nowrap` vem do Button base) é mais
-                // largo que o espaço então disponível: com `justify-center`
-                // no botão, o conteúdo que não cabe vaza pros dois lados
-                // igualmente, e o ícone (i) - por ser o primeiro elemento -
-                // era o que escapava visivelmente pela borda esquerda. `w-96`
-                // (contra a largura variável de coluna do grid anterior, que
-                // podia ficar bem mais estreita) garante espaço de sobra pro
-                // texto mais longo de qualquer um dos 5 personagens.
-                className={`w-96 flex-shrink-0 bg-[#1E1A16] border-2 rounded-lg p-8 space-y-6 transition-all ${
+                className={`bg-[#1E1A16] border-2 rounded-lg p-8 space-y-6 transition-all ${
                   disabled
                     ? 'border-[#C59E4F]/20 opacity-50'
                     : 'border-[#C59E4F]/50 hover:border-[#C59E4F] hover:rune-glow'
@@ -369,12 +363,25 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
                 </div>
 
                 <div className="space-y-3">
+                  {/* FIX (pedido do usuário: "ajeite o (i) para caber dentro
+                      do retângulo") - causa raiz achada medindo o layout ao
+                      vivo: o texto "Visão completa das habilidades" (que não
+                      quebra linha por padrão, `whitespace-nowrap` vem do
+                      Button base) é mais largo que o espaço disponível numa
+                      coluna estreita do grid - com `justify-center`, o
+                      conteúdo que não cabe vaza pros dois lados igualmente, e
+                      o ícone (i), por ser o primeiro elemento, era o que
+                      escapava visivelmente pela borda esquerda.
+                      `whitespace-normal` deixa o texto quebrar pra uma 2ª
+                      linha em vez de vazar - `h-auto min-h-10 py-2` solta a
+                      altura fixa (que cortava a 2ª linha) sem forçar todo
+                      botão a crescer quando cabe numa linha só. */}
                   <Button
                     onClick={() => setDetailsOpenFor(charId)}
                     variant="outline"
-                    className="w-full border-[#8F6A30] text-[#BFB6A6] hover:bg-[#8F6A30]/10 h-10 text-[13px]"
+                    className="w-full border-[#8F6A30] text-[#BFB6A6] hover:bg-[#8F6A30]/10 h-auto min-h-10 py-2 whitespace-normal text-[13px]"
                   >
-                    <Info className="w-4 h-4 mr-2" />
+                    <Info className="w-4 h-4 mr-2 flex-shrink-0" />
                     Visão completa das habilidades
                   </Button>
 

@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { Crown, Heart as HeartIcon, PawPrint, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Drama } from 'lucide-react';
+import { Wand2, Skull, Heart as HeartIcon, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Drama } from 'lucide-react';
+import { AngelWingsIcon } from './AngelWingsIcon';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
@@ -352,14 +353,15 @@ export function PlayerZone({
   const spellInfo = getNumeralSpellInfo(character);
   const discardsThisTurn = playerState.discardsThisTurn;
 
+  // FIX (pedido do usuário: "mude o icone do mago pra algo que seja
+  // referente a um mago tipo um cajado ou sparkles" / "mude o icone da
+  // besta de novo pra ser algo mais ameaçador" / "mude o icone do anjo
+  // para uma aureola com asas") - ver mesma troca e motivo completo em
+  // CharacterSelection.tsx (`Wand2`, `Skull`, `AngelWingsIcon`).
   const characterIcons = {
-    mago: Crown,
-    // FIX (pedido do usuário: "troque o ícone da besta para ser algo
-    // semelhante a uma criatura ao invés de uma pessoa") - `User` era um
-    // ícone literal de pessoa; `PawPrint` (pegada) é consistente com o
-    // tema do personagem (força/fúria selvagem, ver characterThemes.ts).
-    besta: PawPrint,
-    anjo: HeartIcon,
+    mago: Wand2,
+    besta: Skull,
+    anjo: AngelWingsIcon,
     mosqueteiro: Crosshair,
     coringa: Drama,
   };
