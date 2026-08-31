@@ -2399,7 +2399,15 @@ function handleExecuteMagic(
     setField(targetKey, newTargetField);
     // 4. A carta antiga do slot alvo volta para a mão de quem era dona do slot
     //    (não necessariamente quem ativou a magia nem quem cedeu a carta nova).
-    if (oldCard) {
+    // FIX (checagem extensa por bugs - interação Piromante x Mago): uma
+    // carta-token de Bola de Fogo (`isFireToken`, ver cardUtils.ts) nunca
+    // existiu no baralho de 54 cartas - ela precisa DESAPARECER ao sair do
+    // campo (mesma regra que pushToDiscard já aplica em todo outro lugar),
+    // nunca ir pra mão de ninguém. Sem esta checagem, Substituição Arcana
+    // conseguia "resgatar" o token pra mão (e de lá, até jogá-lo de volta
+    // ao campo como se fosse uma carta de verdade) - o único ponto de saída
+    // de campo que não passava por pushToDiscard.
+    if (oldCard && !oldCard.isFireToken) {
       setHand(targetKey, [...handOf(targetKey), oldCard]);
     }
 
@@ -2789,7 +2797,12 @@ function handleExecuteMagic(
     const mainCard = playerState.field.find((slot) => slot.faceDownCard?.id === targetId)?.faceDownCard;
     const horizontalCard = playerState.field.flatMap((slot) => slot.horizontalCards).find((c) => c.id === targetId);
     const targetCard = mainCard ?? horizontalCard;
-    if (!targetCard) return state;
+    // FIX (checagem extensa por bugs - interação Piromante x Mosqueteiro):
+    // Tiro Certeiro foi desenhado pra reforçar uma carta numeral de verdade
+    // no combate - uma carta-token de Bola de Fogo (`isFireToken`) nunca
+    // deveria ser um alvo válido (cosmético, mas inconsistente com a
+    // identidade visual/temática do efeito).
+    if (!targetCard || targetCard.isFireToken) return state;
 
     const boostAmount = playerState.mosqueteiroDiscardsThisTurn + playerState.mosqueteiroDiscardsTurnMinus1;
     const { deck, discardPile } = pushToDiscard(state, [card]);
@@ -2974,6 +2987,42 @@ function handleExecuteMagic(
  * (ver handleResolvePendingReaction) - assim nenhuma lógica de nenhuma magia
  * precisa saber que o Modo Reações existe.
  */
+/**
+ * Verdadeiro se ativar `cardId` (do jogador `player`) AGORA resultaria num
+ * ANÚNCIO (Modo Reações) em vez de aplicação imediata - a MESMA checagem que
+ * `maybeDeferForReaction` usa internamente pra decidir isso, extraída aqui
+ * pra ser reaproveitada pela UI (GameBoard.tsx).
+ *
+ * FIX (checagem extensa por bugs - achado independente, não relacionado ao
+ * Piromante): a apresentação visual/sonora de UMA ativação de magia
+ * (`applyMagicEffectPresentation`) sempre disparava ANTES do dispatch,
+ * incondicionalmente - inclusive quando o Modo Reações estava ligado e a
+ * ativação na verdade seria só ANUNCIADA (efeito real represado em
+ * `pendingReaction`, sem aplicar nada ainda). Isso causava dois sintomas: (1)
+ * se o oponente reagia (negava), o burst já tinha tocado à toa, pra um
+ * efeito que nunca aconteceu; (2) se ninguém reagia a tempo, o burst tocava
+ * DE NOVO quando RESOLVE_PENDING_REACTION finalmente aplicava o efeito de
+ * verdade (ver o timer de 3s em GameBoard.tsx, que corretamente dispara a
+ * apresentação nesse momento - o bug era o disparo ANTECIPADO extra, não a
+ * apresentação em si). GameBoard.tsx agora chama esta função ANTES de
+ * disparar a apresentação: se ela retornar `true`, a apresentação é adiada
+ * pro mesmo caminho que já trata a resolução da reação (nega -> nenhum burst
+ * toca, correto; expira sem reação -> `triggerAiActionEffects` já dispara a
+ * apresentação exatamente uma vez).
+ */
+export function canMagicTriggerReactionAnnouncement(state: GameState, player: PlayerNumber, cardId: string): boolean {
+  if (!state.gameConfig.reactionsMode) return false;
+
+  const card = state[playerKeyOf(player)].hand.find((c) => c.id === cardId);
+  if (!card || (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K')) return false;
+
+  const opponent = opponentOf(player);
+  const opponentKey = playerKeyOf(opponent);
+  const opponentState = state[opponentKey];
+  const reactionsUsed = state.reactionsUsedThisPhase[opponent] ?? 0;
+  return reactionsUsed < state.gameConfig.reactionsLimit && opponentState.hand.some((c) => c.value === card.value);
+}
+
 function maybeDeferForReaction(
   state: GameState,
   originalAction: GameAction,
@@ -2982,17 +3031,11 @@ function maybeDeferForReaction(
   resultState: GameState
 ): GameState {
   if (resultState === state) return state; // a ativação seria rejeitada de qualquer forma - Reações não muda isso
-  if (!state.gameConfig.reactionsMode) return resultState;
+  if (!canMagicTriggerReactionAnnouncement(state, player, cardId)) return resultState;
 
   const card = state[playerKeyOf(player)].hand.find((c) => c.id === cardId);
-  if (!card || (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K')) return resultState; // nunca deveria acontecer - só magias passam por aqui
-
+  if (!card || (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K')) return resultState; // sempre verdadeiro aqui (já checado acima) - só pra estreitar o tipo de card.value
   const opponent = opponentOf(player);
-  const opponentKey = playerKeyOf(opponent);
-  const opponentState = state[opponentKey];
-  const reactionsUsed = state.reactionsUsedThisPhase[opponent] ?? 0;
-  const canOpponentReact = reactionsUsed < state.gameConfig.reactionsLimit && opponentState.hand.some((c) => c.value === card.value);
-  if (!canOpponentReact) return resultState; // ninguém pode reagir - aplica normalmente, sem anúncio nem pausa
 
   const playerKey = playerKeyOf(player);
   const playerState = state[playerKey];
@@ -3299,7 +3342,14 @@ function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumbe
   // específica dentro dele.
   if (targetSlotIndex === undefined || targetSlotIndex < 0 || targetSlotIndex > 2) return state;
   const slot = playerState.field[targetSlotIndex];
-  const candidateIds = [slot.faceDownCard?.id, ...slot.horizontalCards.map((c) => c.id)].filter((id): id is string => Boolean(id));
+  // FIX (checagem extensa por bugs - interação Piromante x Besta): exclui
+  // cartas-token de Bola de Fogo (`isFireToken`) dos alvos válidos - Fúria
+  // Selvagem foi desenhada pra dobrar uma carta numeral de verdade no
+  // combate, e um token nunca deveria ser um alvo "de verdade" (cosmético,
+  // mas inconsistente com a identidade visual/temática do efeito).
+  const candidateIds = [slot.faceDownCard, ...slot.horizontalCards]
+    .filter((c) => c && !c.isFireToken)
+    .map((c) => c!.id);
   if (!targetCardId || !candidateIds.includes(targetCardId)) return state; // precisa apontar pra uma carta que realmente está neste slot
 
   const log = appendLog(state, state.log, 'monster', `Jogador ${player} ativou no slot ${targetSlotIndex + 1} - carta selecionada será dobrada no combate`, { player });

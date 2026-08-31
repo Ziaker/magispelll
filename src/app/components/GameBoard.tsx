@@ -79,6 +79,7 @@ import {
   canFormOrReinforceTower,
   isCoringaRawTrapCard,
   getFireballCap,
+  canMagicTriggerReactionAnnouncement,
   type CharacterId,
   type GameAction,
   type MagicSelection,
@@ -1058,7 +1059,18 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           // equivalente dispararia, ANTES do dispatch (mesma ordem já usada
           // pelos handlers humanos: calcular alvo com o estado ATUAL, só
           // depois aplicar a mudança) - ver triggerAiActionEffects abaixo.
-          triggerAiActionEffects(decision.action);
+          // FIX (checagem extensa por bugs - burst fantasma/duplicado no
+          // Modo Reações): mesma checagem usada nos handlers humanos (ver
+          // canMagicTriggerReactionAnnouncement em gameEngine.ts) - se esta
+          // ação da IA for só um ANÚNCIO, a apresentação NÃO toca aqui, só
+          // depois via o timer de 3s (que já chama triggerAiActionEffects
+          // de novo quando a reação se resolve).
+          const isAnnouncement =
+            (decision.action.type === 'EXECUTE_MAGIC' || decision.action.type === 'ACTIVATE_SIMPLE_MAGIC') &&
+            canMagicTriggerReactionAnnouncement(gameState, decision.action.player, decision.action.cardId);
+          if (!isAnnouncement) {
+            triggerAiActionEffects(decision.action);
+          }
           dispatchMagicAction(decision.action);
         } else {
           dispatch({ type: 'TOGGLE_READY', player: ai });
@@ -1299,9 +1311,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // NENHUM efeito visual (ver comentário de computeMagicEffectTargets
       // abaixo) - sem alvo único pra destacar, usa o burst genérico no
       // próprio jogador (ver flashSelfEffect acima).
-      flashSelfEffect(playerNumber, character, getMagicCardInfo(character, magicType).name);
+      // FIX (checagem extensa por bugs - burst fantasma/duplicado no Modo
+      // Reações): ver canMagicTriggerReactionAnnouncement em gameEngine.ts -
+      // se esta ativação for na verdade só um ANÚNCIO (efeito represado em
+      // pendingReaction), a apresentação some daqui e só toca depois, no
+      // mesmo caminho que já trata a resolução da reação.
+      if (!canMagicTriggerReactionAnnouncement(gameState, playerNumber, cardId)) {
+        flashSelfEffect(playerNumber, character, getMagicCardInfo(character, magicType).name);
+        soundManager.play(magicSoundFor(character, magicType));
+      }
       dispatch({ type: 'ACTIVATE_SIMPLE_MAGIC', player: playerNumber, cardId });
-      soundManager.play(magicSoundFor(character, magicType));
       return;
     }
 
@@ -1563,7 +1582,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     if (!pendingMagic) return;
     const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch } = pendingMagic;
     const selection: MagicSelection = { selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch };
-    applyMagicEffectPresentation(pendingMagic);
+    // FIX (checagem extensa por bugs - burst fantasma/duplicado no Modo
+    // Reações): ver canMagicTriggerReactionAnnouncement em gameEngine.ts -
+    // se esta ativação for na verdade só um ANÚNCIO (efeito represado em
+    // pendingReaction, oponente ainda pode negar), a apresentação NÃO toca
+    // aqui - só depois, no mesmo caminho que já trata a resolução da reação
+    // (negada -> nenhum burst, correto; expira sem reação -> o timer de 3s
+    // em GameBoard.tsx já dispara a apresentação exatamente uma vez).
+    if (!canMagicTriggerReactionAnnouncement(gameState, playerNumber, cardId)) {
+      applyMagicEffectPresentation(pendingMagic);
+    }
     dispatchMagicAction({ type: 'EXECUTE_MAGIC', player: playerNumber, cardId, character, magicType: type, selection });
     setPendingMagic(null);
   };
@@ -1672,6 +1700,26 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           character,
           getMonsterEffect(character).name
         );
+        dispatch({ type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: playerNumber });
+        soundManager.play(monsterSoundFor(character));
+        setPendingMonsterTarget(null);
+        return;
+      }
+
+      // FIX (bug real relatado pelo usuário: "a carta monstro do piromante
+      // nunca ativa quando clica, ela pede pra clicar no campo mas quando
+      // clica nada acontece") - Brasa (Piromante) TAMBÉM ativa direto, sem
+      // escolher slot nenhum (só soma 5 na própria Bola de Fogo - ver
+      // handleActivateMonsterEffectSimple/gameEngine.ts) - mas nunca tinha
+      // sido adicionada aqui, então o clique caía no fluxo padrão
+      // (pendingMonsterTarget), que só sabe tratar Mago/Besta em
+      // handleFieldSlotClick - um clique no campo depois disso não batia em
+      // nenhum `if` ali e só limpava o estado pendente em silêncio, sem
+      // nunca despachar a ativação. Mesmo padrão do Anjo acima: sem alvo de
+      // campo pra destacar, usa flashSelfEffect (mesmo burst "algo
+      // aconteceu com este jogador" que J/K do Anjo já usam).
+      if (character === 'piromante') {
+        flashSelfEffect(playerNumber, character, getMonsterEffect(character).name);
         dispatch({ type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: playerNumber });
         soundManager.play(monsterSoundFor(character));
         setPendingMonsterTarget(null);
@@ -1998,15 +2046,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         secondsLeft={reactionCountdown}
       />
       <ReactionNegatedBurst spec={reactionNegatedBurst} />
-      {/* Mosqueteiro (pedido do usuário: "efeitos visuais de balas sendo
-          disparadas nas cartas que as magias do mosqueteiro utiliza") - ver
-          applyMagicEffectPresentation acima. */}
-      <BulletImpactBurst specs={bulletImpacts} />
-      {/* Piromante (pedido explícito do usuário: "projéteis visualmente indo
-          em direção aos seus alvos") - ver applyMagicEffectPresentation acima. */}
-      {fireballProjectiles.map((spec) => (
-        <FireballProjectile key={spec.key} spec={spec} />
-      ))}
       <PhaseTransition phase={gameState.phase} show={showPhaseTransition} spotlight={gameState.spotlight} loneTower={Boolean(gameState.combatLoneTower)} />
       <CombatResult
         show={showCombatResult}
@@ -3486,11 +3525,24 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                       if (character === 'mosqueteiro' && type === 'Q') return !selectedCards || selectedCards.length === 0;
                       if (character === 'mosqueteiro' && type === 'K') return !selectedCards || selectedCards.length === 0;
                       if (character === 'piromante') {
-                        if (pendingMagic.fireballLaunch === undefined) return true; // ainda não escolheu entre efeito próprio e lançar
                         if (pendingMagic.fireballLaunch) {
                           const spreadArmed = gameState[playerKeyOf(pendingMagic.playerNumber)].piromanteSpreadArmed;
                           return !spreadArmed && selectedTargetSlot === undefined;
                         }
+                        // FIX (bug real relatado pelo usuário: "não dá pra
+                        // clicar em confirmar mesmo tendo 2 três na mão") -
+                        // `fireballLaunch` pode estar `false` (clicou em
+                        // "efeito próprio" explicitamente) OU ainda
+                        // `undefined` (nunca clicou em nenhum dos dois
+                        // botões) - os dois precisam se comportar IGUAL
+                        // aqui, porque o botão "efeito próprio" já nasce
+                        // visualmente destacado por padrão (ver o estilo
+                        // `!isLaunch` dele, mais abaixo) mesmo sem clique
+                        // nenhum. Exigir um clique EXPLÍCITO só pra "confirmar
+                        // a opção que já está selecionada na tela" travava o
+                        // Confirmar mesmo com cartas <5 elegíveis visíveis na
+                        // mão - o usuário via a Combustão "escolhida" mas não
+                        // conseguia avançar.
                         if (type === 'J') return false; // Combustão própria não exige seleção (junta tudo automaticamente)
                         return !selectedCards || selectedCards.length === 0;
                       }
@@ -3837,6 +3889,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         de tamanho (senão a carta arrastada ficaria ~18% maior que o resto
         do tabuleiro, que continua encolhido). */}
     <CardDragLayer />
+    {/* FIX ("projéteis não aparecem disparando"): mesma causa raiz e mesma
+        correção do CardDragLayer.tsx acima - estes dois viviam DENTRO da
+        árvore com `zoom: 0.85`, então seus `position: fixed` calculados a
+        partir de `getBoundingClientRect()` (px de tela REAL) eram
+        reinterpretados nessa escala reduzida e desenhados bem fora do lugar
+        (perto do canto superior esquerdo da tela, não perto da origem/alvo
+        de verdade) - o projétil TÉCNICAMENTE disparava (o dispatch/som/dano
+        aconteciam certinho) mas o efeito visual em si nunca aparecia no
+        lugar certo. Movidos pra FORA da árvore zoomada, como irmãos dela. */}
+    <BulletImpactBurst specs={bulletImpacts} />
+    {fireballProjectiles.map((spec) => (
+      <FireballProjectile key={spec.key} spec={spec} />
+    ))}
     </>
   );
 }

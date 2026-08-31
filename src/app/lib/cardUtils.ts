@@ -303,6 +303,13 @@ export function isValidAceTransformTarget(card: Card): boolean {
   if (card.value === 'A' && card.transformedValue === undefined) return false;
   if (card.value === 'J' || card.value === 'Q' || card.value === 'K') return false;
   if (card.isMonster) return false;
+  // FIX (checagem extensa por bugs - interação Piromante): uma carta-token
+  // de Bola de Fogo (`isFireToken`, ver pushToDiscard em gameEngine.ts) tem
+  // `transformedValue` igual ao valor RESTANTE do slot queimado (fora do
+  // intervalo normal 2-10 depois de sucessivos ataques) - sem esta exclusão,
+  // um Ás podia copiar esse valor e virar uma carta "zumbi" permanentemente
+  // injogável (nenhum slot/combate reconhece esse número).
+  if (card.isFireToken) return false;
   return true;
 }
 
