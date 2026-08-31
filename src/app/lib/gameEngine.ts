@@ -1547,9 +1547,27 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     // FIX (pedido do usuário, rodada seguinte): `horizontalStackBonus` agora
     // é cumulativo (cada ativação do Rei do Anjo soma +1, sem teto) - ver
     // comentário completo em PlayerState.
+    //
+    // FIX (pedido do usuário: "é pra vc conseguir colocar um valete mesmo
+    // já tendo colocado um horizontal" - o comportamento ORIGINALMENTE
+    // pedido, que eu tinha entendido ao contrário): o Valete armadilha CRU
+    // do Coringa (`isCoringaTrapCard`) NÃO é um reforço horizontal de
+    // verdade - é um disfarce (a carta só vale 1 fixo em combate, ver
+    // applyCoringaTrapCombatValue, nunca soma ao total do slot como um
+    // reforço de qualquer outro personagem soma) - por isso ele fica de
+    // fora deste limite por completo, tanto na CONTAGEM (um Valete já
+    // posicionado não consome a cota de reforço "de verdade" de outra
+    // carta) quanto na CHECAGEM (posicionar outro Valete nunca esbarra
+    // nela, não importa quantos horizontais - de qualquer tipo - o jogador
+    // já tenha). Uma carta já TRANSFORMADA em numeral pela Mão de Ferro
+    // (`isCoringaTrapCard` já é `false` pra ela, ver início da função) volta
+    // a valer como reforço de verdade e ENTRA nesta conta normalmente.
     const maxHorizontal = 1 + playerState.horizontalStackBonus;
-    const horizontalPlacedThisTurn = newField.reduce((n, s) => n + s.horizontalCards.length, 0);
-    if (horizontalPlacedThisTurn >= maxHorizontal) {
+    const horizontalPlacedThisTurn = newField.reduce(
+      (n, s) => n + s.horizontalCards.filter((c) => !isCoringaRawTrapCard(state, player, c)).length,
+      0
+    );
+    if (!isCoringaTrapCard && horizontalPlacedThisTurn >= maxHorizontal) {
       return { ...state, log: appendLog(state, log, 'warning', `Limite de cartas horizontais deste turno já foi atingido!`) };
     }
     // FIX: cartas já reveladas (por alguma magia, ou um Ás transformado -

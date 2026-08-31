@@ -3252,6 +3252,95 @@ function makeReactionsBaseState(config: GameConfig): GameState {
   );
 })();
 
+// FIX (pedido do usuário: "é pra vc conseguir colocar um valete mesmo já
+// tendo colocado um horizontal"): o Valete armadilha CRU do Coringa não é
+// um reforço horizontal de verdade (vale só 1 fixo em combate, nunca soma
+// ao total do slot como um reforço normal) - por isso fica de fora do
+// limite de "1 carta horizontal por turno" por completo: pode ser
+// posicionado mesmo com outros horizontais (reais ou outros Valetes) já em
+// campo, e um Valete já posicionado não consome a cota de reforço "de
+// verdade" de outra carta.
+(function testCoringaTrapValeteIgnoresHorizontalLimit() {
+  let state = createInitialState('coringa', 'mago', DEFAULT_GAME_CONFIG);
+  const main1 = makeCard('coringa-valete-limit-main-1', '5');
+  const main2 = makeCard('coringa-valete-limit-main-2', '6');
+  const realHorizontal = makeCard('coringa-valete-limit-real-horiz', '3');
+  const jCard = makeCard('coringa-valete-limit-j', 'J');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [realHorizontal, jCard],
+      field: [
+        { faceDownCard: main1, revealed: false, horizontalCards: [] },
+        { faceDownCard: main2, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: realHorizontal.id, slotIndex: 0, asHorizontal: true });
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: jCard.id, slotIndex: 1, asHorizontal: true });
+  assert(
+    state.player1.field[1].horizontalCards.some((c) => c.id === jCard.id),
+    'FIX: o Valete armadilha do Coringa pode ser posicionado como horizontal mesmo com outra carta horizontal já colocada no turno'
+  );
+})();
+
+(function testCoringaTrapValeteDoesNotConsumeRealHorizontalBudget() {
+  let state = createInitialState('coringa', 'mago', DEFAULT_GAME_CONFIG);
+  const main1 = makeCard('coringa-valete-budget-main-1', '5');
+  const main2 = makeCard('coringa-valete-budget-main-2', '6');
+  const jCard = makeCard('coringa-valete-budget-j', 'J');
+  const realHorizontal = makeCard('coringa-valete-budget-real-horiz', '3');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [jCard, realHorizontal],
+      field: [
+        { faceDownCard: main1, revealed: false, horizontalCards: [] },
+        { faceDownCard: main2, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: jCard.id, slotIndex: 0, asHorizontal: true });
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: realHorizontal.id, slotIndex: 1, asHorizontal: true });
+  assert(
+    state.player1.field[1].horizontalCards.some((c) => c.id === realHorizontal.id),
+    'FIX: um Valete armadilha já posicionado não consome a cota de reforço horizontal "de verdade" do turno'
+  );
+})();
+
+(function testCoringaSecondRealHorizontalStillBlocked() {
+  let state = createInitialState('coringa', 'mago', DEFAULT_GAME_CONFIG);
+  const main1 = makeCard('coringa-real-limit-main-1', '5');
+  const main2 = makeCard('coringa-real-limit-main-2', '6');
+  const horiz1 = makeCard('coringa-real-limit-horiz-1', '3');
+  const horiz2 = makeCard('coringa-real-limit-horiz-2', '4');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [horiz1, horiz2],
+      field: [
+        { faceDownCard: main1, revealed: false, horizontalCards: [] },
+        { faceDownCard: main2, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: horiz1.id, slotIndex: 0, asHorizontal: true });
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: horiz2.id, slotIndex: 1, asHorizontal: true });
+  assert(
+    !state.player1.field[1].horizontalCards.some((c) => c.id === horiz2.id),
+    'Sem exceção do Coringa envolvida, o limite normal de 1 carta horizontal "de verdade" por turno continua bloqueando a 2ª'
+  );
+})();
+
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passaram, ${failed} falharam.`);
 if (failed > 0) process.exit(1);
