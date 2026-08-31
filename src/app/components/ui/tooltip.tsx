@@ -60,6 +60,18 @@ function TooltipContent({
       <TooltipPrimitive.Content
         data-slot="tooltip-content"
         sideOffset={sideOffset}
+        // FIX (pedido do usuário: "corrija o tooltip de visão completa do
+        // coringa - o texto fica fora do retângulo") - achado medindo ao
+        // vivo: o tooltip da Carta Coringa (Monstro), o mais longo dos 5 da
+        // sidebar "Magias de CORINGA" E o mais à direita (último badge da
+        // fileira), media a apenas ~10px da borda direita real da tela -
+        // sem NENHUM `collisionPadding` (o padrão do Radix é 0px), o
+        // desvio de colisão só evita cruzar a borda EXATA, sem folga
+        // nenhuma, então em janelas mais estreitas (ou a uma escala de
+        // DPI diferente da testada aqui) ele realmente vaza pra fora.
+        // 12px de folga em todos os lados resolve pra este e qualquer
+        // outro tooltip do jogo perto de uma borda.
+        collisionPadding={12}
         className={cn(
           "bg-primary text-primary-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance",
           className,

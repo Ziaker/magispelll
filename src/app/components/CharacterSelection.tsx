@@ -1,7 +1,7 @@
-import { useState, type ComponentType } from 'react';
+import { useState, type ComponentType, type CSSProperties } from 'react';
 import { Button } from './ui/button';
-import { ArrowLeft, Wand2, Skull, Bot, Dices, Info, Crosshair, Drama } from 'lucide-react';
-import { AngelWingsIcon } from './AngelWingsIcon';
+import { ArrowLeft, Wand2, Bot, Dices, Info, Crosshair } from 'lucide-react';
+import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { CharacterDivider } from './CharacterDivider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { ScrollArea } from './ui/scroll-area';
@@ -32,22 +32,23 @@ interface CharacterSelectionProps {
   aiPlayers?: (1 | 2)[];
 }
 
-// FIX (pedido do usuário: "mude o icone do mago pra algo que seja referente
-// a um mago tipo um cajado ou sparkles" / "mude o icone da besta de novo pra
-// ser algo mais ameaçador" / "mude o icone do anjo para uma aureola com
-// asas") - `Wand2` (cajado com brilho), `Skull` (caveira - mais agressivo
-// que a pegada de pata usada antes) e `AngelWingsIcon` (SVG customizado, ver
-// esse arquivo - lucide-react não tem nenhum ícone de anjo/auréola pronto).
-// Tipo relaxado pra `ComponentType<{ className?: string }>` (em vez de
-// `typeof Crown`, específico do lucide) porque `AngelWingsIcon` não é um
-// ícone lucide - só precisa aceitar `className`, o único prop que este mapa
-// realmente usa em qualquer um dos ícones (ver renderização abaixo).
+// FIX (pedido do usuário: "use esses ícones" - imagem de referência com
+// halo, rosto de fera com presas e chapéu de bobo da corte, todos em
+// estilo sólido/preenchido) - `Wand2` (cajado com brilho, lucide) continua
+// pro Mago; Besta/Anjo/Coringa agora usam os 3 ícones customizados de
+// CharacterGlyphIcons.tsx (lucide-react não tem nenhum equivalente pronto,
+// e mesmo se tivesse seria no estilo de contorno, não sólido como a
+// referência). Tipo relaxado pra `ComponentType<{ className?: string }>`
+// (em vez de `typeof Crown`, específico do lucide) porque os 3 ícones
+// customizados não são ícones lucide - só precisam aceitar `className`, o
+// único prop que este mapa realmente usa em qualquer um deles (ver
+// renderização abaixo).
 const CHARACTER_ICONS: Record<CharacterId, ComponentType<{ className?: string }>> = {
   mago: Wand2,
-  besta: Skull,
-  anjo: AngelWingsIcon,
+  besta: BeastFaceIcon,
+  anjo: AngelHaloIcon,
   mosqueteiro: Crosshair,
-  coringa: Drama,
+  coringa: JesterHatIcon,
 };
 
 /**
@@ -319,11 +320,23 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
             return (
               <div
                 key={charId}
-                className={`bg-[#1E1A16] border-2 rounded-lg p-8 space-y-6 transition-all ${
-                  disabled
-                    ? 'border-[#C59E4F]/20 opacity-50'
-                    : 'border-[#C59E4F]/50 hover:border-[#C59E4F] hover:rune-glow'
+                // FIX (pedido do usuário: "faça a borda de cada personagem
+                // na seleção remeter a suas cores") - trocado o dourado
+                // fixo pela cor de tema de cada personagem (ver
+                // `.character-card`/`.character-card:hover` em
+                // globals.css) - `theme.glow` já é uma string rgba pronta
+                // (definida por personagem em characterThemes.ts), então o
+                // brilho no hover também fica na cor certa, não só a borda.
+                className={`bg-[#1E1A16] border-2 rounded-lg p-8 space-y-6 transition-all character-card ${
+                  disabled ? 'opacity-50' : ''
                 }`}
+                style={
+                  {
+                    '--card-border-dim': disabled ? `${theme.primary}30` : `${theme.primary}60`,
+                    '--card-border-hover': theme.primary,
+                    '--card-glow': theme.glow,
+                  } as CSSProperties
+                }
               >
                 <div className="text-center space-y-3">
                   <div className="flex justify-center">

@@ -1,7 +1,7 @@
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { ArrowLeft, Wand2, Skull, Crosshair, Drama } from 'lucide-react';
-import { AngelWingsIcon } from './AngelWingsIcon';
+import { ArrowLeft, Wand2, Crosshair } from 'lucide-react';
+import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { getCharacterIconBackground } from '../lib/characterThemes';
 
 interface CharactersListProps {
@@ -26,14 +26,14 @@ export function CharactersList({ onBack, onSelectCharacter }: CharactersListProp
     {
       id: 'besta' as const,
       name: 'BESTA',
-      icon: Skull,
+      icon: BeastFaceIcon,
       color: '#E24A4A',
       description: 'Guerreiro agressivo que recicla recursos e pressiona constantemente o oponente através de reciclagem do descarte e roubos devastadores.',
     },
     {
       id: 'anjo' as const,
       name: 'ANJO',
-      icon: AngelWingsIcon,
+      icon: AngelHaloIcon,
       color: '#E2B84A',
       description: 'Estrategista de longo prazo que acumula vantagens permanentes através de crescimento sustentado e proteção de recursos.',
     },
@@ -47,7 +47,7 @@ export function CharactersList({ onBack, onSelectCharacter }: CharactersListProp
     {
       id: 'coringa' as const,
       name: 'CORINGA',
-      icon: Drama,
+      icon: JesterHatIcon,
       color: '#3B4CCB',
       description: 'Trapaceiro que planta armadilhas viradas para baixo no próprio campo, explodindo em fumaça, empates forçados e roubo de valor quando o oponente menos espera.',
     },

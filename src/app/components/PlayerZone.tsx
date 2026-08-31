@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { Wand2, Skull, Heart as HeartIcon, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Drama } from 'lucide-react';
-import { AngelWingsIcon } from './AngelWingsIcon';
+import { Wand2, Heart as HeartIcon, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair } from 'lucide-react';
+import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
@@ -9,7 +9,7 @@ import { PlayingCard } from './PlayingCard';
 import { CharacterMagicBurst } from './CharacterMagicBurst';
 import { MagicCalloutLabel } from './MagicCalloutLabel';
 import { HandCardView } from './HandCardView';
-import { getCharacterTheme, getCharacterIconBackground } from '../lib/characterThemes';
+import { getCharacterTheme, getCharacterIconBackground, getCharacterPanelBackground } from '../lib/characterThemes';
 import type { PlayerState, CharacterId, Phase, PendingReaction } from '../lib/gameEngine';
 import { getEffectiveDiscardLimit, getEffectiveDrawLimit } from '../lib/gameEngine';
 import { useEffect, useRef, useState } from 'react';
@@ -353,17 +353,14 @@ export function PlayerZone({
   const spellInfo = getNumeralSpellInfo(character);
   const discardsThisTurn = playerState.discardsThisTurn;
 
-  // FIX (pedido do usuário: "mude o icone do mago pra algo que seja
-  // referente a um mago tipo um cajado ou sparkles" / "mude o icone da
-  // besta de novo pra ser algo mais ameaçador" / "mude o icone do anjo
-  // para uma aureola com asas") - ver mesma troca e motivo completo em
-  // CharacterSelection.tsx (`Wand2`, `Skull`, `AngelWingsIcon`).
+  // FIX (pedido do usuário: "use esses ícones") - ver mesma troca e motivo
+  // completo em CharacterSelection.tsx.
   const characterIcons = {
     mago: Wand2,
-    besta: Skull,
-    anjo: AngelWingsIcon,
+    besta: BeastFaceIcon,
+    anjo: AngelHaloIcon,
     mosqueteiro: Crosshair,
-    coringa: Drama,
+    coringa: JesterHatIcon,
   };
 
   const Icon = characterIcons[character];
@@ -506,7 +503,15 @@ export function PlayerZone({
     <div
       className={`border-2 rounded-lg p-3 ${isVictoryGlow ? 'animate-victory-glow' : ''}`}
       style={{
-        backgroundColor: `${theme.dark}20`,
+        // FIX (pedido do usuário, 2ª vez: "no seu fundo ainda é só azul...
+        // ambas azul e vermelho estáticos, sem degradê") - este É o "fundo"
+        // que o usuário via só azul (o painel inteiro da zona do jogador em
+        // campo) - trocado de `backgroundColor: theme.dark` (só 1 cor) pra
+        // `background: getCharacterPanelBackground(...)` (corte reto 50/50
+        // entre `dark` e `darkAccent`, ver characterThemes.ts). Pros outros
+        // 4 personagens isso não muda nada visualmente (`darkAccent` ===
+        // `dark` pra eles) - só o Coringa realmente fica dividido.
+        background: getCharacterPanelBackground(character, '20'),
         borderColor: `${theme.primary}50`,
         '--glow-color': theme.primary,
       } as CSSProperties}

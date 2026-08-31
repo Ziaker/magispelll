@@ -47,6 +47,23 @@ export interface CharacterTheme {
   dark: string;
   glow: string;
   border: string;
+  /**
+   * FIX (pedido do usuário, 2ª vez: "no seu fundo ainda é só azul... coloque
+   * ambas azul e vermelho estáticos, sem degradê") - versão bem escura de
+   * `accent` (o mesmo papel que `dark` já tem pra `primary`), usada só pelo
+   * fundo do painel do jogador em campo (ver getCharacterPanelBackground
+   * abaixo) - uma divisão NÍTIDA de 50/50 entre `dark` e `darkAccent`
+   * (`linear-gradient` com os dois stops NO MESMO PONTO - 50% e 50% - não
+   * produz nenhum degradê/mistura entre eles, só um corte reto de uma cor
+   * pra outra) é o que finalmente torna o vermelho do Coringa visível no
+   * fundo da própria zona de jogo, não só no selo do ícone (ver
+   * getCharacterIconBackground, que já usava as duas cores desde antes,
+   * mas só ali). Pros outros 4 personagens, `darkAccent` é idêntico a
+   * `dark` (mesmo motivo do `accent` deles ser só um tom mais claro da
+   * própria `primary` - a divisão fica imperceptível, sem precisar de
+   * nenhum `if` especial só pro Coringa).
+   */
+  darkAccent: string;
 }
 
 /**
@@ -84,6 +101,7 @@ export const characterThemes: Record<Character, CharacterTheme> = {
     dark: '#1A3A5C',         // Azul muito escuro
     glow: 'rgba(74, 144, 226, 0.3)', // Brilho azul translúcido
     border: '#4A90E2',
+    darkAccent: '#1A3A5C', // Igual a `dark` (accent é só um tom claro da própria primary)
   },
   
   // BESTA: Tons de vermelho (força, agressão, fúria)
@@ -96,6 +114,7 @@ export const characterThemes: Record<Character, CharacterTheme> = {
     dark: '#5C1A1A',         // Vermelho muito escuro
     glow: 'rgba(226, 74, 74, 0.3)', // Brilho vermelho translúcido
     border: '#E24A4A',
+    darkAccent: '#5C1A1A', // Igual a `dark`
   },
   
   // ANJO: Tons de dourado/amarelo (luz divina, proteção, crescimento)
@@ -108,6 +127,7 @@ export const characterThemes: Record<Character, CharacterTheme> = {
     dark: '#5C4A1A',         // Dourado muito escuro
     glow: 'rgba(226, 184, 74, 0.3)', // Brilho dourado translúcido
     border: '#E2B84A',
+    darkAccent: '#5C4A1A', // Igual a `dark`
   },
 
   // MOSQUETEIRO: Tons de cinza/aço (armas, metal, pólvora - pedido do usuário)
@@ -120,6 +140,7 @@ export const characterThemes: Record<Character, CharacterTheme> = {
     dark: '#26282C',         // Cinza-ferro muito escuro (quase preto)
     glow: 'rgba(140, 145, 153, 0.3)', // Brilho metálico translúcido
     border: '#8C9199',
+    darkAccent: '#26282C', // Igual a `dark`
   },
 
   // CORINGA: pedido do usuário ("cor: azul e vermelho") - DUAS cores, não
@@ -136,8 +157,28 @@ export const characterThemes: Record<Character, CharacterTheme> = {
     dark: '#1A1F5C',         // Azul quase preto
     glow: 'rgba(59, 76, 203, 0.3)', // Brilho azul translúcido
     border: '#3B4CCB',
+    darkAccent: '#5C1024', // Vermelho bem escuro (mesmo "peso" visual do azul `dark` acima) - a 2ª metade do fundo duotone, ver getCharacterPanelBackground
   },
 };
+
+/**
+ * FIX (pedido do usuário, 2ª vez: "no seu fundo ainda é só azul... coloque
+ * ambas azul e vermelho estáticos, sem degradê, se não é capaz deixe
+ * verde") - fundo do painel do jogador em campo (PlayerZone.tsx), com um
+ * corte NÍTIDO 50/50 entre `dark` e `darkAccent` em vez de misturar as duas
+ * cores - os dois "color stops" do `linear-gradient` ficam no MESMO ponto
+ * (50%), o que produz uma transição instantânea (sem nenhum pixel de
+ * blend/degradê entre elas), diferente de getCharacterIconBackground
+ * (stops em 40%/100%, com blend de propósito pro selo pequeno do ícone).
+ * `alphaHex` é o mesmo sufixo hex-alpha (`"20"`, `"40"` etc.) já usado em
+ * todo o resto do arquivo pra opacidade (`${theme.dark}20`) - aplicado nos
+ * dois stops igualmente, então a opacidade do fundo inteiro continua a
+ * mesma de antes, só a cor é que passa a ser as DUAS de verdade.
+ */
+export function getCharacterPanelBackground(character: Character, alphaHex: string): string {
+  const theme = characterThemes[character];
+  return `linear-gradient(135deg, ${theme.dark}${alphaHex} 50%, ${theme.darkAccent}${alphaHex} 50%)`;
+}
 
 /**
  * Retorna o tema de cores de um personagem

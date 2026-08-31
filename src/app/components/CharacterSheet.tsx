@@ -1,7 +1,7 @@
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { ArrowLeft, Wand2, Skull, Crosshair, Drama } from 'lucide-react';
-import { AngelWingsIcon } from './AngelWingsIcon';
+import { ArrowLeft, Wand2, Crosshair } from 'lucide-react';
+import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { CharacterDivider } from './CharacterDivider';
 import { ScrollArea } from './ui/scroll-area';
 import { getCharacterIconBackground } from '../lib/characterThemes';
@@ -70,7 +70,7 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
     },
     besta: {
       name: 'BESTA',
-      icon: Skull,
+      icon: BeastFaceIcon,
       color: '#E24A4A',
       profile: 'Guerreiro agressivo que recicla recursos e pressiona constantemente. A Besta vence através de reciclagem do descarte e roubos devastadores.',
       spells: [
@@ -131,7 +131,7 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
     },
     anjo: {
       name: 'ANJO',
-      icon: AngelWingsIcon,
+      icon: AngelHaloIcon,
       color: '#E2B84A',
       profile: 'Estrategista de longo prazo que acumula vantagens permanentes. O Anjo vence através de crescimento sustentado e proteção de recursos.',
       spells: [
@@ -237,7 +237,7 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
     },
     coringa: {
       name: 'CORINGA',
-      icon: Drama,
+      icon: JesterHatIcon,
       color: '#3B4CCB',
       profile: 'Trapaceiro que planta armadilhas no próprio campo. As cartas de magia do Coringa não ativam efeito nenhum na mão - elas são posicionadas viradas para baixo e só revelam sua verdadeira natureza quando reveladas, seja por um golpe do oponente na Estratégia ou na hora do Combate.',
       spells: [

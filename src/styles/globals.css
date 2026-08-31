@@ -459,6 +459,24 @@ html {
   box-shadow: 0 0 20px rgba(197, 158, 79, 0.3), 0 0 40px rgba(197, 158, 79, 0.1);
 }
 
+/* FIX (pedido do usuário: "faça a borda de cada personagem na seleção
+   remeter a suas cores") - antes CharacterSelection.tsx usava a mesma
+   borda dourada fixa (`#C59E4F`) pros 5 personagens, igual ao resto da
+   moldura decorativa da tela. `--card-border-dim`/`--card-border-hover`/
+   `--card-glow` são definidos por instância (inline, um por personagem -
+   ver CharacterSelection.tsx) porque cores arbitrárias/dinâmicas dentro de
+   uma classNamestring não são reconhecidas pelo scanner estático do
+   Tailwind (só funciona com classes literais) - variáveis CSS não têm essa
+   limitação. */
+.character-card {
+  border-color: var(--card-border-dim);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.character-card:hover {
+  border-color: var(--card-border-hover);
+  box-shadow: 0 0 20px var(--card-glow);
+}
+
 /* FIX (pedido do usuário: "na seleção de personagem... mantenha horizontal
    com uma barra de rolagem") - barra de rolagem temática (dourado sobre
    fundo escuro), pro lugar da barra cinza padrão do navegador destoar menos
