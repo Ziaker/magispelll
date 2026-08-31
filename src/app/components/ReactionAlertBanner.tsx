@@ -10,8 +10,8 @@ interface ReactionAlertBannerProps {
   casterCharacter: CharacterId | null;
   /** Valete/Rainha/Rei anunciado - usado só pra buscar nome/descrição em magicCards.ts (ver getMagicCardInfo abaixo). */
   magicType: MagicCardType | null;
-  /** Quem pode reagir agora. */
-  reactingPlayer: 1 | 2 | null;
+  /** Personagem de quem pode reagir agora. */
+  reactingCharacter: CharacterId | null;
   /** Contagem cosmética (3, 2, 1) - a resolução de verdade é um timer único de 3000ms em GameBoard.tsx, independente deste número só decorativo. */
   secondsLeft: number;
 }
@@ -38,9 +38,13 @@ interface ReactionAlertBannerProps {
  * magicCards.ts (mesma fonte usada em todo o resto da UI, nunca desatualiza
  * em relação às regras reais) a partir de `casterCharacter`+`magicType`.
  */
-export function ReactionAlertBanner({ show, casterCharacter, magicType, reactingPlayer, secondsLeft }: ReactionAlertBannerProps) {
+export function ReactionAlertBanner({ show, casterCharacter, magicType, reactingCharacter, secondsLeft }: ReactionAlertBannerProps) {
   const theme = getCharacterTheme(casterCharacter ?? 'mago');
   const magicInfo = casterCharacter && magicType ? getMagicCardInfo(casterCharacter, magicType) : null;
+  // FIX (pedido do usuário: "ao invés de falar jogador 1 e jogador 2,
+  // troque para os respectivos nomes dos personagens") - "Jogador N pode
+  // reagir" virou o nome do personagem de quem pode reagir de verdade.
+  const reactingName = reactingCharacter ? getCharacterTheme(reactingCharacter).name : '';
 
   return (
     <AnimatePresence>
@@ -82,7 +86,7 @@ export function ReactionAlertBanner({ show, casterCharacter, magicType, reacting
           >
             <AlertTriangle className="w-7 h-7 flex-shrink-0" style={{ color: theme.primary }} />
             <p className="text-[#EFE7D6] text-[22px] font-bold whitespace-nowrap">
-              Jogador {reactingPlayer} pode <span style={{ color: theme.primary }}>REAGIR</span>!
+              {reactingName} pode <span style={{ color: theme.primary }}>REAGIR</span>!
             </p>
           </motion.div>
 

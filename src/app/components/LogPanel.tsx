@@ -73,13 +73,22 @@ export function LogPanel({ log, player1Character, player2Character, screenReader
     setManualTurnOverrides((prev) => new Map(prev).set(turn, !currentlyExpanded));
   };
 
-  // FIX: destaca "Jogador N" IN LOCO (onde quer que apareça na frase), em vez
-  // de remover o trecho e prefixar de volta - várias mensagens mencionam o
-  // jogador no MEIO da frase (ex.: "Cartas de Jogador 2 retornaram para a
-  // mão"), então mover pra frente quebraria a gramática da mensagem.
+  // FIX: destaca o NOME DO PERSONAGEM IN LOCO (onde quer que apareça na
+  // frase), em vez de remover o trecho e prefixar de volta - várias
+  // mensagens mencionam o jogador no MEIO da frase (ex.: "Cartas de MAGO
+  // retornaram para a mão"), então mover pra frente quebraria a gramática
+  // da mensagem.
+  //
+  // FIX (pedido do usuário: "ao invés de falar jogador 1 e jogador 2,
+  // troque para os respectivos nomes dos personagens") - appendLog
+  // (gameEngine.ts) agora já substitui "Jogador N" pelo nome do
+  // personagem no próprio texto ANTES dele chegar aqui - o marcador que
+  // este destaque procura precisou acompanhar essa troca (senão nunca
+  // mais encontrava nada pra destacar, já que "Jogador N" não existe mais
+  // dentro de `entry.text`).
   const renderText = (entry: LogEntry, color: string | undefined) => {
     if (entry.player === null) return entry.text;
-    const marker = `Jogador ${entry.player}`;
+    const marker = getCharacterTheme(characterOfPlayer(entry.player)).name;
     const idx = entry.text.indexOf(marker);
     if (idx === -1) return entry.text;
     return (
@@ -114,7 +123,7 @@ export function LogPanel({ log, player1Character, player2Character, screenReader
                 color: isActive ? color : '#BFB6A6',
               }}
             >
-              {option === 'all' ? 'Todos' : `Jogador ${option}`}
+              {option === 'all' ? 'Todos' : getCharacterTheme(characterOfPlayer(option)).name}
             </button>
           );
         })}

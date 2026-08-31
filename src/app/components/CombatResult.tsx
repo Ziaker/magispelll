@@ -198,18 +198,17 @@ export function CombatResult({
 
             <div className="text-center">
               <p className="text-[#BFB6A6] text-[18px] mb-2">Vencedor do Combate</p>
+              {/* FIX (pedido do usuário: "ao invés de falar jogador 1 e
+                  jogador 2, troque para os respectivos nomes dos
+                  personagens") - `winnerName` já é o nome do personagem;
+                  a legenda "Jogador N" que ficava logo abaixo repetia a
+                  mesma informação, então foi removida em vez de trocada. */}
               <h2
                 className="font-display text-[56px] mb-3"
                 style={{ color: winnerTheme.primary }}
               >
                 {winnerName}
               </h2>
-              <p
-                className="text-[24px] font-display"
-                style={{ color: winnerTheme.light }}
-              >
-                Jogador {winner}
-              </p>
               {player1Value !== undefined && player2Value !== undefined && (
                 <div className="flex items-center justify-center gap-3 mt-3">
                   <span
@@ -246,7 +245,7 @@ export function CombatResult({
                 >
                   <Heart className="w-5 h-5 text-[#D45D4A] fill-current" />
                   <span className="text-[#D45D4A] font-display text-[16px]">
-                    DISPUTA VENCIDA! Jogador {winner === 1 ? 2 : 1} perde 1 vida
+                    DISPUTA VENCIDA! {winner === 1 ? p2Theme.name : p1Theme.name} perde 1 vida
                   </span>
                 </div>
               ) : winnerCombatWins !== undefined ? (

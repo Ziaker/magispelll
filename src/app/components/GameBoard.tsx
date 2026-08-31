@@ -610,7 +610,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       setTimeout(() => setReactionNegatedBurst((prev) => (prev?.key === burstKey ? null : prev)), 900);
     }
     soundManager.play('card-shatter');
-    toast(`⚔️ Jogador ${player} REAGIU! A magia de Jogador ${pending.casterPlayer} foi negada - ambas as cartas descartadas.`, { duration: 3500 });
+    // FIX (pedido do usuário: "ao invés de falar jogador 1 e jogador 2,
+    // troque para os respectivos nomes dos personagens em questão, em
+    // todos os lugares no jogo") - `p1Theme`/`p2Theme` (calculados logo no
+    // início do componente) já trazem `.name` do personagem de cada
+    // jogador.
+    toast(`⚔️ ${player === 1 ? p1Theme.name : p2Theme.name} REAGIU! A magia de ${pending.casterPlayer === 1 ? p1Theme.name : p2Theme.name} foi negada - ambas as cartas descartadas.`, { duration: 3500 });
     dispatch({ type: 'REACT_TO_MAGIC', player, cardId });
   };
 
@@ -1836,7 +1841,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         show={Boolean(gameState.pendingReaction)}
         casterCharacter={gameState.pendingReaction ? gameState.pendingReaction.character : null}
         magicType={gameState.pendingReaction ? gameState.pendingReaction.cardValue : null}
-        reactingPlayer={gameState.pendingReaction ? opponentOf(gameState.pendingReaction.casterPlayer) : null}
+        reactingCharacter={gameState.pendingReaction ? characterOf(gameState, opponentOf(gameState.pendingReaction.casterPlayer)) : null}
         secondsLeft={reactionCountdown}
       />
       <ReactionNegatedBurst spec={reactionNegatedBurst} />
@@ -1883,7 +1888,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               </Badge>
               {gameState.phase === 'combat' && (
                 <Badge variant="outline" className="border-[#C59E4F] text-[#C59E4F]">
-                  Vira primeiro: Jogador {gameState.firstToFlip}
+                  Vira primeiro: {gameState.firstToFlip === 1 ? p1Theme.name : p2Theme.name}
                 </Badge>
               )}
               {/* Modo Spotlight (pedido do usuário) - indicador PERSISTENTE
@@ -2484,8 +2489,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 {gameState.gameOver ? (gameState.gameOver.winner === 1 ? p1Theme.name : p2Theme.name) : ''}
               </motion.p>
 
+              {/* FIX (pedido do usuário: "ao invés de falar jogador 1 e
+                  jogador 2, troque para os respectivos nomes dos
+                  personagens") - o nome do vencedor já aparece em destaque
+                  logo acima; a legenda "Jogador N venceu" repetia a mesma
+                  informação, então virou só "Venceu a partida!". */}
               <p className="text-[#BFB6A6] text-[18px]">
-                Jogador {gameState.gameOver?.winner} venceu a partida!
+                Venceu a partida!
               </p>
             </div>
           </DialogHeader>
@@ -2524,7 +2534,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         <DialogContent className="bg-[#1E1A16] border-[#C59E4F] max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-[#EFE7D6] font-display text-[20px]">
-              {pendingMagic && `Ativar Magia - Jogador ${pendingMagic.playerNumber}`}
+              {pendingMagic && `Ativar Magia - ${getCharacterTheme(pendingMagic.character).name}`}
             </DialogTitle>
             <DialogDescription className="text-[#BFB6A6]">
               {pendingMagic && (() => {
@@ -3198,7 +3208,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         <DialogContent className="bg-[#1E1A16] border-[#C59E4F] max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-[#EFE7D6] font-display text-[20px]">
-              {pendingAceTransform && `Transformar Ás - Jogador ${pendingAceTransform.playerNumber}`}
+              {pendingAceTransform && `Transformar Ás - ${pendingAceTransform.playerNumber === 1 ? p1Theme.name : p2Theme.name}`}
             </DialogTitle>
             <DialogDescription className="text-[#BFB6A6]">
               Selecione uma carta da sua mão ou já posicionada no seu campo. O Ás assumirá o valor dessa carta e ambas ficarão reveladas.
@@ -3442,7 +3452,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   </DialogTitle>
 
                   <p className="text-[#EFE7D6] text-[20px] text-center">
-                    Jogador {gameState.numeralSpellPending.playerNumber}
+                    {theme.name}
                   </p>
 
                   <div

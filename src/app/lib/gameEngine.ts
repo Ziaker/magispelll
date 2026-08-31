@@ -43,6 +43,7 @@ import { canActivateMagic, type MagicActivationContext, type MagicCardType } fro
 import { canActivateNumeralSpell, formatNumeralRequirement, getMatchingNumeralCards, getNumeralSpellInfo } from './numeralSpells';
 import { canFuseCards, computeFusionResult } from './fusion';
 import { getSpotlightAdjustedValue, rollSpotlight, type SpotlightState } from './spotlight';
+import { getCharacterTheme } from './characterThemes';
 
 export type Phase = 'draw' | 'strategy' | 'combat';
 export type PlayerNumber = 1 | 2;
@@ -658,6 +659,24 @@ interface LogOptions {
  * lendo os mesmos campos estruturados. Mantém o teto de 30 entradas (mesmo
  * comportamento de antes - pedido do usuário ao confirmar a reformulação).
  */
+/**
+ * FIX (pedido do usuário: "ao invés de falar jogador 1 e jogador 2, troque
+ * para os respectivos nomes dos personagens em questão, em todos os
+ * lugares no jogo") - as 60+ chamadas de `appendLog` espalhadas por este
+ * arquivo montam a mensagem como uma frase pronta ("Jogador 1 comprou uma
+ * carta", "Jogador 2 revelou X de Jogador 1"...) - em vez de editar cada
+ * uma individualmente (risco real de esquecer alguma), a troca acontece
+ * aqui, um único lugar: qualquer "Jogador 1"/"Jogador 2" literal no texto
+ * final vira o NOME do personagem daquele jogador (ex.: "CORINGA comprou
+ * uma carta"). Sempre os dois de uma vez, já que uma mensagem pode citar
+ * os dois jogadores na mesma frase.
+ */
+function withPlayerCharacterNames(state: GameState, text: string): string {
+  const p1Name = getCharacterTheme(state.player1Character).name;
+  const p2Name = getCharacterTheme(state.player2Character).name;
+  return text.replace(/Jogador 1/g, p1Name).replace(/Jogador 2/g, p2Name);
+}
+
 function appendLog(state: GameState, log: LogEntry[], type: LogEventType, message: string, opts: LogOptions = {}): LogEntry[] {
   const nextId = log.length > 0 ? log[log.length - 1].id + 1 : 0;
   const entry: LogEntry = {
@@ -666,7 +685,7 @@ function appendLog(state: GameState, log: LogEntry[], type: LogEventType, messag
     phase: opts.phaseOverride ?? state.phase,
     type,
     player: opts.player ?? null,
-    text: message,
+    text: withPlayerCharacterNames(state, message),
     cardValue: opts.cardValue,
     slotIndex: opts.slotIndex,
   };

@@ -585,7 +585,12 @@ export function PlayerZone({
                   })}
                 </div>
               </div>
-              <p className="text-[10px] text-[#BFB6A6]">Jogador {playerNumber} • Vitórias: {playerState.combatWins}/2</p>
+              {/* FIX (pedido do usuário: "ao invés de falar jogador 1 e
+                  jogador 2, troque para os respectivos nomes dos
+                  personagens") - `playerNumber` (1/2) virou o nome do
+                  próprio personagem (`theme.name`, já calculado no topo
+                  do componente). */}
+              <p className="text-[10px] text-[#BFB6A6]">{theme.name} • Vitórias: {playerState.combatWins}/2</p>
             </div>
           </div>
 
