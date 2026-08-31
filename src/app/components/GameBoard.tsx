@@ -497,7 +497,24 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       }
 
       const isNumeralSpellActivation = entry.type === 'numeral-spell' && entry.cardValue !== undefined;
-      const shouldToast = entry.type === 'magic' || entry.type === 'monster' || isNumeralSpellActivation;
+      // FIX (pedido do usuário: "o valete do coringa pode ser posicionado
+      // como horizontal... mesmo se o jogador já tiver posto uma ou mais
+      // horizontais" - investigado a fundo, testando o motor diretamente:
+      // o limite de 1 carta horizontal por turno JÁ era respeitado
+      // corretamente para qualquer personagem, Coringa incluído - o
+      // `PLAY_CARD` era REJEITADO de verdade (nenhuma mudança de estado).
+      // O bug real era de FEEDBACK: entradas de log 'warning' (é aqui que
+      // handlePlayCard registra a rejeição, ver gameEngine.ts) nunca
+      // entravam em `shouldToast`, e handlePlayCard (GameBoard.tsx) toca o
+      // som de "carta posicionada" incondicionalmente, sem checar se o
+      // dispatch teve algum efeito de verdade - então uma jogada rejeitada
+      // soava IGUAL a uma aceita, sem nenhum aviso visual, e a carta só
+      // "sumia e voltava" pra mão sem explicação. Difícil de distinguir de
+      // "o jogo deixou eu fazer isso e desfez sozinho depois". Adicionado
+      // aqui pra qualquer rejeição (limite de horizontais, carta mágica
+      // errada, etc.) também aparecer como um toast, agora bem visível.
+      const isWarning = entry.type === 'warning';
+      const shouldToast = entry.type === 'magic' || entry.type === 'monster' || isNumeralSpellActivation || isWarning;
       if (!shouldToast) continue;
       const icon = getLogIcon(entry);
       const effectInfo = getLogEffectInfo(entry, (p) => (p === 1 ? player1Character : player2Character));
@@ -506,8 +523,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // mais chamativa visualmente") - cor do próprio jogador que agiu (a
       // mesma identidade visual usada em toda a interface) - MagicToast.tsx
       // troca o `toast(texto)` padrão (pequeno, sem cor) por um cartão bem
-      // maior com essa cor, glow e entrada animada.
-      const color = entry.player === 2 ? p2Theme.primary : p1Theme.primary;
+      // maior com essa cor, glow e entrada animada. Avisos de rejeição não
+      // têm um `entry.player` confiável (a maioria dos `appendLog(...,
+      // 'warning', ...)` não passa esse metadado) e, mesmo quando tem,
+      // colorir como se fosse a cor do personagem passaria a falsa
+      // impressão de sucesso - usa sempre um vermelho de alerta fixo (mesmo
+      // tom de "perigo" já usado em CardShatterBurst.tsx).
+      const color = isWarning ? '#D45D4A' : entry.player === 2 ? p2Theme.primary : p1Theme.primary;
       toast.custom(() => <MagicToast icon={icon} text={plainText} color={color} />, { duration: 4000 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

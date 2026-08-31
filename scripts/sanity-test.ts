@@ -3208,6 +3208,50 @@ function makeReactionsBaseState(config: GameConfig): GameState {
   );
 })();
 
+// FIX (pedido do usuário: "o valete transformado do coringa não está
+// podendo ser posicionado"): uma carta já transformada pela Mão de Ferro
+// (`coringaTransformedToNumeral: true`) larga o comportamento de armadilha
+// por completo - devia poder ser posicionada como QUALQUER carta numeral
+// comum (principal OU horizontal), não mais travada na posição fixa da
+// armadilha crua (Valete só horizontal). `handlePlayCard` esquecia de
+// excluir cartas já transformadas do `isCoringaTrapCard`, então a carta
+// continuava presa a essa regra antiga mesmo depois de virar um número de
+// verdade.
+(function testCoringaTransformedCardPlaceableAsMain() {
+  let state = createInitialState('coringa', 'mago', DEFAULT_GAME_CONFIG);
+  const transformedJ: Card = { ...makeCard('coringa-transformed-place-main', 'J'), transformedValue: 11, coringaTransformedToNumeral: true };
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [transformedJ] } };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: transformedJ.id, slotIndex: 0, asHorizontal: false });
+  assert(
+    state.player1.field[0].faceDownCard?.id === transformedJ.id,
+    'FIX: um Valete do Coringa já transformado em numeral (Mão de Ferro) PODE ser posicionado como carta principal'
+  );
+})();
+
+(function testCoringaTransformedCardPlaceableAsHorizontal() {
+  let state = createInitialState('coringa', 'mago', DEFAULT_GAME_CONFIG);
+  const mainCard = makeCard('coringa-transformed-place-horiz-main', '5');
+  const transformedQ: Card = { ...makeCard('coringa-transformed-place-horiz', 'Q'), transformedValue: 12, coringaTransformedToNumeral: true };
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [transformedQ],
+      field: [
+        { faceDownCard: mainCard, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: transformedQ.id, slotIndex: 0, asHorizontal: true });
+  assert(
+    state.player1.field[0].horizontalCards.some((c) => c.id === transformedQ.id),
+    'FIX: uma Rainha do Coringa já transformada em numeral (Mão de Ferro) PODE ser posicionada como carta horizontal (antes só o Valete cru podia)'
+  );
+})();
+
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passaram, ${failed} falharam.`);
 if (failed > 0) process.exit(1);

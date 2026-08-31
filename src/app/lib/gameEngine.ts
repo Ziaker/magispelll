@@ -1468,12 +1468,29 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
   // por um efeito do oponente, ou no Combate ao serem selecionadas - ver
   // triggerCoringaStrategyRevealTrap/handleResolveCombat).
   const character = characterOf(state, player);
-  const isCoringaTrapCard = character === 'coringa' && (card.value === 'J' || card.value === 'Q' || card.value === 'K' || card.isMonster);
+  // FIX (pedido do usuário: "o valete transformado do coringa não está
+  // podendo ser posicionado") - faltava excluir cartas já transformadas pela
+  // Magia Numeral "Mão de Ferro" (`coringaTransformedToNumeral`) daqui. Uma
+  // vez transformada, a carta LARGA o comportamento de armadilha por
+  // completo (ver comentário no topo desta seção) e passa a valer como uma
+  // carta numeral comum (11/12/13) - devia poder ser posicionada como
+  // QUALQUER carta numeral normal (principal OU horizontal, sem a restrição
+  // de posição fixa da armadilha crua). Sem esta exclusão, `isCoringaTrapCard`
+  // continuava `true` só por causa do `card.value` ainda ser 'J'/'Q'/'K'
+  // (a transformação nunca muda `.value`, só adiciona `.transformedValue` -
+  // mesmo padrão do Ás transformado), então a carta já transformada
+  // continuava presa às regras de posição fixa da armadilha (Valete só
+  // horizontal, Rainha/Rei só principal) - rejeitada ao tentar posicionar do
+  // jeito "normal" que um número transformado deveria aceitar.
+  const isCoringaTransformedCard = character === 'coringa' && card.coringaTransformedToNumeral;
+  const isCoringaTrapCard = character === 'coringa' && !isCoringaTransformedCard && (card.value === 'J' || card.value === 'Q' || card.value === 'K' || card.isMonster);
   if (!isCoringaTrapCard) {
     // FIX: Cartas mágicas (J, Q, K) de qualquer OUTRO personagem nunca podem
     // ser posicionadas no campo como carta comum - elas só saem da mão
-    // ativando seu efeito de magia.
-    if (card.value === 'J' || card.value === 'Q' || card.value === 'K') {
+    // ativando seu efeito de magia. Não se aplica a uma carta do Coringa já
+    // transformada (`isCoringaTransformedCard`) - mesmo com `.value` ainda
+    // 'J'/'Q'/'K', ela já é uma carta numeral de verdade agora.
+    if (!isCoringaTransformedCard && (card.value === 'J' || card.value === 'Q' || card.value === 'K')) {
       return { ...state, log: appendLog(state, state.log, 'warning', `Cartas mágicas só podem ser usadas ativando sua magia, não posicionadas no campo!`) };
     }
 
