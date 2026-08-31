@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { Crown, Heart as HeartIcon, User, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Drama } from 'lucide-react';
+import { Crown, Heart as HeartIcon, PawPrint, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Drama } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
@@ -354,7 +354,11 @@ export function PlayerZone({
 
   const characterIcons = {
     mago: Crown,
-    besta: User,
+    // FIX (pedido do usuário: "troque o ícone da besta para ser algo
+    // semelhante a uma criatura ao invés de uma pessoa") - `User` era um
+    // ícone literal de pessoa; `PawPrint` (pegada) é consistente com o
+    // tema do personagem (força/fúria selvagem, ver characterThemes.ts).
+    besta: PawPrint,
     anjo: HeartIcon,
     mosqueteiro: Crosshair,
     coringa: Drama,
@@ -1312,9 +1316,24 @@ export function PlayerZone({
                             ? coringaTransformWindowOpen
                             : isMagic && canActivateMagic(phase, character, card.value as 'J' | 'Q' | 'K', magicContext)
                         }
+                        // FIX (pedido do usuário: "os botões e o tooltip do
+                        // botão ainda aparecem pra ele mesmo sem a magia
+                        // numeral estar ativa") - faltava a MESMA checagem de
+                        // `coringaTransformWindowOpen` que `canActivateMagicNow`
+                        // já fazia logo acima: sem ela, QUALQUER carta-
+                        // armadilha do Coringa (`isCoringaTrapCard`) sempre
+                        // recebia o tooltip de "Mão de Ferro", mesmo fora da
+                        // janela - e como PlayingCard.tsx mostra o botão
+                        // (semi-transparente) de ativar magia sempre que há
+                        // tooltip + hover, ele aparecia (sem função nenhuma,
+                        // já que `canActivateMagicNow` continuava `false`)
+                        // toda vez que o jogador passava o mouse sobre uma
+                        // armadilha comum, fora da janela de transformação.
                         magicTooltip={
                           isCoringaTrapCard
-                            ? 'Mão de Ferro: transforma permanentemente esta carta em uma carta de número 11 (Valete), 12 (Rainha) ou 13 (Rei).'
+                            ? coringaTransformWindowOpen
+                              ? 'Mão de Ferro: transforma permanentemente esta carta em uma carta de número 11 (Valete), 12 (Rainha) ou 13 (Rei).'
+                              : undefined
                             : isMagic
                             ? getMagicCardInfo(character, card.value as 'J' | 'Q' | 'K').description
                             : undefined

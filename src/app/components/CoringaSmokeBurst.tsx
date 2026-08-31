@@ -1,7 +1,12 @@
+import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import party from 'party-js';
 
-/** Ângulos (radianos) das 6 nuvens de fumaça, distribuídas em círculo com um pouco de variação. */
-const PUFF_ANGLES = [0, 1, 2, 3, 4, 5].map((i) => (i / 6) * Math.PI * 2 + (i % 2 === 0 ? 0.2 : -0.2));
+/** Ângulos (radianos) das 14 nuvens de fumaça "principais", distribuídas em círculo com variação, mais viés pra cima (fumaça sobe). */
+const PUFF_COUNT = 14;
+const PUFF_ANGLES = Array.from({ length: PUFF_COUNT }, (_, i) => (i / PUFF_COUNT) * Math.PI * 2 + (i % 2 === 0 ? 0.25 : -0.25));
+/** Paleta da fumaça - creme/marrom do verso da carta (identidade visual já usada) + um roxo escuro sombrio (cor de identidade do Coringa, ver CharactersList.tsx) entrando como nuvens "sombrias" no meio das claras. */
+const PUFF_COLORS = ['#D8D0C0', '#8F6A30', '#3B2A55', '#EFE7D6'];
 
 /**
  * CoringaSmokeBurst - pedido do usuário (redesenho completo do Coringa,
@@ -13,19 +18,40 @@ const PUFF_ANGLES = [0, 1, 2, 3, 4, 5].map((i) => (i / 6) * Math.PI * 2 + (i % 2
  * ocultos pra mão, sem "sumir em fumaça" - ver applyCoringaTrapReaction em
  * gameEngine.ts, não usam este componente).
  *
- * Mesmo padrão de CardShatterBurst.tsx (a ÚNICA outra carta que "desaparece"
- * de verdade no jogo, usado pela Destruição de Reforço do Mago): a carta
- * encolhe/some no lugar enquanto o efeito assume a cena. Em vez de
- * estilhaços físicos, várias nuvens de fumaça (círculos borrados, cor
- * cinza/creme) sobem e se expandem, desvanecendo - sem `party-js` (pedido do
- * usuário já atendido uma vez em CharacterMagicBurst.tsx: "o jogo trava
- * quando ativa algumas magias" - partículas físicas custam caro e este burst
- * pode montar em qualquer um dos 6 slots de campo a qualquer momento), só
- * Framer Motion (opacity/scale/transform, barato).
+ * FIX (pedido do usuário: "mal dá pra perceber os efeitos de fumaça, deixe
+ * mais exagerado e espetacular"): a versão original tinha só 6 nuvens
+ * pequenas (26-46px) e sumia em ~1s - discreto demais pra um evento raro e
+ * importante (armadilha revelada). Aumentado pra 14 nuvens bem maiores
+ * (50-130px), mais borradas, com uma paleta de 4 cores (creme/marrom do
+ * verso da carta + roxo escuro da identidade do Coringa) em vez de só duas,
+ * anel de onda de choque se expandindo, e ~80% mais duração. Também ganhou
+ * `party-js` (confetti de círculos borrados, reforçando o volume de fumaça)
+ * - a MESMA justificativa de custo/frequência já usada em CardShatterBurst.tsx
+ * (que também usa `party-js`): dispara só quando uma armadilha É REVELADA
+ * pelo oponente, um evento raro (no máximo umas poucas vezes por partida),
+ * bem diferente de ArenaMagicBurst.tsx (removeu partículas físicas por
+ * disparar em QUALQUER magia, a fonte de longe mais frequente - "o jogo
+ * trava" era sobre ESSA frequência, não sobre `party-js` em si).
  */
 export function CoringaSmokeBurst({ active }: { active: boolean }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    const el = containerRef.current;
+    if (!el) return;
+    party.confetti(el, {
+      count: party.variation.range(28, 36),
+      spread: party.variation.range(140, 180),
+      speed: party.variation.range(200, 380),
+      size: party.variation.range(1.1, 2),
+      shapes: ['circle'],
+      color: () => party.Color.fromHex(PUFF_COLORS[Math.floor(Math.random() * PUFF_COLORS.length)]),
+    });
+  }, [active]);
+
   return (
-    <div className="absolute inset-0 pointer-events-none overflow-visible">
+    <div ref={containerRef} className="absolute inset-0 pointer-events-none overflow-visible">
       <AnimatePresence>
         {active && (
           <motion.div
@@ -43,18 +69,26 @@ export function CoringaSmokeBurst({ active }: { active: boolean }) {
               animate={{ opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.3, ease: 'easeIn' }}
             />
-            {/* Clarão cinza central, no instante da dissipação. */}
+            {/* Clarão central, no instante da dissipação - maior e mais demorado que antes pra acompanhar o resto do efeito. */}
             <motion.div
               className="absolute inset-0 rounded-lg"
-              initial={{ opacity: 0.85 }}
-              animate={{ opacity: 0 }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}
+              initial={{ opacity: 0.95, scale: 1 }}
+              animate={{ opacity: 0, scale: 2.2 }}
+              transition={{ duration: 0.7, ease: 'easeOut' }}
               style={{ backgroundColor: '#BFB6A6', mixBlendMode: 'overlay' }}
             />
-            {/* Nuvens de fumaça (círculos borrados) subindo e se expandindo em todas as direções. */}
+            {/* Anel de onda de choque se expandindo a partir do centro - reforça o "impacto" da explosão/dissipação. */}
+            <motion.div
+              className="absolute top-1/2 left-1/2 rounded-full border-4"
+              style={{ borderColor: '#C59E4F', width: 20, height: 20 }}
+              initial={{ x: '-50%', y: '-50%', opacity: 0.9, scale: 0.5 }}
+              animate={{ x: '-50%', y: '-50%', opacity: 0, scale: 9 }}
+              transition={{ duration: 0.6, ease: 'easeOut' }}
+            />
+            {/* Nuvens de fumaça (círculos borrados, 4 cores) subindo e se expandindo em todas as direções - bem maiores e mais demoradas que a versão original. */}
             {PUFF_ANGLES.map((angle, idx) => {
-              const distance = 30 + (idx % 3) * 12;
-              const size = 26 + (idx % 3) * 10;
+              const distance = 45 + (idx % 4) * 22;
+              const size = 50 + (idx % 4) * 28;
               return (
                 <motion.div
                   key={idx}
@@ -62,17 +96,17 @@ export function CoringaSmokeBurst({ active }: { active: boolean }) {
                   style={{
                     width: size,
                     height: size,
-                    backgroundColor: idx % 2 === 0 ? '#D8D0C0' : '#8F6A30',
-                    filter: 'blur(6px)',
+                    backgroundColor: PUFF_COLORS[idx % PUFF_COLORS.length],
+                    filter: 'blur(10px)',
                   }}
-                  initial={{ x: '-50%', y: '-50%', opacity: 0.75, scale: 0.4 }}
+                  initial={{ x: '-50%', y: '-50%', opacity: 0.85, scale: 0.3 }}
                   animate={{
                     x: `calc(-50% + ${Math.cos(angle) * distance}px)`,
-                    y: `calc(-50% + ${Math.sin(angle) * distance}px - 55px)`,
+                    y: `calc(-50% + ${Math.sin(angle) * distance}px - 90px)`,
                     opacity: 0,
-                    scale: 1.8 + (idx % 3) * 0.3,
+                    scale: 2.4 + (idx % 4) * 0.4,
                   }}
-                  transition={{ duration: 1 + (idx % 3) * 0.15, ease: 'easeOut', delay: idx * 0.05 }}
+                  transition={{ duration: 1.7 + (idx % 4) * 0.2, ease: 'easeOut', delay: idx * 0.04 }}
                 />
               );
             })}

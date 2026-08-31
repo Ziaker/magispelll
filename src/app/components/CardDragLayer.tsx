@@ -217,7 +217,15 @@ export function CardDragLayer() {
             style={{
               left: 0,
               top: 0,
-              transform: `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%) rotate(${spinAngle}deg)`,
+              // FIX (bug "carta sempre pra esquerda/cima do mouse" - ver
+              // comentário completo em GameBoard.tsx): este componente saiu
+              // de dentro da árvore com `zoom: 0.85` pra corrigir a posição.
+              // O `scale(0.85)` aqui compensa só o TAMANHO visual que antes
+              // vinha de graça do zoom herdado - aplicado DEPOIS do
+              // translate/rotate, então encolhe em torno do próprio centro
+              // do rastro (já centralizado em `pos`), sem mexer em onde ele
+              // é desenhado.
+              transform: `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%) rotate(${spinAngle}deg) scale(0.85)`,
               backgroundColor: 'rgba(197, 158, 79, 0.35)',
               opacity: 0.32 - idx * 0.08,
               filter: 'blur(3px)',
@@ -256,7 +264,15 @@ export function CardDragLayer() {
       >
         <div
           style={{
-            transform: `rotate(${spinAngle}deg) scale(${isFastDrag ? 1.15 : 1.1})`,
+            // FIX (bug "carta sempre pra esquerda/cima do mouse" - ver
+            // comentário completo em GameBoard.tsx): o `* 0.85` extra
+            // compensa o tamanho visual que este componente ganhava de
+            // graça antes, herdado do `zoom: 0.85` do ancestral de onde
+            // saiu - sem isso a carta arrastada ficaria maior que o resto
+            // do tabuleiro (que continua encolhido). `scale` aqui é
+            // cosmético (mesma div que já tinha a transição suave) - não
+            // afeta a posição, calculada só no elemento de fora.
+            transform: `rotate(${spinAngle}deg) scale(${(isFastDrag ? 1.15 : 1.1) * 0.85})`,
             filter: isFastDrag ? 'drop-shadow(0 26px 40px rgba(0,0,0,0.7))' : 'drop-shadow(0 18px 30px rgba(0,0,0,0.6))',
             transition: 'transform 40ms linear',
           }}

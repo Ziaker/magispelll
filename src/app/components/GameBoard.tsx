@@ -1740,6 +1740,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     : '#C59E4F';
 
   return (
+    <>
     <div
       // FIX (checagem extensa por bugs - "vários efeitos... mal
       // posicionados" sob o zoom atual): guarda o próprio nó desta div (a
@@ -1776,7 +1777,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           MagicToast.tsx), então mover o Toaster pra cá não afeta nenhuma
           outra tela. */}
       <Toaster position="top-center" />
-      <CardDragLayer />
       {/* FIX (pedido do usuário: "speedlines no fundo... com as cores do
           personagem que ativou uma magia da vez") - fica ATRÁS de tudo (por
           isso vem primeiro no DOM, antes até do ArenaMagicBurst.tsx) - é só
@@ -3465,5 +3465,25 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       </Dialog>
     </ZoomContainerContext.Provider>
     </div>
+    {/* FIX (bug "a carta sempre fica pra esquerda/cima do mouse ao arrastar"
+        - causa raiz real, achada só agora): este componente vivia DENTRO da
+        div de `zoom: 0.85` acima. `zoom` (diferente de `transform: scale`)
+        reescala o próprio SISTEMA DE UNIDADES `px` pra tudo que está dentro
+        dele, incluindo elementos `position: fixed` - então o
+        `translate(${mouseX}px, ...)` de CardDragLayer.tsx (calculado com a
+        posição REAL do mouse, em px de tela de verdade) era interpretado
+        como px NESSA escala reduzida e desenhado a só 85% da distância real
+        percorrida a partir do canto superior esquerdo - o preview da carta
+        ficava sistematicamente pra esquerda/cima do cursor real, tanto mais
+        quanto mais longe do canto (mesmo bug de raiz já corrigido em
+        ui/tooltip.tsx, ui/select.tsx e ui/dialog.tsx, só que lá era via
+        Portal do Radix - aqui é porque este componente nunca usou Portal,
+        só nasce onde é colocado no JSX). Movido pra FORA da árvore zoomada,
+        como irmão dela - `renderX`/`renderY` (px reais) agora batem 1:1 com
+        a tela de verdade. Ver CardDragLayer.tsx para a compensação visual
+        de tamanho (senão a carta arrastada ficaria ~18% maior que o resto
+        do tabuleiro, que continua encolhido). */}
+    <CardDragLayer />
+    </>
   );
 }

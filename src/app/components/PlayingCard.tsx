@@ -278,7 +278,19 @@ export function PlayingCard({
               {/* Ícone/botão central - único ponto que ativa a magia (ver FIX
                   item 9 acima); o resto do overlay é só decorativo e deixa o
                   clique passar para o pai. */}
-              {(hovering || canActivateMagic) && isInHand && (
+              {/* FIX (pedido do usuário: "os botões... ainda aparecem pra
+                  ele mesmo sem a magia numeral estar ativa") - antes bastava
+                  `hovering` sozinho pra este botão aparecer, mesmo sem
+                  nenhuma ação de verdade por trás dele (armadilhas do
+                  Coringa fora da janela "Mão de Ferro" nunca tinham
+                  `magicTooltip` preenchido nesse caso - ver PlayerZone.tsx -
+                  mas o botão aparecia mesmo assim, só que sem função,
+                  clicável só na aparência). Exigir `magicTooltip` também no
+                  caso de hover não muda nada pros outros 4 personagens (a
+                  descrição da magia deles sempre vem preenchida enquanto
+                  `isMagic`), só impede este popup fantasma nas armadilhas do
+                  Coringa fora da janela. */}
+              {(canActivateMagic || (hovering && magicTooltip)) && isInHand && (
                 <div className={cn(
                   "absolute inset-0 flex items-center justify-center z-20 bg-[#0F1113]/80",
                   !canActivateMagic && "opacity-30"
