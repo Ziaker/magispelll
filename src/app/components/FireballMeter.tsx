@@ -1,4 +1,5 @@
 import { motion } from 'motion/react';
+import { useSettings } from '../context/SettingsContext';
 
 interface FireballMeterProps {
   value: number;
@@ -32,6 +33,18 @@ const EMBER_OFFSETS = [-10, -3, 5, 11, -14];
  * asset de imagem.
  */
 export function FireballMeter({ value, cap, spreadArmed, playerNumber }: FireballMeterProps) {
+  const { settings } = useSettings();
+  // FIX (checagem extensa de desempenho, pedido do usuário): este círculo
+  // fica montado o jogo INTEIRO (não é um burst temporário) pros dois
+  // jogadores ao mesmo tempo quando o Piromante está em campo, com 7
+  // animações em loop infinito cada (5 brasas + anel + núcleo) - ao
+  // contrário de todo o resto dos efeitos visuais do jogo, que só animam
+  // durante um instante. Com "Animações" desligada nas Configurações
+  // (mesma flag que RuneParticles.tsx/PhaseTransition.tsx já respeitam),
+  // esses loops nem chegam a montar - fica só o núcleo/anel estáticos
+  // (ainda mostrando a cor e o valor certos), sem nenhum custo contínuo de
+  // frame.
+  const animationsOn = settings.animations;
   const fillRatio = cap > 0 ? Math.min(1, value / cap) : 0;
 
   return (
@@ -40,29 +53,30 @@ export function FireballMeter({ value, cap, spreadArmed, playerNumber }: Firebal
       data-card-id={`piromante-fireball-p${playerNumber}`}
     >
       {/* Brasas subindo, em loop contínuo - o "efeito contínuo de fogo" pedido pelo usuário. */}
-      {EMBER_OFFSETS.map((x, i) => (
-        <motion.div
-          key={i}
-          className="absolute rounded-full pointer-events-none"
-          style={{
-            width: 3 + (i % 2),
-            height: 3 + (i % 2),
-            left: `calc(50% + ${x}px)`,
-            bottom: '20%',
-            backgroundColor: i % 2 === 0 ? '#FFB380' : '#FF8033',
-            boxShadow: '0 0 4px #FF8033',
-          }}
-          animate={{ y: [0, -34, -46], opacity: [0, 1, 0], x: [0, x > 0 ? 6 : -6, x > 0 ? 12 : -12] }}
-          transition={{ duration: 1.6 + (i % 3) * 0.3, repeat: Infinity, delay: i * 0.35, ease: 'easeOut' }}
-        />
-      ))}
+      {animationsOn &&
+        EMBER_OFFSETS.map((x, i) => (
+          <motion.div
+            key={i}
+            className="absolute rounded-full pointer-events-none"
+            style={{
+              width: 3 + (i % 2),
+              height: 3 + (i % 2),
+              left: `calc(50% + ${x}px)`,
+              bottom: '20%',
+              backgroundColor: i % 2 === 0 ? '#FFB380' : '#FF8033',
+              boxShadow: '0 0 4px #FF8033',
+            }}
+            animate={{ y: [0, -34, -46], opacity: [0, 1, 0], x: [0, x > 0 ? 6 : -6, x > 0 ? 12 : -12] }}
+            transition={{ duration: 1.6 + (i % 3) * 0.3, repeat: Infinity, delay: i * 0.35, ease: 'easeOut' }}
+          />
+        ))}
 
       {/* Anel externo pulsante - brilho ambiente contínuo. */}
       <motion.div
         className="absolute inset-0 rounded-full"
         style={{ background: 'radial-gradient(circle, rgba(255,128,51,0.55) 0%, rgba(204,85,0,0) 72%)' }}
-        animate={{ scale: [1, 1.18, 1], opacity: [0.6, 0.95, 0.6] }}
-        transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+        animate={animationsOn ? { scale: [1, 1.18, 1], opacity: [0.6, 0.95, 0.6] } : undefined}
+        transition={animationsOn ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' } : undefined}
       />
 
       {/* Núcleo da bola de fogo: gradiente "chama" que treme continuamente. */}
@@ -75,8 +89,8 @@ export function FireballMeter({ value, cap, spreadArmed, playerNumber }: Firebal
           background: 'radial-gradient(circle at 50% 65%, #FFE0B3 0%, #FF8033 38%, #CC5500 68%, #3D1900 100%)',
           boxShadow: '0 0 18px 4px rgba(255,128,51,0.6), inset 0 0 10px rgba(61,25,0,0.6)',
         }}
-        animate={{ scale: [1, 1.05, 0.98, 1.03, 1], rotate: [0, 3, -2, 1, 0] }}
-        transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+        animate={animationsOn ? { scale: [1, 1.05, 0.98, 1.03, 1], rotate: [0, 3, -2, 1, 0] } : undefined}
+        transition={animationsOn ? { duration: 2.2, repeat: Infinity, ease: 'easeInOut' } : undefined}
       />
 
       {/* Preenchimento proporcional ao teto (20, ou 30 no modo Towers) - um arco visual simples via conic-gradient, para reforçar "quão cheia" a bola está além do número. */}

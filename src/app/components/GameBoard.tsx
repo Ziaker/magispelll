@@ -1439,6 +1439,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       const originRect = cardPositionsRef.current.get(`piromante-fireball-p${pm.playerNumber}`);
       if (originRect) {
         const from = { left: originRect.left, top: originRect.top, width: originRect.width, height: originRect.height };
+        // FIX (checagem extensa de desempenho): "Chama Repartida" mira os 3
+        // slots de uma vez - 3 FireballProjectile.tsx simultâneos, cada um
+        // com 8 animações em loop próprias. Reduz o rastro de brasas de
+        // cada um (6 -> 3) só quando há mais de 1 alvo, compensando a
+        // multiplicação sem reduzir nada no caso comum (lançamento único).
+        const emberCount = targets.slots.length > 1 ? 3 : undefined;
         const projectileSpecs: FireballProjectileSpec[] = [];
         for (const t of targets.slots) {
           const targetRect = cardPositionsRef.current.get(`slot-p${t.player}-${t.slotIndex}`);
@@ -1448,6 +1454,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
             from,
             to: { left: targetRect.left, top: targetRect.top, width: targetRect.width, height: targetRect.height },
             durationS: scaledTravelMs / 1000,
+            emberCount,
           });
         }
         if (projectileSpecs.length > 0) {

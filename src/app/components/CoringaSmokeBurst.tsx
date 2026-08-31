@@ -85,10 +85,21 @@ export function CoringaSmokeBurst({ active }: { active: boolean }) {
               animate={{ x: '-50%', y: '-50%', opacity: 0, scale: 9 }}
               transition={{ duration: 0.6, ease: 'easeOut' }}
             />
-            {/* Nuvens de fumaça (círculos borrados, 4 cores) subindo e se expandindo em todas as direções - bem maiores e mais demoradas que a versão original. */}
+            {/* Nuvens de fumaça (4 cores) subindo e se expandindo em todas as
+                direções - bem maiores e mais demoradas que a versão original.
+                FIX (checagem extensa de desempenho): eram círculos sólidos
+                com `filter: blur(10px)` cada - 14 camadas borradas ao mesmo
+                tempo, todas com SCALE animando (não só opacity/posição),
+                forçando o navegador a re-rasterizar o blur a cada quadro em
+                vez de só compositar uma bitmap já borrada. Convertido pra
+                `radial-gradient` (cor -> transparente), mesma técnica já
+                usada no brilho do Anjo (ArenaMagicBurst.tsx/
+                CharacterMagicBurst.tsx) - visual de "nuvem macia"
+                equivalente, mas só opacity/transform, 100% compositor. */}
             {PUFF_ANGLES.map((angle, idx) => {
               const distance = 45 + (idx % 4) * 22;
               const size = 50 + (idx % 4) * 28;
+              const puffColor = PUFF_COLORS[idx % PUFF_COLORS.length];
               return (
                 <motion.div
                   key={idx}
@@ -96,8 +107,7 @@ export function CoringaSmokeBurst({ active }: { active: boolean }) {
                   style={{
                     width: size,
                     height: size,
-                    backgroundColor: PUFF_COLORS[idx % PUFF_COLORS.length],
-                    filter: 'blur(10px)',
+                    background: `radial-gradient(circle, ${puffColor} 0%, ${puffColor} 35%, transparent 72%)`,
                   }}
                   initial={{ x: '-50%', y: '-50%', opacity: 0.85, scale: 0.3 }}
                   animate={{

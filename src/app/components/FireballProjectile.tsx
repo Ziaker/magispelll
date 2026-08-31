@@ -9,6 +9,16 @@ export interface FireballProjectileSpec {
   to: { left: number; top: number; width: number; height: number };
   /** Duração do voo em segundos - GameBoard.tsx usa o MESMO valor pra escalonar quando o dispatch/impacto realmente acontecem (ver FIREBALL_TRAVEL_MS). */
   durationS: number;
+  /**
+   * FIX (checagem extensa de desempenho, pedido do usuário): "Chama
+   * Repartida" pode disparar até 3 destas simultaneamente (uma por slot do
+   * oponente), cada uma com 8 animações em loop (6 brasas + brilho + giro
+   * do núcleo) - 3x ao mesmo tempo por ~0.5s. GameBoard.tsx passa um valor
+   * menor aqui quando `projectileSpecs.length > 1` pra compensar a
+   * multiplicação, mantendo o rastro visível sem triplicar a contagem de
+   * nós animados. Opcional - cai pra `EMBER_COUNT` (6) por padrão.
+   */
+  emberCount?: number;
 }
 
 const BALL_SIZE = 30;
@@ -31,13 +41,13 @@ const EMBER_COUNT = 6;
  * antes dele reagir.
  */
 export function FireballProjectile({ spec }: { spec: FireballProjectileSpec }) {
-  const { from, to, durationS } = spec;
+  const { from, to, durationS, emberCount = EMBER_COUNT } = spec;
   const originLeft = from.left + from.width / 2 - BALL_SIZE / 2;
   const originTop = from.top + from.height / 2 - BALL_SIZE / 2;
   const deltaX = to.left + to.width / 2 - (originLeft + BALL_SIZE / 2);
   const deltaY = to.top + to.height / 2 - (originTop + BALL_SIZE / 2);
 
-  const emberOffsets = useMemo(() => Array.from({ length: EMBER_COUNT }, () => (Math.random() - 0.5) * 14), [spec.key]);
+  const emberOffsets = useMemo(() => Array.from({ length: emberCount }, () => (Math.random() - 0.5) * 14), [spec.key, emberCount]);
 
   return (
     <motion.div
@@ -63,7 +73,7 @@ export function FireballProjectile({ spec }: { spec: FireballProjectileSpec }) {
           }}
           initial={{ x: '-50%', y: '-50%', opacity: 0 }}
           animate={{ opacity: [0, 0.9, 0] }}
-          transition={{ duration: durationS * 0.5, delay: (idx / EMBER_COUNT) * durationS * 0.7, repeat: Infinity, repeatDelay: durationS * 0.15 }}
+          transition={{ duration: durationS * 0.5, delay: (idx / emberCount) * durationS * 0.7, repeat: Infinity, repeatDelay: durationS * 0.15 }}
         />
       ))}
 
