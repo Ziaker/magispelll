@@ -491,6 +491,7 @@ export function FieldSlotView({
         <TooltipTrigger asChild>
           <div
             className="relative flex flex-col items-center"
+            data-card-id={`slot-p${playerNumber}-${i}`}
             style={
               hasTower
                 ? ({

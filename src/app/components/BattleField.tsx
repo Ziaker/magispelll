@@ -315,7 +315,7 @@ export function BattleField({
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           {player2Character === 'piromante' && player2FireballValue !== undefined && (
-            <FireballMeter value={player2FireballValue} cap={fireballCap ?? 20} spreadArmed={player2SpreadArmed} />
+            <FireballMeter value={player2FireballValue} cap={fireballCap ?? 20} spreadArmed={player2SpreadArmed} playerNumber={2} />
           )}
           <div className="h-px flex-1 bg-gradient-to-r from-transparent" style={{ background: `linear-gradient(to right, transparent, ${p2Theme.primary}40)` }} />
           <p className="text-[11px] uppercase tracking-wider" style={{ color: p2Theme.primary }}>
@@ -379,7 +379,7 @@ export function BattleField({
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           {player1Character === 'piromante' && player1FireballValue !== undefined && (
-            <FireballMeter value={player1FireballValue} cap={fireballCap ?? 20} spreadArmed={player1SpreadArmed} />
+            <FireballMeter value={player1FireballValue} cap={fireballCap ?? 20} spreadArmed={player1SpreadArmed} playerNumber={1} />
           )}
           <div className="h-px flex-1 bg-gradient-to-r from-transparent" style={{ background: `linear-gradient(to right, transparent, ${p1Theme.primary}40)` }} />
           <p className="text-[11px] uppercase tracking-wider" style={{ color: p1Theme.primary }}>

@@ -5,6 +5,15 @@ interface FireballMeterProps {
   cap: number;
   /** Piromante armou "Chama Repartida" (Magia Numeral) - o próximo lançamento se espalha pelos 3 slots do oponente, cada um recebendo só uma fração do valor. */
   spreadArmed?: boolean;
+  /**
+   * Pedido do usuário: "projéteis visualmente indo em direção aos seus
+   * alvos" - identifica QUAL jogador é dono deste medidor, usado só para
+   * marcar `data-card-id="piromante-fireball-pN"` na raiz. GameBoard.tsx
+   * rastreia esse atributo pelo MESMO mecanismo genérico (`cardPositionsRef`)
+   * que já usa pra cartas (ver FlyingDiscardCard.tsx) - a posição de tela
+   * real deste círculo vira a ORIGEM do voo de FireballProjectile.tsx.
+   */
+  playerNumber: 1 | 2;
 }
 
 const EMBER_OFFSETS = [-10, -3, 5, 11, -14];
@@ -22,11 +31,14 @@ const EMBER_OFFSETS = [-10, -3, 5, 11, -14];
  * de gradiente laranja pulsando + brasas subindo em loop, sem nenhum
  * asset de imagem.
  */
-export function FireballMeter({ value, cap, spreadArmed }: FireballMeterProps) {
+export function FireballMeter({ value, cap, spreadArmed, playerNumber }: FireballMeterProps) {
   const fillRatio = cap > 0 ? Math.min(1, value / cap) : 0;
 
   return (
-    <div className="relative w-[68px] h-[68px] flex items-center justify-center select-none">
+    <div
+      className="relative w-[68px] h-[68px] flex items-center justify-center select-none"
+      data-card-id={`piromante-fireball-p${playerNumber}`}
+    >
       {/* Brasas subindo, em loop contínuo - o "efeito contínuo de fogo" pedido pelo usuário. */}
       {EMBER_OFFSETS.map((x, i) => (
         <motion.div

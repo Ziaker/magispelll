@@ -42,6 +42,7 @@ import { SpotlightSidebar } from './SpotlightSidebar';
 import { ReactionAlertBanner } from './ReactionAlertBanner';
 import { ReactionNegatedBurst, type ReactionNegatedBurstSpec } from './ReactionNegatedBurst';
 import { BulletImpactBurst, type BulletImpactSpec } from './BulletImpactBurst';
+import { FireballProjectile, type FireballProjectileSpec } from './FireballProjectile';
 import { ChromaticFlash } from './ChromaticFlash';
 import { ROULETTE_DURATION_MS } from './AceTransformBurst';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -591,6 +592,21 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    * a partir das posições de tela conhecidas (mesmo cardPositionsRef acima).
    */
   const [bulletImpacts, setBulletImpacts] = useState<BulletImpactSpec[]>([]);
+  /**
+   * Piromante (pedido explícito do usuário: "projéteis visualmente indo em
+   * direção aos seus alvos") - uma bola de fogo por slot alvo, viajando da
+   * própria FireballMeter.tsx do jogador que lançou até o slot no campo do
+   * oponente (mesmas posições reais via cardPositionsRef acima, agora
+   * incluindo os data-card-id sintéticos "piromante-fireball-pN"/"slot-pN-i"
+   * - ver FireballMeter.tsx/FieldSlotView.tsx). O impacto de verdade
+   * (FireShatterBurst.tsx, ver burningSlots) e o dispatch que aplica a
+   * mudança no motor só acontecem DEPOIS dessa animação (ver
+   * FIREBALL_TRAVEL_MS/dispatchMagicAction abaixo) - a bola precisa
+   * visivelmente CHEGAR primeiro.
+   */
+  const [fireballProjectiles, setFireballProjectiles] = useState<FireballProjectileSpec[]>([]);
+  /** Duração (s) do voo da Bola de Fogo - ver fireballProjectiles acima. */
+  const FIREBALL_TRAVEL_MS = 550;
 
   /**
    * `player` usa `cardId` (uma carta mágica própria do mesmo valor da
@@ -1401,21 +1417,56 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       setShatteringSlot(shatterTarget);
       setTimeout(() => setShatteringSlot((prev) => (prev === shatterTarget ? null : prev)), delay(EFFECT_FLASH_DURATION_MS));
     }
-    // Piromante (pedido explícito do usuário: "carta pegando fogo e se
-    // despedaçando") - só quando o lançamento realmente ACERTA algo: nunca
-    // em slots protegidos pela Proteção Divina do Anjo (bloqueia por
-    // completo, ver isSlotProtected/executeFireballLaunch em gameEngine.ts)
-    // nem em slots já vazios (nada pra pegar fogo ali).
+    // Piromante (pedido explícito do usuário: "projéteis visualmente indo em
+    // direção aos seus alvos" + "carta pegando fogo e se despedaçando") - a
+    // Bola de Fogo primeiro VIAJA de verdade (FireballProjectile.tsx, da
+    // própria FireballMeter.tsx do jogador até cada slot mirado - inclui
+    // slots protegidos/vazios também, o "tiro" é dado mesmo que erre) e SÓ
+    // DEPOIS que ela chega (mesmo FIREBALL_TRAVEL_MS usado por
+    // dispatchMagicAction abaixo pra atrasar a mudança de verdade no motor)
+    // o impacto de verdade (FireShatterBurst.tsx) dispara - nunca em slots
+    // protegidos pela Proteção Divina do Anjo (bloqueia por completo, ver
+    // isSlotProtected/executeFireballLaunch em gameEngine.ts) nem em slots
+    // já vazios (nada pra pegar fogo ali).
     if (character === 'piromante' && pm.fireballLaunch && targets.slots.length > 0) {
-      const hitSlots = targets.slots.filter((t) => {
-        if (isSlotProtectedFor(t.player, t.slotIndex)) return false;
-        const slot = gameState[playerKeyOf(t.player)].field[t.slotIndex];
-        return Boolean(slot.faceDownCard) || slot.horizontalCards.length > 0 || (slot.towerReserve?.length ?? 0) > 0;
-      });
-      if (hitSlots.length > 0) {
-        setBurningSlots(hitSlots);
-        setTimeout(() => setBurningSlots((prev) => (prev === hitSlots ? [] : prev)), delay(EFFECT_FLASH_DURATION_MS));
+      // FIX: o mesmo valor JÁ escalado pela preferência de velocidade de
+      // animação (`delay()`) precisa valer tanto pro `setTimeout` que agenda
+      // o impacto/dispatch QUANTO pra duração de verdade da animação do
+      // projétil (`durationS` abaixo) - senão, com animações mais lentas
+      // (Configurações -> "Velocidade de animação"), a bola terminaria de
+      // voar antes do impacto realmente disparar (ou o contrário).
+      const scaledTravelMs = delay(FIREBALL_TRAVEL_MS);
+      const originRect = cardPositionsRef.current.get(`piromante-fireball-p${pm.playerNumber}`);
+      if (originRect) {
+        const from = { left: originRect.left, top: originRect.top, width: originRect.width, height: originRect.height };
+        const projectileSpecs: FireballProjectileSpec[] = [];
+        for (const t of targets.slots) {
+          const targetRect = cardPositionsRef.current.get(`slot-p${t.player}-${t.slotIndex}`);
+          if (!targetRect) continue;
+          projectileSpecs.push({
+            key: `${pm.cardId}-${t.player}-${t.slotIndex}-${gameState.turn}`,
+            from,
+            to: { left: targetRect.left, top: targetRect.top, width: targetRect.width, height: targetRect.height },
+            durationS: scaledTravelMs / 1000,
+          });
+        }
+        if (projectileSpecs.length > 0) {
+          setFireballProjectiles(projectileSpecs);
+          setTimeout(() => setFireballProjectiles((prev) => (prev === projectileSpecs ? [] : prev)), scaledTravelMs);
+        }
       }
+
+      setTimeout(() => {
+        const hitSlots = targets.slots.filter((t) => {
+          if (isSlotProtectedFor(t.player, t.slotIndex)) return false;
+          const slot = gameState[playerKeyOf(t.player)].field[t.slotIndex];
+          return Boolean(slot.faceDownCard) || slot.horizontalCards.length > 0 || (slot.towerReserve?.length ?? 0) > 0;
+        });
+        if (hitSlots.length > 0) {
+          setBurningSlots(hitSlots);
+          setTimeout(() => setBurningSlots((prev) => (prev === hitSlots ? [] : prev)), delay(EFFECT_FLASH_DURATION_MS));
+        }
+      }, scaledTravelMs);
     }
     // FIX (pedido do usuário: "som") - a Destruição de Reforço toca um som de
     // vidro quebrando (card-shatter) em vez do zap genérico de magia, pra
@@ -1435,6 +1486,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // até 3), os tiros disparam escalonados, como uma rajada de verdade.
     if (character === 'mosqueteiro' && targets.cardIds.length > 0) {
       const burstId = `${pm.cardId}-${Date.now()}`;
+      // Pedido explícito do usuário: "projéteis visualmente indo em direção
+      // aos seus alvos para o... mosqueteiro" - a própria carta mágica que
+      // ele acabou de ativar (ainda na mão neste instante, ver
+      // cardPositionsRef) é a origem real do tiro, em vez de nascer do nada
+      // na borda da tela.
+      const casterRect = cardPositionsRef.current.get(pm.cardId);
+      const fromRect = casterRect ? { left: casterRect.left, top: casterRect.top, width: casterRect.width, height: casterRect.height } : undefined;
       const rawSpecs: (BulletImpactSpec | null)[] = targets.cardIds.map((cardId, idx) => {
         const rect = cardPositionsRef.current.get(cardId);
         if (!rect) return null;
@@ -1442,6 +1500,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           key: `${burstId}-${cardId}`,
           rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
           delay: idx * 0.12,
+          from: fromRect,
         };
       });
       const specs: BulletImpactSpec[] = rawSpecs.filter((s): s is BulletImpactSpec => s !== null);
@@ -1474,9 +1533,20 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    * sem esse problema.
    */
   const dispatchMagicAction = (action: GameAction) => {
-    const isPiromanteBurn = action.type === 'EXECUTE_MAGIC' && action.character === 'piromante' && !action.selection.fireballLaunch;
-    if (isPiromanteBurn) {
+    const isPiromante = action.type === 'EXECUTE_MAGIC' && action.character === 'piromante';
+    if (isPiromante && !action.selection.fireballLaunch) {
+      // Combustão/Roubo Flamejante/Queima do Reforço: ver o comentário
+      // completo acima da definição desta função (a carta queimada some do
+      // estado no MESMO dispatch que dispara o flash - sem este atraso, o
+      // burst nunca teria um quadro pra aparecer antes da carta sumir).
       setTimeout(() => dispatch(action), delay(450));
+    } else if (isPiromante && action.selection.fireballLaunch) {
+      // Lançamento da Bola de Fogo: pedido explícito do usuário ("projéteis
+      // visualmente indo em direção aos seus alvos") - a mudança de verdade
+      // no motor (obliterar/reduzir o slot) só acontece depois que a bola
+      // visivelmente CHEGA no alvo (FireballProjectile.tsx, mesmo
+      // FIREBALL_TRAVEL_MS usado lá em applyMagicEffectPresentation).
+      setTimeout(() => dispatch(action), delay(FIREBALL_TRAVEL_MS));
     } else {
       dispatch(action);
     }
@@ -1925,6 +1995,11 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           disparadas nas cartas que as magias do mosqueteiro utiliza") - ver
           applyMagicEffectPresentation acima. */}
       <BulletImpactBurst specs={bulletImpacts} />
+      {/* Piromante (pedido explícito do usuário: "projéteis visualmente indo
+          em direção aos seus alvos") - ver applyMagicEffectPresentation acima. */}
+      {fireballProjectiles.map((spec) => (
+        <FireballProjectile key={spec.key} spec={spec} />
+      ))}
       <PhaseTransition phase={gameState.phase} show={showPhaseTransition} spotlight={gameState.spotlight} loneTower={Boolean(gameState.combatLoneTower)} />
       <CombatResult
         show={showCombatResult}

@@ -6,6 +6,16 @@ export interface BulletImpactSpec {
   rect: { left: number; top: number; width: number; height: number };
   /** Atraso (s) antes deste tiro específico disparar - usado pra escalonar vários alvos de uma vez (ex.: Rajada Reveladora) como uma rajada, um tiro após o outro, em vez de todos batendo no mesmo instante. */
   delay?: number;
+  /**
+   * Pedido explícito do usuário: "projéteis visualmente indo em direção aos
+   * seus alvos para o... mosqueteiro" - posição de tela real da PRÓPRIA
+   * carta mágica que o Mosqueteiro ativou (mesmo cardPositionsRef, ver
+   * applyMagicEffectPresentation em GameBoard.tsx), usada como origem real
+   * do tiro em vez de um ponto fixo fora da tela. Opcional só por segurança
+   * (a carta pode ter saído de cena antes da posição ser capturada) - sem
+   * ela, cai de volta pro comportamento antigo (borda esquerda da tela).
+   */
+  from?: { left: number; top: number; width: number; height: number };
 }
 
 const MUZZLE_COLOR = '#FFD76B';
@@ -44,23 +54,53 @@ const RICOCHET_ANGLES = [2.35, 2.85, 3.4, 3.9];
  * impacto DEPOIS do clarão principal, como fragmentos de verdade quicando
  * pra longe.
  */
-function SingleBulletImpact({ rect, delay = 0 }: { rect: BulletImpactSpec['rect']; delay?: number }) {
+function SingleBulletImpact({ rect, delay = 0, from }: { rect: BulletImpactSpec['rect']; delay?: number; from?: BulletImpactSpec['from'] }) {
   const targetX = rect.left + rect.width / 2;
   const targetY = rect.top + rect.height / 2;
-  const startX = -60;
-  const impactDelay = delay + 0.22;
+  const startX = from ? from.left + from.width / 2 : -60;
+  const startY = from ? from.top + from.height / 2 : targetY;
+  const deltaX = targetX - startX;
+  const deltaY = targetY - startY;
+  // FIX (pedido explícito do usuário: "projéteis visualmente indo em
+  // direção aos seus alvos") - com uma origem REAL (`from`, a própria carta
+  // mágica ativada, ver applyMagicEffectPresentation em GameBoard.tsx) a
+  // distância pode ser bem maior que os ~60px fixos de antes (carta na mão
+  // até o campo do oponente, por exemplo) - duração agora escala com a
+  // distância real (limitada nas duas pontas) em vez de sempre 0.22s fixo,
+  // senão um tiro de longa distância pareceria teleportar.
+  const distance = Math.hypot(deltaX, deltaY) || 1;
+  const travelDuration = from ? Math.min(0.4, Math.max(0.18, distance / 2200)) : 0.22;
+  const angleDeg = (Math.atan2(deltaY, deltaX) * 180) / Math.PI;
+  const impactDelay = delay + travelDuration;
   const ricochetDelay = impactDelay + 0.1;
 
   return (
     <>
-      {/* Trilha do projétil. */}
+      {/* Projétil viajando em linha reta da origem real até o alvo - o
+          próprio elemento animado só translada (x/y puros, mesma técnica seguraFlyingDiscardCard.tsx,
+          sem composição de rotate+translate ambígua); o capsule visual dentro
+          dele é ROTACIONADO de forma ESTÁTICA (não anima) pra já nascer
+          apontado na direção certa. */}
       <motion.div
-        className="fixed z-[94] pointer-events-none rounded-full"
-        style={{ top: targetY - 2, height: 3, backgroundColor: STEEL_COLOR, boxShadow: `0 0 10px ${STEEL_COLOR}, 0 0 4px #EFE7D6` }}
-        initial={{ left: startX, width: 0, opacity: 0 }}
-        animate={{ left: [startX, targetX - 26, targetX], width: [0, 34, 0], opacity: [0, 1, 1, 0] }}
-        transition={{ duration: 0.22, delay, ease: 'easeIn', times: [0, 0.75, 0.9, 1] }}
-      />
+        className="fixed z-[94] pointer-events-none"
+        style={{ left: startX, top: startY, width: 0, height: 0 }}
+        initial={{ x: 0, y: 0, opacity: 0 }}
+        animate={{ x: [0, deltaX], y: [0, deltaY], opacity: [0, 1, 1, 0] }}
+        transition={{ duration: travelDuration, delay, ease: 'easeIn', times: [0, 0.85, 1] }}
+      >
+        <div
+          className="absolute rounded-full"
+          style={{
+            width: 16,
+            height: 3,
+            left: 0,
+            top: 0,
+            transform: `translate(-50%, -50%) rotate(${angleDeg}deg)`,
+            backgroundColor: STEEL_COLOR,
+            boxShadow: `0 0 10px ${STEEL_COLOR}, 0 0 4px #EFE7D6`,
+          }}
+        />
+      </motion.div>
       {/* Flash de impacto - clarão amarelo-alaranjado (mesmo num tema cinza/aço, o flash de pólvora é sempre quente). */}
       <motion.div
         className="fixed z-[94] pointer-events-none rounded-full"
@@ -143,7 +183,7 @@ export function BulletImpactBurst({ specs }: { specs: BulletImpactSpec[] }) {
   return (
     <>
       {specs.map((spec) => (
-        <SingleBulletImpact key={spec.key} rect={spec.rect} delay={spec.delay} />
+        <SingleBulletImpact key={spec.key} rect={spec.rect} delay={spec.delay} from={spec.from} />
       ))}
     </>
   );
