@@ -514,7 +514,17 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // aqui pra qualquer rejeição (limite de horizontais, carta mágica
       // errada, etc.) também aparecer como um toast, agora bem visível.
       const isWarning = entry.type === 'warning';
-      const shouldToast = entry.type === 'magic' || entry.type === 'monster' || isNumeralSpellActivation || isWarning;
+      // FIX (pedido do usuário: "não é pra notificar quando o coringa
+      // transforma suas cartas em outros valores através da magia numeral")
+      // - handleTransformCoringaMagicCard (gameEngine.ts) registra cada
+      // transformação individual (Mão de Ferro) com `type: 'magic'` - sem
+      // esta exclusão, `entry.type === 'magic'` abaixo faria cada uma
+      // aparecer como toast, igual a uma ativação de magia de verdade.
+      // Texto único desta ação específica ("transformou X em uma carta de
+      // número Y") - nenhuma outra entrada 'magic' do jogo usa essa frase,
+      // então a exclusão não afeta nenhum outro personagem/efeito.
+      const isCoringaCardTransform = entry.type === 'magic' && entry.text.includes('transformou') && entry.text.includes('em uma carta de número');
+      const shouldToast = (entry.type === 'magic' || entry.type === 'monster' || isNumeralSpellActivation || isWarning) && !isCoringaCardTransform;
       if (!shouldToast) continue;
       const icon = getLogIcon(entry);
       const effectInfo = getLogEffectInfo(entry, (p) => (p === 1 ? player1Character : player2Character));
