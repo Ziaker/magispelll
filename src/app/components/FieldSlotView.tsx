@@ -166,6 +166,19 @@ interface FieldSlotViewProps {
   isCombatSelected: boolean;
   isMonsterTargetChoice: boolean;
   isEffectFlashing: boolean;
+  /**
+   * Piromante (personagem novo, pedido do usuário: "as magias do piromante
+   * mal tem efeitos visuais, especialmente quanto a cartas queimar") - ids
+   * das cartas HORIZONTAIS deste slot que acabaram de ser alvo de uma magia
+   * (ex.: Queima do Reforço, que sempre mira uma horizontal do oponente, e
+   * às vezes o Roubo Flamejante) - `isEffectFlashing` acima já cobre a carta
+   * PRINCIPAL/o slot inteiro, mas nunca cobria uma horizontal específica
+   * (que nem chegava a receber highlight nenhum antes deste FIX). Mesma
+   * lista (`effectFlashCardIds`) que PlayerZone.tsx já usa pra cartas na
+   * mão - GameBoard.tsx é a única fonte de verdade de quais ids estão
+   * "em chamas" agora.
+   */
+  effectFlashCardIds?: string[];
   protectedSlot: boolean;
   phase: 'draw' | 'strategy' | 'combat';
   onSlotClick: (playerNumber: 1 | 2, slotIndex: number) => void;
@@ -239,6 +252,7 @@ export function FieldSlotView({
   isShattering,
   isSmoking,
   isBurning,
+  effectFlashCardIds,
   doubledCardId,
   boostedCardId,
   boostAmount,
@@ -956,6 +970,14 @@ export function FieldSlotView({
                     front={<PlayingCard horizontal value={hCard.value} suit={hCard.suit} card={hCard} />}
                     back={<PlayingCard horizontal faceDown />}
                   />
+                  {/* Piromante (pedido do usuário: "as magias do piromante
+                      mal tem efeitos visuais, especialmente quanto a cartas
+                      queimar") - Queima do Reforço (e às vezes o Roubo
+                      Flamejante) sempre mira uma horizontal do CAMPO, não da
+                      mão - sem isto, essa carta não tinha NENHUM feedback
+                      visual ao ser queimada (effectFlashCardIds nunca
+                      chegava até aqui). */}
+                  <CharacterMagicBurst active={Boolean(effectFlashCardIds?.includes(hCard.id))} character={activeMagicCaster ?? 'mago'} />
                   {/* Fúria Selvagem da Besta mirando uma horizontal
                       específica (em vez da carta principal do slot).
                       FIX (pedido do usuário: "o X2 fica encima da carta

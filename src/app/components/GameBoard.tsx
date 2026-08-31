@@ -1043,7 +1043,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           // pelos handlers humanos: calcular alvo com o estado ATUAL, só
           // depois aplicar a mudança) - ver triggerAiActionEffects abaixo.
           triggerAiActionEffects(decision.action);
-          dispatch(decision.action);
+          dispatchMagicAction(decision.action);
         } else {
           dispatch({ type: 'TOGGLE_READY', player: ai });
         }
@@ -1452,12 +1452,42 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     }
   };
 
+  /**
+   * Piromante (personagem novo, pedido do usuário: "as magias do piromante
+   * mal tem efeitos visuais, especialmente quanto a cartas queimar") - as 3
+   * magias de efeito próprio (Combustão/Roubo Flamejante/Queima do Reforço)
+   * QUEIMAM uma carta e a removem de campo/mão no MESMO dispatch que
+   * dispara o flash (CharacterMagicBurst, ver applyMagicEffectPresentation).
+   * Como React já teria re-renderizado com a carta REMOVIDA do array (mão
+   * ou horizontalCards) antes do burst ter qualquer chance de aparecer, o
+   * elemento que hospedaria o CharacterMagicBurst nunca chega a montar com
+   * `active=true` - o fogo "queima uma carta que já não existe mais". Só as
+   * outras 3 magias do jogo que DESTROEM uma carta em vez de revelar/trocar
+   * (Destruição de Reforço do Mago) evitam esse problema porque miram um
+   * SLOT inteiro (container estável, sempre existe, só troca de conteúdo) -
+   * as 3 do Piromante miram uma CARTA específica (mão ou horizontal), cujo
+   * próprio container de fato desaparece. Por isso, só para essas 3 magias,
+   * o dispatch que aplica a mudança de verdade (removendo a carta) espera o
+   * tempo do próprio burst passar primeiro - a carta fica visível "pegando
+   * fogo" por um instante antes de sumir de vez. Lançamentos da Bola de Fogo
+   * (fireballLaunch) continuam imediatos - miram um slot (FireShatterBurst),
+   * sem esse problema.
+   */
+  const dispatchMagicAction = (action: GameAction) => {
+    const isPiromanteBurn = action.type === 'EXECUTE_MAGIC' && action.character === 'piromante' && !action.selection.fireballLaunch;
+    if (isPiromanteBurn) {
+      setTimeout(() => dispatch(action), delay(450));
+    } else {
+      dispatch(action);
+    }
+  };
+
   const executeMagicEffect = () => {
     if (!pendingMagic) return;
     const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch } = pendingMagic;
     const selection: MagicSelection = { selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch };
     applyMagicEffectPresentation(pendingMagic);
-    dispatch({ type: 'EXECUTE_MAGIC', player: playerNumber, cardId, character, magicType: type, selection });
+    dispatchMagicAction({ type: 'EXECUTE_MAGIC', player: playerNumber, cardId, character, magicType: type, selection });
     setPendingMagic(null);
   };
 
@@ -2160,6 +2190,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     onRemoveHorizontalCard={handleRemoveHorizontalCard}
                     monsterTargetSelection={pendingMonsterTarget}
                     effectFlashSlots={effectFlashSlots}
+                    effectFlashCardIds={effectFlashCardIds}
                     player1Ready={gameState.player1.readyForNextPhase}
                     player2Ready={gameState.player2.readyForNextPhase}
                     activeMagicCaster={activeMagicCaster}

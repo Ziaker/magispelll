@@ -61,6 +61,17 @@ interface BattleFieldProps {
    */
   effectFlashSlots?: Array<{ player: 1 | 2; slotIndex: number }>;
   /**
+   * Piromante (personagem novo, pedido do usuário: "as magias do piromante
+   * mal tem efeitos visuais, especialmente quanto a cartas queimar") -
+   * repassado direto pra FieldSlotView.tsx, que agora também usa esta
+   * mesma lista (já existente em GameBoard.tsx pra cartas na mão via
+   * PlayerZone.tsx) pra destacar uma carta HORIZONTAL específica do campo -
+   * `effectFlashSlots` acima só cobre o slot inteiro/a carta principal,
+   * nunca uma horizontal isolada (ver Queima do Reforço do Piromante, que
+   * sempre mira exatamente uma horizontal do oponente).
+   */
+  effectFlashCardIds?: string[];
+  /**
    * FIX (pedido do usuário, item 9): "luz ambiente na mesa que reage à cor
    * do personagem da vez" - a mesa (este container inteiro) ganha um brilho
    * ambiente na cor do personagem que AINDA NÃO está pronto (o jogador cuja
@@ -175,6 +186,7 @@ export function BattleField({
   onRemoveHorizontalCard,
   monsterTargetSelection,
   effectFlashSlots,
+  effectFlashCardIds,
   player1Ready = false,
   player2Ready = false,
   activeMagicCaster,
@@ -241,6 +253,7 @@ export function BattleField({
             isCombatSelected={combatSelection[`player${playerNumber}` as 'player1' | 'player2'] === i}
             isMonsterTargetChoice={monsterTargetSelection?.playerNumber === playerNumber}
             isEffectFlashing={Boolean(effectFlashSlots?.some((t) => t.player === playerNumber && t.slotIndex === i))}
+            effectFlashCardIds={effectFlashCardIds}
             protectedSlot={isSlotProtected(playerNumber, i)}
             phase={phase}
             onSlotClick={onSlotClick}
