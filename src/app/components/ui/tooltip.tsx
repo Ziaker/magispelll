@@ -1,0 +1,76 @@
+"use client";
+
+import * as React from "react";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+
+import { cn } from "./utils";
+
+function TooltipProvider({
+  delayDuration = 0,
+  ...props
+}: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
+  return (
+    <TooltipPrimitive.Provider
+      data-slot="tooltip-provider"
+      delayDuration={delayDuration}
+      {...props}
+    />
+  );
+}
+
+function Tooltip({
+  ...props
+}: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+  return (
+    <TooltipProvider>
+      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+    </TooltipProvider>
+  );
+}
+
+function TooltipTrigger({
+  ...props
+}: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
+  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+}
+
+function TooltipContent({
+  className,
+  sideOffset = 0,
+  children,
+  ...props
+}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+  // FIX (bug reaberto - "todos os tooltips do jogo estão mal posicionados e
+  // desorganizados"): a versão anterior forçava este Portal a nascer DENTRO
+  // do wrapper de GameBoard.tsx (`zoom: 0.85`) via `useZoomContainer()`, pra
+  // o tooltip herdar o zoom visualmente (senão nascia grande demais perto de
+  // uma carta pequena). Só que isso quebra o cálculo de posição do
+  // Radix/Floating UI (baseado em `getBoundingClientRect()`, que JÁ reporta
+  // a posição correta considerando qualquer zoom nos ancestrais) - com o
+  // tooltip portalizado DENTRO de mais uma camada de zoom, o Floating UI
+  // aplica a distância calculada NUMA escala e o navegador desenha o
+  // resultado NOUTRA, e o tooltip nasce dezenas/centenas de px longe do
+  // ícone/carta que o abriu (confirmado medindo a posição real do trigger
+  // vs. a posição real do tooltip renderizado - nunca bateram). Revertido
+  // pro Portal padrão do Radix (`document.body`, fora da árvore zoomada) -
+  // o tooltip nasce em tamanho real (não encolhido como o resto do
+  // tabuleiro), mas corretamente posicionado, o que importa muito mais.
+  return (
+    <TooltipPrimitive.Portal>
+      <TooltipPrimitive.Content
+        data-slot="tooltip-content"
+        sideOffset={sideOffset}
+        className={cn(
+          "bg-primary text-primary-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        <TooltipPrimitive.Arrow className="bg-primary fill-primary z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
+      </TooltipPrimitive.Content>
+    </TooltipPrimitive.Portal>
+  );
+}
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };

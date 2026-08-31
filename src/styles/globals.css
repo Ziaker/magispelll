@@ -1,0 +1,460 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800&display=swap');
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+  
+  /* Magispelll Custom Colors */
+  --bg-primary: #0F1113;
+  --bg-parchment: #1E1A16;
+  --accent-rune: #C59E4F;
+  --text-primary: #EFE7D6;
+  --text-secondary: #BFB6A6;
+  --error: #D45D4A;
+  --success: #6CC47A;
+  --line-separator: #8F6A30;
+  
+  /* Character Theme Colors */
+  --mago-primary: #4A90E2;
+  --mago-secondary: #2E5C8A;
+  --besta-primary: #E24A4A;
+  --besta-secondary: #8A2E2E;
+  --anjo-primary: #E2B84A;
+  --anjo-secondary: #8A742E;
+  
+  --background: #0F1113;
+  --foreground: #EFE7D6;
+  --card: #1E1A16;
+  --card-foreground: #EFE7D6;
+  --popover: #1E1A16;
+  --popover-foreground: #EFE7D6;
+  --primary: #C59E4F;
+  --primary-foreground: #0F1113;
+  --secondary: #8F6A30;
+  --secondary-foreground: #EFE7D6;
+  --muted: #2A2520;
+  --muted-foreground: #BFB6A6;
+  --accent: #C59E4F;
+  --accent-foreground: #0F1113;
+  --destructive: #D45D4A;
+  --destructive-foreground: #EFE7D6;
+  --border: rgba(143, 106, 48, 0.3);
+  --input: rgba(143, 106, 48, 0.3);
+  --input-background: #2A2520;
+  --switch-background: #8F6A30;
+  --font-weight-medium: 600;
+  --font-weight-normal: 400;
+  --ring: #C59E4F;
+  --chart-1: #C59E4F;
+  --chart-2: #8F6A30;
+  --chart-3: #6CC47A;
+  --chart-4: #D45D4A;
+  --chart-5: #BFB6A6;
+  --radius: 0.5rem;
+  
+  /* Typography sizes */
+  --text-h1: 56px;
+  --text-h2: 32px;
+  --text-h3: 24px;
+  --text-body: 16px;
+  --text-small: 14px;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: Georgia, 'Times New Roman', serif;
+  }
+  
+  .font-display {
+    font-family: 'Playfair Display', serif;
+  }
+}
+
+/**
+ * Base typography
+ */
+@layer base {
+  :where(:not(:has([class*=" text-"]), :not(:has([class^="text-"])))) {
+    h1 {
+      font-size: var(--text-h1);
+      font-weight: 700;
+      line-height: 1.2;
+      font-family: 'Playfair Display', serif;
+    }
+
+    h2 {
+      font-size: var(--text-h2);
+      font-weight: 600;
+      line-height: 1.3;
+      font-family: 'Playfair Display', serif;
+    }
+
+    h3 {
+      font-size: var(--text-h3);
+      font-weight: 600;
+      line-height: 1.4;
+      font-family: 'Playfair Display', serif;
+    }
+
+    h4 {
+      font-size: var(--text-body);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    p {
+      font-size: var(--text-body);
+      font-weight: var(--font-weight-normal);
+      line-height: 1.6;
+    }
+
+    label {
+      font-size: var(--text-body);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    button {
+      font-size: var(--text-body);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    input {
+      font-size: var(--text-body);
+      font-weight: var(--font-weight-normal);
+      line-height: 1.5;
+    }
+  }
+}
+
+html {
+  font-size: var(--font-size);
+}
+
+/* Magical animations */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes glow {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+@keyframes flip {
+  0% { transform: rotateY(0deg); }
+  100% { transform: rotateY(180deg); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+  20%, 40%, 60%, 80% { transform: translateX(2px); }
+}
+
+/* FIX (pedido do usuário, item 4; amplitude aumentada depois - "todos os
+   efeitos estão mt sutis"): "screen shake" ao perder uma vida - diferente do
+   `shake` acima (tremor sutil de 2px só no eixo X, usado na própria carta ao
+   rejeitar um posicionamento inválido), este sacode a TELA INTEIRA nos eixos
+   X e Y (e um leve `rotate`) com uma amplitude bem maior e decrescente, para
+   se sentir como o "peso" de um golpe decisivo, não só um aviso de erro. */
+/* FIX (pedido do usuário, item 1 - "zoom de câmera no impacto"): além do
+   tremor, um "soco" de zoom - a tela cresce rápido (scale > 1) nos
+   primeiros instantes, como um soco de câmera de jogo de luta, e volta a 1
+   junto com o resto do tremor terminando. `transform-origin: center` (ver
+   .animate-screen-shake abaixo) garante que o zoom cresce a partir do
+   centro da tela, não de um canto. */
+@keyframes screen-shake {
+  0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+  6% { transform: translate(-14px, 6px) rotate(-0.8deg) scale(1.045); }
+  10% { transform: translate(-18px, 10px) rotate(-1.2deg) scale(1.03); }
+  20% { transform: translate(16px, -14px) rotate(1deg) scale(1.015); }
+  30% { transform: translate(-15px, 12px) rotate(-1deg) scale(1.01); }
+  40% { transform: translate(13px, -10px) rotate(0.8deg) scale(1.005); }
+  50% { transform: translate(-10px, 9px) rotate(-0.6deg) scale(1); }
+  60% { transform: translate(8px, -6px) rotate(0.4deg) scale(1); }
+  70% { transform: translate(-5px, 4px) rotate(-0.3deg) scale(1); }
+  80% { transform: translate(3px, -2px) rotate(0.2deg) scale(1); }
+  90% { transform: translate(-1px, 1px) rotate(0deg) scale(1); }
+  100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+}
+
+.animate-screen-shake {
+  animation: screen-shake 0.65s ease-out;
+  transform-origin: center;
+}
+
+/* FIX (pedido do usuário, item 10): "brilho extra ao vencer 2 combates
+   seguidos" - pulso de brilho na cor do próprio personagem (`--glow-color`,
+   setada inline por PlayerZone.tsx com `theme.primary`), na borda/fundo da
+   zona inteira do jogador que acabou de fechar uma disputa. */
+@keyframes victory-glow-pulse {
+  0%, 100% { box-shadow: 0 0 0px 0px var(--glow-color, #C59E4F); }
+  50% { box-shadow: 0 0 45px 8px var(--glow-color, #C59E4F); }
+}
+
+.animate-victory-glow {
+  animation: victory-glow-pulse 0.9s ease-in-out infinite;
+}
+
+/* Modo Towers (pedido do usuário: "deixe visualmente mais destacado as
+   torres") - brilho pulsante permanente ao redor de qualquer slot que seja
+   uma torre - mais lento e suave que o victory-glow acima (não é um "grande
+   momento" pontual, é um estado contínuo enquanto a torre existir), pra
+   nunca cansar a vista numa partida inteira.
+   FIX (pedido do usuário, ideia "cor por tamanho"): a cor não é mais fixa -
+   lê das variáveis `--tower-glow-color-soft`/`-strong`, setadas inline por
+   FieldSlotView.tsx via `towerGlowColor()` (azul -> roxo -> dourado conforme
+   a torre cresce). O valor de fallback (o azul original) garante que nada
+   quebra se alguma torre antiga não passar as variáveis. */
+/* FIX (pedido do usuário: "arrume o desempenho do jogo ainda mais, tem
+   vários efeitos de carta que travam o jogo") - a versão original desta
+   animação interpolava o PRÓPRIO `box-shadow` (raio/espalhamento) a cada
+   frame - a mesma classe de custo já documentada e cortada em
+   ArenaMagicBurst.tsx ("box-shadow/filter: blur()/filter: drop-shadow() são
+   as mais caras de recompor a cada frame... exigem um passe de blur
+   completo do navegador"), só que ali o burst dura ~1-2s (um "momento"), e
+   aqui a torre pulsa CONTINUAMENTE (o jogo inteiro pode ter várias
+   simultâneas - até 6 slots, cada um com sua própria torre/status). Reescrita
+   pra nunca animar o valor do `box-shadow` em si: ele agora é FIXO (pintado
+   uma vez só) num pseudo-elemento `::before` próprio, e só a `opacity` DELE
+   pulsa - opacity (como transform) roda no compositor da GPU, sem repintar
+   nada a cada frame. O `::before` isolado (em vez de aplicar direto no
+   mesmo elemento que mostra a carta) também evita que o pulso dessa
+   "respirada" arraste a opacidade da carta em si junto. */
+@keyframes tower-glow-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.animate-tower-glow {
+  position: relative;
+}
+
+.animate-tower-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 22px 5px var(--tower-glow-color-strong, rgba(122, 167, 196, 0.85));
+  animation: tower-glow-pulse 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Modo Towers (pedido do usuário, ideia "partículas ambiente"): pequenas
+   fagulhas subindo e sumindo ao redor do slot, reforçando a sensação de uma
+   torre "viva"/mágica sem exigir olhar de perto pro selo/badge. Posição
+   horizontal e atraso de cada uma vêm de inline style (TOWER_PARTICLES em
+   FieldSlotView.tsx) - só a cor (var) e o movimento vertical vivem aqui. */
+@keyframes tower-particle-drift {
+  0% { transform: translateY(6px) scale(0.5); opacity: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 0.8; }
+  100% { transform: translateY(-52px) scale(1.1); opacity: 0; }
+}
+
+.tower-particle {
+  position: absolute;
+  bottom: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--tower-glow-color-strong, #7AA7C4);
+  box-shadow: 0 0 6px 1px var(--tower-glow-color-strong, #7AA7C4);
+  animation: tower-particle-drift 2.8s ease-in infinite;
+  pointer-events: none;
+}
+
+/* Modo Towers (pedido do usuário, ideia "animação de formação/reforço
+   maior"): um anel expande a partir do selo e desaparece - toca só UMA vez
+   quando `towerCardCount` aumenta (ver `flourish` em FieldSlotView.tsx),
+   diferente do glow acima que é contínuo. */
+@keyframes tower-flourish-ring {
+  0% { transform: scale(0.4); opacity: 1; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+.animate-tower-flourish {
+  animation: tower-flourish-ring 0.8s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+/* Modo Towers (pedido do usuário, ideia "textura diferente pras cartas
+   empilhadas"): hachurado sutil sobre as silhuetas em leque atrás do topo da
+   torre, pra elas lerem como uma pilha física distinta do verso de carta
+   normal (que é liso) mesmo a essa distância pequena. */
+/* Efeitos de status contínuos em cartas de campo (pedido do usuário: "mais
+   efeitos visuais nas magias... mais auras e efeitos como você fez nas
+   torres") - mesmo mecanismo do brilho/partículas de Torre acima
+   (`--tower-glow-color-*`/`.tower-particle`), só generalizado com um nome
+   próprio (`--status-color-*`/`.status-particle`) pra ficar claro que serve
+   pra QUALQUER efeito contínuo sobre uma carta (Fúria Selvagem da Besta
+   dobrando o valor, Ilusão Arcana do Mago reforçando, Proteção Divina do
+   Anjo), não só torres - cada um passa sua própria cor via essas variáveis
+   (ver FieldSlotView.tsx). */
+/* FIX (pedido do usuário: "arrume o desempenho do jogo ainda mais") - mesma
+   técnica do `.animate-tower-glow` acima: `box-shadow` fixo num `::before`
+   próprio, só a `opacity` dele pulsa (compositor, não repinta a cada
+   frame). Isolar num pseudo-elemento também evita "descontar" a opacidade
+   das partículas-filhas (`.status-particle`) que já animam a própria, já
+   que a opacidade de um elemento pai se multiplica pela dos filhos. */
+@keyframes status-aura-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Sem `position: relative` aqui (diferente das duas outras acima) - as 3
+   aplicações desta classe (FieldSlotView.tsx: aura da carta principal
+   dobrada/reforçada, aura da horizontal dobrada, placa de Proteção Divina)
+   já são `absolute` por conta própria - forçar `relative` aqui
+   sobrescreveria isso e quebraria o posicionamento (uma delas usa `inset-0`,
+   outra `-inset-3`, ambos dependem de ficar `absolute`). Um elemento
+   `position: absolute` já é um contexto de posicionamento válido pro
+   `::before` `absolute` abaixo, sem precisar de mais nada aqui. */
+.animate-status-aura::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 18px 4px var(--status-color-strong, rgba(212, 93, 74, 0.85));
+  animation: status-aura-pulse 1.7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes status-particle-drift {
+  0% { transform: translateY(6px) scale(0.5); opacity: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 0.8; }
+  100% { transform: translateY(-40px) scale(1.1); opacity: 0; }
+}
+
+.status-particle {
+  position: absolute;
+  bottom: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--status-color-strong, #D45D4A);
+  box-shadow: 0 0 5px 1px var(--status-color-strong, #D45D4A);
+  animation: status-particle-drift 2.3s ease-in infinite;
+  pointer-events: none;
+}
+
+.tower-reserve-texture {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(197, 158, 79, 0.22) 0px,
+    rgba(197, 158, 79, 0.22) 2px,
+    transparent 2px,
+    transparent 8px
+  );
+}
+
+/* QoL da mão (pedido do usuário, ideia "destaque temporário nova"): contorno
+   dourado suave pulsando algumas vezes na carta recém-comprada, pra lembrar
+   o que mudou na mão desde a última vez que o jogador olhou (ver
+   `newCardIds` em PlayerZone.tsx) - poucas iterações (não `infinite`) pra
+   naturalmente sumir sozinho mesmo se o timeout do JS que remove a classe
+   atrasar um pouco. */
+/* FIX (pedido do usuário: "arrume o desempenho do jogo ainda mais") - mesma
+   técnica das duas animações acima. Aqui importa ainda mais: a Fúria
+   Sanguinária da Besta troca a mão INTEIRA do oponente de uma vez (até 8
+   cartas "novas" simultâneas) - animar o `box-shadow` de verdade em 8
+   cartas ao mesmo tempo era exatamente o tipo de pico que fazia o jogo
+   travar por um instante logo depois desse efeito. */
+@keyframes new-card-glow-pulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+.animate-new-card-glow {
+  position: relative;
+}
+
+.animate-new-card-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 16px 3px rgba(197, 158, 79, 0.9);
+  animation: new-card-glow-pulse 1s ease-in-out 4;
+  pointer-events: none;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite;
+}
+
+.animate-flip {
+  animation: flip 0.3s ease-out;
+}
+
+/* Parchment texture effect */
+.parchment {
+  background: linear-gradient(135deg, #1E1A16 0%, #2A2520 100%);
+  position: relative;
+}
+
+.parchment::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: 
+    repeating-linear-gradient(90deg, rgba(197, 158, 79, 0.03) 0px, transparent 2px, transparent 4px),
+    repeating-linear-gradient(0deg, rgba(197, 158, 79, 0.03) 0px, transparent 2px, transparent 4px);
+  pointer-events: none;
+}
+
+/* Rune glow effect */
+.rune-glow {
+  box-shadow: 0 0 20px rgba(197, 158, 79, 0.3), 0 0 40px rgba(197, 158, 79, 0.1);
+}

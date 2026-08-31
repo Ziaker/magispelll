@@ -1,0 +1,168 @@
+Todos os arquivos .ogg desta pasta vêm dos pacotes de áudio da Kenney (https://kenney.nl):
+Casino Audio, Impact Sounds, Interface Sounds e Digital Audio.
+
+Licença: Creative Commons CC0 1.0 (domínio público) - uso livre, sem exigência de
+crédito, incluindo em projetos comerciais. Ver https://kenney.nl/assets (cada pacote
+lista "Creative Commons CC0" como licença).
+
+Arquivos originais renomeados para bater com os nomes usados em soundManager.ts:
+
+  card-play.ogg      <- Casino Audio / card-place-2.ogg
+  card-flip.ogg       <- Casino Audio / card-slide-1.ogg
+  combat-win.ogg      <- Impact Sounds / impactBell_heavy_002.ogg
+  combat-tie.ogg      <- Impact Sounds / impactSoft_medium_002.ogg
+  card-shatter.ogg    <- Impact Sounds / impactGlass_heavy_002.ogg
+  phase-change.ogg    <- Interface Sounds / switch_003.ogg
+  magic-activate.ogg  <- Digital Audio / zapTwoTone.ogg
+  ace-transform.ogg   <- Digital Audio / phaseJump3.ogg
+  victory.ogg         <- Digital Audio / powerUp12.ogg
+
+---
+
+FIX (pedido do usuário: "eu gostaria que o áudio fosse diferente para cada
+magia e para cada magia de personagem") - 8 sons novos (as 9 magias J/Q/K
+menos a Destruição de Reforço do Mago, que já usava card-shatter.ogg acima -
+ver soundManager.ts/GameBoard.tsx), de 2 fontes CC0 adicionais, ambas de
+https://opengameart.org (mesma licença CC0 1.0/domínio público, uso livre
+sem exigência de crédito):
+
+  "80 CC0 RPG SFX" por rubberduck (https://opengameart.org/content/80-cc0-rpg-sfx)
+  - tema Mago (relíquias/magia) e Besta (monstro/animal):
+
+    mago-j.ogg   <- spell_01.ogg
+    mago-q.ogg   <- metal_01.ogg
+    besta-j.ogg  <- creature_misc_01.ogg
+    besta-q.ogg  <- creature_monster_02.ogg
+    besta-k.ogg  <- creature_roar_01.ogg
+
+  "Bell dings/chimes" por PWL (https://opengameart.org/content/bell-dingschimes),
+  convertidos de .wav pra .ogg com ffmpeg - tema Anjo (mais próximo de "ópera"
+  disponível em bibliotecas CC0 de jogos é sino/carrilhão, não voz cantada):
+
+    anjo-j.ogg   <- bell_ding1.wav
+    anjo-q.ogg   <- bell_ding2.wav
+    anjo-k.ogg   <- bell_ding3.wav
+
+---
+
+FIX (pedido do usuário, Modo Reações: "som simples de alerta" para o
+contador de 3s de reação - ver soundManager.ts/reactions.ts) - 1 som novo,
+também de https://opengameart.org (mesma licença CC0 1.0/domínio público):
+
+  "Alert/Notification Sound" por frosty ham
+  (https://opengameart.org/content/alertnotification-sound), convertido de
+  .wav pra .ogg com ffmpeg:
+
+    reaction-alert.ogg  <- alert.wav
+
+---
+
+FIX (pedido do usuário: "checkout em todos sons do jogo... caso há sons
+faltando, adicione para tais personagens") - auditoria de todos os 17 sons
+existentes não achou nenhum arquivo corrompido/quebrado (todos decodificam
+normalmente via ffprobe), mas achou uma lacuna real: o efeito do Monstro
+(🃏) e a Magia Numeral de cada personagem tocavam todos o mesmo som
+genérico 'magic-activate' (zapTwoTone.ogg), sem distinção por personagem -
+diferente das 9 magias J/Q/K, que já tinham áudio próprio (ver acima). 6
+sons novos completam a mesma cobertura, de 3 fontes CC0 (2 já usadas acima):
+
+  "80 CC0 RPG SFX" por rubberduck (https://opengameart.org/content/80-cc0-rpg-sfx):
+
+    mago-monster.ogg   <- spell_02.ogg       (Ilusão Arcana)
+    mago-numeral.ogg   <- item_gem_02.ogg    (Visão Arcana)
+    besta-monster.ogg  <- creature_roar_02.ogg (Fúria Selvagem)
+    besta-numeral.ogg  <- creature_roar_03.ogg (Fúria Sanguinária)
+
+  "Bell dings/chimes" por PWL (https://opengameart.org/content/bell-dingschimes),
+  convertido de .wav pra .ogg com ffmpeg - o 4º e último sino da mesma
+  submissão que já forneceu anjo-j/q/k acima:
+
+    anjo-monster.ogg   <- bell_ding4.wav     (Proteção Divina)
+
+  "Digital Audio" da Kenney (https://kenney.nl/assets/digital-audio, mesma
+  licença CC0 já usada em magic-activate.ogg/ace-transform.ogg/victory.ogg
+  acima) - só restava 1 sino CC0 disponível para o Anjo (usado acima em
+  anjo-monster.ogg), então a Magia Numeral usa um tom ascendente deste
+  pacote em vez de outro sino:
+
+    anjo-numeral.ogg   <- Audio/highUp.ogg   (Benção Eterna)
+
+---
+
+Mosqueteiro (personagem novo, pedido do usuário: "sons de gatilho, de
+disparo e de manuseio") - 5 sons novos (Valete/Rainha/Rei + Monstro + Magia
+Numeral).
+
+FIX (pedido do usuário: "troque os sons do mosqueteiro, não são sons de
+armas de fogo, são sons de armas laser") - a 1ª versão usou variantes de
+"laser" da Kenney (tema sci-fi, não arma de fogo de verdade) para Valete/
+Rainha - substituídas por gravações reais de disparo, de 2 fontes CC0 do
+opengameart.org (aparadas com ffmpeg pra um único estampido limpo, já que os
+originais eram sequências de vários tiros gravados em uma faixa só):
+
+  "Gunshots" por Iwan Gabovitch (https://opengameart.org/content/gunshots,
+  CC0 1.0/domínio público):
+
+    mosqueteiro-j.ogg  <- Black Powder.wav (Tiro de Cobertura - estampido de
+                          pólvora negra, o mais próximo de um mosquete de
+                          verdade disponível em bibliotecas CC0)
+  "Gun reload sounds" por SpringySpringo
+  (https://opengameart.org/content/gun-reload-sounds, CC0):
+
+    numeral-mosqueteiro.ogg <- gunreload1.wav   (Munição Infinita)
+    monster-mosqueteiro.ogg <- shotguncock.wav  (Recarga Rápida - o som
+                                literal de recarregar/engatilhar uma arma)
+
+---
+
+FIX (pedido do usuário: "troque 2 sons do mosqueteiro por estes" - anexou 2
+arquivos próprios) - mosqueteiro-k.ogg e mosqueteiro-q.ogg (antes 22
+Pistol.wav/22 Magnum.wav do pack "Gunshots" acima) foram substituídos por 2
+arquivos fornecidos DIRETAMENTE pelo usuário (não vieram de nenhum dos packs
+CC0 listados neste arquivo - origem/licença de responsabilidade do usuário,
+que pediu explicitamente para usá-los neste projeto pessoal). Aparados com
+ffmpeg (o ricochete tinha ~1.3s de silêncio/ruído de sala no final; o tiro
+já vinha limpo, só ganhou um fade-out no final):
+
+    mosqueteiro-k.ogg  <- gunshotjbudden.mp3 (Tiro Certeiro - escolha do
+                          usuário entre as opções sugeridas)
+    mosqueteiro-q.ogg  <- ricochet-1.mp3     (Rajada Reveladora - escolha do
+                          usuário entre as opções sugeridas)
+
+---
+
+Coringa (personagem novo, foco em ilusão/blefe/palhaço) - 5 sons novos
+(Valete/Rainha/Rei + Monstro + Magia Numeral).
+
+Valete/Rainha/Rei vieram de 3 arquivos fornecidos DIRETAMENTE pelo usuário
+junto com o pedido de criação do personagem (mesmo caso de mosqueteiro-k/q
+acima - origem/licença de responsabilidade do usuário, uso em projeto
+pessoal). Aparados (silêncio nas pontas removido) e normalizados com ffmpeg;
+sonic-exe-laugh.mp3 também teve a capa/imagem embutida no mp3 removida (só
+o áudio foi mantido, sem faixa de vídeo):
+
+    coringa-j.ogg  <- jester-laughing.mp3   (Valete - Mão Leve, escolha do
+                       usuário entre as opções sugeridas)
+    coringa-q.ogg  <- 2-tlktbmuk-2.mp3      (Rainha - Disfarce, escolha do
+                       usuário entre as opções sugeridas)
+    coringa-k.ogg  <- sonic-exe-laugh.mp3   (Rei - Roubo de Papéis, escolha
+                       do usuário entre as opções sugeridas)
+
+Monstro e Magia Numeral não foram enviados pelo usuário ("faltam o som de
+magia numeral e monstro que você adiciona pesquisando") - pesquisados e
+baixados de 2 pacotes CC0 da Kenney (https://kenney.nl), escolhidos pelo
+tema de espetáculo/circo pedido para o personagem ("efeitos visuais: coisas
+relacionadas a palhaço, espetaculo e sorrisos"):
+
+  "Casino Audio" (https://kenney.nl/assets/casino-audio, mesmo pacote já
+  usado em card-play.ogg/card-flip.ogg acima) - um embaralhar de cartas
+  combina com a troca de identidade visual da habilidade:
+
+    coringa-monster.ogg  <- card-shuffle.ogg (Troca de Máscaras, aparado
+                             para ~1.8s com fade-out)
+
+  "Music Jingles" (https://kenney.nl/assets/music-jingles) - um jingle curto
+  de "acerto/vitória" combina com o momento dramático de virada de turno da
+  Grande Final:
+
+    coringa-numeral.ogg  <- Audio/Hit jingles/jingles_HIT10.ogg (Grande Final)
