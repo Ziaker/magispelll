@@ -10,7 +10,19 @@ export interface BulletImpactSpec {
 
 const MUZZLE_COLOR = '#FFD76B';
 const STEEL_COLOR = '#8C9199';
-const SPARK_ANGLES = [0, 1, 2, 3, 4, 5].map((i) => (i / 6) * Math.PI * 2);
+/** Laranja quente pros riscos de ricochete - distinto o bastante do amarelo do clarão e do cinza das faíscas pra não se confundir com nenhum dos dois. */
+const RICOCHET_COLOR = '#FF8C42';
+// FIX (pedido do usuário: "mais efeitos visuais de disparos e balas") - de 6
+// pra 12 faíscas, ângulos completos em vez de só 1/6 de volta cada.
+const SPARK_ANGLES = Array.from({ length: 12 }, (_, i) => (i / 12) * Math.PI * 2);
+// FIX (pedido do usuário: "algum efeito visual de ricochete") - 4 riscos de
+// ricochete, cada um num ângulo distinto dentro do semicírculo VOLTADO PRA
+// ORIGEM do tiro (esquerda) - pesquisado (ver fontes): um ricochete de
+// verdade reflete a direção de chegada pela normal da superfície atingida,
+// nunca "atravessa" na mesma direção do impacto - como o tiro sempre chega
+// da esquerda aqui (`startX` abaixo), os fragmentos espalham de volta pra
+// esquerda/cima/baixo, nunca continuando reto pra direita.
+const RICOCHET_ANGLES = [2.35, 2.85, 3.4, 3.9];
 
 /**
  * Uma única bala: uma trilha curta "voando" da borda esquerda da tela até a
@@ -18,12 +30,26 @@ const SPARK_ANGLES = [0, 1, 2, 3, 4, 5].map((i) => (i / 6) * Math.PI * 2);
  * chegada. Renderizado como `fixed`, posicionado por coordenadas de tela
  * (nunca precisa saber em qual componente/zona a carta-alvo realmente vive -
  * funciona igual pra carta na mão, no campo, ou na zona própria).
+ *
+ * FIX (pedido do usuário: "mais efeitos visuais de disparos e balas, algum
+ * efeito visual de ricochete, cace por assets"): pesquisado técnica de VFX
+ * de tiro/ricochete de referência (flash + faíscas circulares + fragmentos
+ * refletidos pela normal da superfície - ver fontes no PR) - mantido 100%
+ * código (Framer Motion), sem nenhum asset de imagem externo, consistente
+ * com o resto do jogo (nenhum efeito visual daqui usa imagem/sprite, só
+ * CSS/SVG/Framer Motion - ver CardShatterBurst.tsx/CoringaSmokeBurst.tsx).
+ * Reforçado em 3 frentes: (1) clarão de impacto maior e um pouco mais
+ * demorado; (2) o dobro de faíscas (6 -> 12); (3) NOVO - 4 riscos de
+ * ricochete (`RICOCHET_ANGLES`), um flash metálico curto que sai do ponto de
+ * impacto DEPOIS do clarão principal, como fragmentos de verdade quicando
+ * pra longe.
  */
 function SingleBulletImpact({ rect, delay = 0 }: { rect: BulletImpactSpec['rect']; delay?: number }) {
   const targetX = rect.left + rect.width / 2;
   const targetY = rect.top + rect.height / 2;
   const startX = -60;
   const impactDelay = delay + 0.22;
+  const ricochetDelay = impactDelay + 0.1;
 
   return (
     <>
@@ -40,8 +66,8 @@ function SingleBulletImpact({ rect, delay = 0 }: { rect: BulletImpactSpec['rect'
         className="fixed z-[94] pointer-events-none rounded-full"
         style={{ left: targetX, top: targetY, backgroundColor: MUZZLE_COLOR }}
         initial={{ x: '-50%', y: '-50%', width: 0, height: 0, opacity: 0 }}
-        animate={{ width: [0, 58, 16], height: [0, 58, 16], opacity: [0, 1, 0] }}
-        transition={{ duration: 0.32, delay: impactDelay, ease: 'easeOut' }}
+        animate={{ width: [0, 78, 20], height: [0, 78, 20], opacity: [0, 1, 0] }}
+        transition={{ duration: 0.36, delay: impactDelay, ease: 'easeOut' }}
       />
       {/* Faíscas metálicas se espalhando a partir do impacto. */}
       {SPARK_ANGLES.map((angle, idx) => (
@@ -58,6 +84,42 @@ function SingleBulletImpact({ rect, delay = 0 }: { rect: BulletImpactSpec['rect'
           transition={{ duration: 0.38, delay: impactDelay, ease: 'easeOut' }}
         />
       ))}
+      {/* Ricochete: fragmentos metálicos alongados (não faíscas redondas) quicando pra longe do impacto, um instante depois do clarão principal - o "estilhaçar" de verdade da bala batendo. */}
+      {RICOCHET_ANGLES.map((angle, idx) => {
+        const distance = 46 + idx * 10;
+        return (
+          <motion.div
+            key={idx}
+            className="fixed z-[94] pointer-events-none rounded-full"
+            style={{
+              left: targetX,
+              top: targetY,
+              width: 10 + (idx % 2) * 4,
+              height: 2,
+              backgroundColor: RICOCHET_COLOR,
+              boxShadow: `0 0 6px ${RICOCHET_COLOR}`,
+              transformOrigin: 'left center',
+              rotate: `${(angle * 180) / Math.PI}deg`,
+            }}
+            initial={{ x: '-50%', y: '-50%', scaleX: 0, opacity: 0 }}
+            animate={{
+              x: [
+                '-50%',
+                `calc(-50% + ${Math.cos(angle) * distance * 0.5}px)`,
+                `calc(-50% + ${Math.cos(angle) * distance}px)`,
+              ],
+              y: [
+                '-50%',
+                `calc(-50% + ${Math.sin(angle) * distance * 0.5}px)`,
+                `calc(-50% + ${Math.sin(angle) * distance}px)`,
+              ],
+              scaleX: [0, 1, 0.4],
+              opacity: [0, 1, 0],
+            }}
+            transition={{ duration: 0.3, delay: ricochetDelay, ease: 'easeOut' }}
+          />
+        );
+      })}
     </>
   );
 }
