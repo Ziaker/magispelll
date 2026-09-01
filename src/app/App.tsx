@@ -27,12 +27,12 @@ import { Splash } from './components/Splash';
 import { Home } from './components/Home';
 import { GameConfig } from './components/GameConfig';
 import type { GameConfig as GameConfigType } from './lib/gameConfig';
-import { DEFAULT_GAME_CONFIG } from './lib/gameConfig';
 import { CharacterSelection } from './components/CharacterSelection';
 import { Rules } from './components/Rules';
 import { CharactersList } from './components/CharactersList';
 import { CharacterSheet } from './components/CharacterSheet';
 import { Settings } from './components/Settings';
+import { DebugPanel } from './components/DebugPanel';
 import { SettingsProvider } from './context/SettingsContext';
 
 // FIX (pedido do usuário: "itens de performance") - GameBoard.tsx sozinho
@@ -58,7 +58,8 @@ type Screen =
   | 'rules'               // Regras completas do jogo
   | 'characters'          // Lista de personagens disponíveis
   | 'character-sheet'     // Ficha detalhada de um personagem
-  | 'settings';           // Configurações do jogo
+  | 'settings'            // Configurações do jogo
+  | 'debug';              // Modo debug/playtest (semi-escondido, ver DebugPanel.tsx)
 
 export default function App() {
   // ===== ESTADOS PRINCIPAIS =====
@@ -146,27 +147,19 @@ export default function App() {
   };
 
   /**
-   * Modo de debug/playtest (pedido do usuário: "crie um modo de debug ou
-   * playtest semi-escondido no menu principal que vai ser usado por você pra
-   * testar as coisas") - pula direto pra uma partida jogável (Contra a IA,
-   * todas as variantes ligadas, Coringa vs Mago) sem passar pelas telas de
-   * Configuração/Seleção de Personagem - eliminam os ~8-10 cliques repetidos
-   * que cada rodada de teste manual exigia até aqui. `player1`/`player2` são
-   * fixos de propósito (não é um formulário) - o objetivo é velocidade pra
-   * testar, não flexibilidade; ajuste os valores aqui mesmo se precisar
-   * testar outra combinação específica de personagens/variantes.
+   * Modo de debug/playtest (pedido do usuário original: "crie um modo de
+   * debug ou playtest semi-escondido no menu principal que vai ser usado por
+   * você pra testar as coisas"; depois: "quero que faça um debug mode melhor
+   * pra você testar as coisas mais rápido, leve tudo em consideração") -
+   * pula direto pras telas de Configuração/Seleção de Personagem, indo pro
+   * DebugPanel.tsx (personagens + modo + variantes escolhidos ali, não mais
+   * fixos em Coringa vs Mago). `handleDebugStart` recebe a escolha já pronta
+   * do painel e vai direto pra 'game', igual o fluxo normal fazia depois de
+   * character-selection.
    */
-  const handleDebugQuickStart = () => {
-    setGameConfig({
-      ...DEFAULT_GAME_CONFIG,
-      mode: 'vsAI',
-      monsterCards: true,
-      fusion: true,
-      towersMode: false,
-      spotlightMode: false,
-      reactionsMode: false,
-    });
-    setSelectedCharacters({ player1: 'coringa', player2: 'mago' });
+  const handleDebugStart = (player1: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa', player2: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa', config: GameConfigType) => {
+    setGameConfig(config);
+    setSelectedCharacters({ player1, player2 });
     setCurrentScreen('game');
   };
 
@@ -198,7 +191,7 @@ export default function App() {
             onRules={() => setCurrentScreen('rules')}
             onCharacters={() => setCurrentScreen('characters')}
             onSettings={() => setCurrentScreen('settings')}
-            onDebugStart={handleDebugQuickStart}
+            onDebugStart={() => setCurrentScreen('debug')}
           />
         );
 
@@ -282,6 +275,10 @@ export default function App() {
       // CONFIGURAÇÕES
       case 'settings':
         return <Settings onBack={() => setCurrentScreen('home')} />;
+
+      // MODO DEBUG/PLAYTEST (semi-escondido, ver DebugPanel.tsx)
+      case 'debug':
+        return <DebugPanel onBack={() => setCurrentScreen('home')} onStart={handleDebugStart} />;
 
       // Fallback: não deveria acontecer
       default:

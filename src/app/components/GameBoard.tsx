@@ -79,6 +79,7 @@ import {
   isCoringaRawTrapCard,
   type CharacterId,
   type GameAction,
+  type GameState,
   type MagicSelection,
   type PlayerNumber,
 } from '../lib/gameEngine';
@@ -122,7 +123,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     () => createInitialState(player1Character, player2Character, gameConfig)
   );
 
-  const { settings } = useSettings();
+  const { settings, updateSetting } = useSettings();
   const animScale = getAnimationDurationScale(settings);
   // FIX (checagem extensa por bugs): `animScale || 0.35` tratava o `0`
   // devolvido de propósito por getAnimationDurationScale (settings.ts:
@@ -165,6 +166,151 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     if (showPhaseTransition) return;
     rawDispatch(action);
   };
+  /**
+   * Modo de debug/playtest (pedido do usuário: "debug mode melhor pra você
+   * testar as coisas mais rápido, leve tudo em consideração") - expõe o
+   * estado ao vivo e formas de mexer nele direto pelo console do navegador,
+   * sem precisar clicar/jogar manualmente até alcançar um cenário específico.
+   * SÓ em dev (`import.meta.env.DEV`, estaticamente `false` num build de
+   * produção - o Vite elimina este bloco inteiro do bundle final, nunca
+   * chega a rodar em produção):
+   *   window.__debug.state            -> GameState atual (sempre em dia)
+   *   window.__debug.dispatch(action) -> despacha qualquer GameAction, MESMO
+   *     caminho de uma ação real (respeita o guard de showPhaseTransition acima)
+   *   window.__debug.forceState(state) -> substitui o estado INTEIRO na hora
+   *     (via a ação 'DEBUG_FORCE_STATE', ver o topo de gameReducer em
+   *     gameEngine.ts) - ignora até o guard de transição de fase, pra nunca
+   *     ficar preso esperando um popup fechar. Ideal pra montar cenários
+   *     exatos (cartas específicas na mão/campo, combate a 1 disputa de
+   *     fechar etc.) sem depender de RNG - pegue `window.__debug.state`,
+   *     edite os campos que precisar (imutável - construa um objeto novo) e
+   *     chame `forceState` com o resultado.
+   *   window.__debug.fastForward(maxSteps?, opts?) -> roda até `maxSteps`
+   *     (padrão 200, teto de segurança 5000) decisões de IA PURAMENTE em
+   *     memória (mesmo laço de scripts/sanity-test.ts/simulateAiVsAiGame,
+   *     sem nenhum timer real nem efeito visual no meio do caminho) e só
+   *     então aplica o resultado final via forceState de uma vez - pula
+   *     turnos inteiros instantaneamente em vez de esperar o `delay()` de
+   *     "pensando" de cada ação real. Usa decisão de IA pros DOIS lados,
+   *     mesmo fora do Modo Espectador (é uma ferramenta de avançar o estado,
+   *     não uma mudança de quem controla o quê). Devolve
+   *     `{ steps, stuck, rejectedActions, gameOver }` - `rejectedActions.length
+   *     > 0` sinaliza a MESMA situação que scripts/sanity-test.ts detecta (a
+   *     IA propôs algo que o motor recusou em silêncio - útil pra achar
+   *     regressões sem precisar do CLI). PAUSA a partida ao terminar por
+   *     padrão (`opts.stayRunning: true` pra não pausar) - o Modo Espectador
+   *     despacha ações reais em TEMPO REAL o tempo todo (ver o polling mais
+   *     abaixo), então sem pausar, o resultado calculado aqui ficaria
+   *     competindo com esse polling entre uma chamada e outra do console
+   *     (2 chamadas de fastForward em sequência levam segundos reais de ida
+   *     e volta - tempo de sobra pro polling normal já ter avançado mais
+   *     coisa por baixo). Ver pause()/resume() abaixo pra controlar isso
+   *     manualmente fora de fastForward também.
+   *   window.__debug.pause() / .resume() -> força `paused` pro valor exato
+   *     (não é um toggle - mais previsível que despachar TOGGLE_PAUSE às
+   *     cegas sem saber o estado atual). Use antes de inspecionar o estado
+   *     com calma sem o Modo Espectador mudando as coisas por baixo.
+   *   window.__debug.restart() -> reembaralha uma partida NOVA (mesmos
+   *     personagens/config desta) instantaneamente, sem passar pelo Menu
+   *     Principal/DebugPanel de novo - útil pra tentar reproduzir um bug
+   *     não-determinístico repetidas vezes (ver fastForward acima) sem sair
+   *     da tela.
+   *   window.__debug.setAnimationsEnabled(bool) -> atalho pro mesmo switch
+   *     "Animações" de Configurações (settings.ts) - desligado, todo popup/
+   *     transição vira efetivamente instantâneo (ver getAnimationDurationScale),
+   *     o que também acelera bastante o "pensando..." de cada ação real da
+   *     IA (não só o fastForward acima, que já ignora isso by design).
+   *   window.__debug.characters -> { player1, player2 } desta partida
+   */
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const fastForward = (maxSteps = 200, options?: { stayRunning?: boolean }) => {
+      const cappedMaxSteps = Math.min(Math.max(1, maxSteps), 5000);
+      let state = gameState;
+      let steps = 0;
+      let stuck = false;
+      const rejectedActions: Array<{ step: number; player: PlayerNumber; action: GameAction }> = [];
+
+      while (!state.gameOver && steps < cappedMaxSteps) {
+        steps++;
+        if (state.numeralSpellPending) {
+          state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
+          continue;
+        }
+        if (state.pendingReaction) {
+          const reactor = opponentOf(state.pendingReaction.casterPlayer);
+          const reaction = decideReactionToMagic(state, reactor);
+          state = gameReducer(state, reaction ?? { type: 'RESOLVE_PENDING_REACTION' });
+          continue;
+        }
+        if (state.combatResolution) {
+          state = gameReducer(state, { type: 'FINALIZE_COMBAT' });
+          continue;
+        }
+        if (state.combatSelection.player1 !== undefined && state.combatSelection.player2 !== undefined) {
+          state = gameReducer(state, { type: 'RESOLVE_COMBAT' });
+          continue;
+        }
+
+        const order: PlayerNumber[] = steps % 2 === 0 ? [1, 2] : [2, 1];
+        let actedThisStep = false;
+        for (const p of order) {
+          const decision = decideAiAction(state, p);
+          if (decision.type === 'action') {
+            const prevState = state;
+            state = gameReducer(state, decision.action);
+            if (state === prevState) rejectedActions.push({ step: steps, player: p, action: decision.action });
+            actedThisStep = true;
+            break;
+          } else if (decision.type === 'ready') {
+            if (!state[playerKeyOf(p)].readyForNextPhase) {
+              const prevState = state;
+              state = gameReducer(state, { type: 'TOGGLE_READY', player: p });
+              if (state === prevState) rejectedActions.push({ step: steps, player: p, action: { type: 'TOGGLE_READY', player: p } });
+              actedThisStep = true;
+              break;
+            }
+          }
+        }
+        if (!actedThisStep) {
+          stuck = true;
+          break;
+        }
+      }
+
+      // FIX (corrida real encontrada testando isto ao vivo): o Modo
+      // Espectador despacha ações de IA em TEMPO REAL (timers de "pensando",
+      // ver o useEffect de polling logo abaixo) o tempo todo, mesmo enquanto
+      // uma chamada a fastForward está em andamento no console - cada
+      // chamada via javascript_tool leva segundos reais de ida e volta, e
+      // nesse intervalo o polling normal continua rodando por baixo,
+      // competindo com o resultado que acabamos de calcular aqui. Por
+      // padrão, fastForward agora PAUSA a partida ao terminar (o polling já
+      // respeita `gameState.paused`, ver o guard logo no início daquele
+      // useEffect) - assim o estado fica parado, exatamente como calculado,
+      // até uma chamada explícita a resume()/fastForward de novo. Passe
+      // `{ stayRunning: true }` pra manter a partida rodando em tempo real
+      // depois do salto (ex.: só quis pular o início do jogo e agora quer
+      // assistir o resto acontecer sozinho).
+      rawDispatch({ type: 'DEBUG_FORCE_STATE', state: options?.stayRunning ? state : { ...state, paused: true } });
+      return { steps, stuck, rejectedActions, gameOver: state.gameOver };
+    };
+
+    (window as unknown as { __debug: unknown }).__debug = {
+      state: gameState,
+      dispatch,
+      forceState: (state: GameState) => rawDispatch({ type: 'DEBUG_FORCE_STATE', state }),
+      fastForward,
+      // Pausa/retoma DIRETO pro valor pedido (não um toggle - mais previsível
+      // que despachar TOGGLE_PAUSE às cegas do console sem saber o estado atual).
+      pause: () => rawDispatch({ type: 'DEBUG_FORCE_STATE', state: { ...gameState, paused: true } }),
+      resume: () => rawDispatch({ type: 'DEBUG_FORCE_STATE', state: { ...gameState, paused: false } }),
+      restart: () => rawDispatch({ type: 'DEBUG_FORCE_STATE', state: createInitialState(player1Character, player2Character, gameConfig) }),
+      setAnimationsEnabled: (enabled: boolean) => updateSetting('animations', enabled),
+      characters: { player1: player1Character, player2: player2Character },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState]);
   const [showCombatResult, setShowCombatResult] = useState(false);
   /**
    * FIX (pedido do usuário: "remova todas alterações anteriores visuais das

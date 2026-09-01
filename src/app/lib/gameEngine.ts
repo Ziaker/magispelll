@@ -536,7 +536,16 @@ export type GameAction =
   | { type: 'FINALIZE_COMBAT' }
   | { type: 'TOGGLE_READY'; player: PlayerNumber }
   | { type: 'TOGGLE_PAUSE' }
-  | { type: 'REMATCH' };
+  | { type: 'REMATCH' }
+  // Modo de debug/playtest (pedido do usuário: "debug mode melhor pra você
+  // testar as coisas mais rápido") - substitui o estado INTEIRO pelo
+  // fornecido, sem passar por nenhum handler/validação (é um passthrough
+  // puro, ver o topo de gameReducer). Nunca despachada pela UI normal nem
+  // pela IA - só existe pra `window.__debug.forceState(...)` (ver GameBoard.tsx,
+  // exposto apenas em dev) montar cenários exatos (ex.: mão cheia de
+  // armadilhas do Coringa, combate prestes a fechar disputa) sem precisar
+  // clicar/jogar até chegar lá manualmente.
+  | { type: 'DEBUG_FORCE_STATE'; state: GameState };
 
 // ============================================================================
 // Helpers puros
@@ -821,8 +830,22 @@ function applyCoringaTrapReaction(
   const slot = ownerState.field[slotIndex];
   const newField = [...ownerState.field] as [FieldSlot, FieldSlot, FieldSlot];
 
+  // FIX (bug real encontrado por simulação IA vs IA - conservação de cartas):
+  // uma carta horizontal empilhada sobre a carta PRINCIPAL do slot (ex.: um
+  // reforço qualquer colocado em cima da Rainha/Rei/Monstro armadilha do
+  // Coringa) não tinha pra onde ir quando `kind === 'main'` - `removeFromField`
+  // só limpava `faceDownCard`, deixando `horizontalCards` intacto no slot,
+  // um slot "órfão" (mesmo estado inconsistente que o comentário de
+  // handleReturnCardToHand já alertava). Como `canActivateNumeralSpell` só
+  // olha `faceDownCard` pra decidir se o campo está "vazio", esse slot órfão
+  // passava despercebido - e a Magia Numeral seguinte sobrescrevia o campo
+  // inteiro (`field: newField`), descartando a carta horizontal órfã sem
+  // nunca a mandar pra mão/descarte, sumindo do jogo de vez. Agora qualquer
+  // horizontal presente é devolvida pra mão do dono junto com a reação
+  // (mesmo destino de handleReturnCardToHand), nunca deixada pra trás.
+  const orphanedHorizontal = kind === 'main' ? slot.horizontalCards : [];
   const removeFromField = (): FieldSlot => {
-    if (kind === 'main') return { ...slot, faceDownCard: undefined, revealed: false };
+    if (kind === 'main') return { ...slot, faceDownCard: undefined, revealed: false, horizontalCards: [] };
     return { ...slot, horizontalCards: slot.horizontalCards.filter((c) => c.id !== card.id) };
   };
 
@@ -849,14 +872,14 @@ function applyCoringaTrapReaction(
       deck: remaining,
       discardPile: ensuredDiscard,
       log,
-      [ownerKey]: { ...ownerState, field: newField, hand: [...ownerState.hand, ...drawn] },
+      [ownerKey]: { ...ownerState, field: newField, hand: [...ownerState.hand, ...orphanedHorizontal, ...drawn] },
     };
   }
 
   if (card.value === 'Q' || card.isMonster) {
     newField[slotIndex] = removeFromField();
     const returnedCard: Card = { ...card, revealed: false };
-    const newHand = shuffle([...ownerState.hand, returnedCard]);
+    const newHand = shuffle([...ownerState.hand, returnedCard, ...orphanedHorizontal]);
     const label = card.value === 'Q' ? 'A Rainha armadilha' : 'O Monstro';
     const log = appendLog(
       state,
@@ -893,7 +916,13 @@ function applyCoringaTrapReaction(
       aceIndex = aceDeck.findIndex((c) => c.value === 'A');
     }
     if (aceIndex === -1 || ownerState.hand.length >= ownerState.handLimit) {
-      return { ...state, deck: aceDeck, discardPile: aceDiscard, log, [ownerKey]: { ...ownerState, field: newField } };
+      return {
+        ...state,
+        deck: aceDeck,
+        discardPile: aceDiscard,
+        log,
+        [ownerKey]: { ...ownerState, field: newField, hand: [...ownerState.hand, ...orphanedHorizontal] },
+      };
     }
     const ace = aceDeck[aceIndex];
     const remainingDeck = [...aceDeck.slice(0, aceIndex), ...aceDeck.slice(aceIndex + 1)];
@@ -903,7 +932,7 @@ function applyCoringaTrapReaction(
       deck: remainingDeck,
       discardPile: aceDiscard,
       log,
-      [ownerKey]: { ...ownerState, field: newField, hand: [...ownerState.hand, ace] },
+      [ownerKey]: { ...ownerState, field: newField, hand: [...ownerState.hand, ...orphanedHorizontal, ace] },
     };
   }
 
@@ -1141,6 +1170,12 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
 // ============================================================================
 
 export function gameReducer(state: GameState, action: GameAction): GameState {
+  // Modo de debug - passthrough puro, ANTES de qualquer guard de fase/janela
+  // pendente abaixo (numeralSpellPending, pendingReaction etc.) de propósito:
+  // um cenário de debug precisa poder substituir o estado mesmo no meio de
+  // uma dessas janelas, não só entre elas. Ver comentário completo no tipo
+  // 'DEBUG_FORCE_STATE' (definição de GameAction, acima).
+  if (action.type === 'DEBUG_FORCE_STATE') return action.state;
   // FIX (pedido do usuário: "re-corrija o problema da besta dar softlock no
   // jogo quando faz a Magia Numeral") - handleToggleReady já bloqueava a SI
   // MESMA durante a janela de ~3s entre ativar uma Magia Numeral e

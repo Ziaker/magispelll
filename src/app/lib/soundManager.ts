@@ -7,6 +7,7 @@
  * resolva o hash/URL final do build automaticamente - o mesmo padrão que
  * qualquer outro asset estático do projeto.
  */
+import { Howl } from 'howler';
 import type { Settings } from './settings';
 import cardPlaySrc from '../../assets/sfx/card-play.ogg';
 import cardFlipSrc from '../../assets/sfx/card-flip.ogg';
@@ -203,19 +204,36 @@ export function numeralSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosquete
 
 class SoundManager {
   private settings: Settings | null = null;
+  // FIX (pedido do usuário: adicionar Howler.js) - antes cada play() criava um
+  // `new Audio(src)` do zero, que o navegador precisa buscar+decodificar de
+  // novo a cada chamada. Howler decodifica uma vez por som (Web Audio API por
+  // baixo, com fallback automático pra <audio> quando indisponível) e reusa
+  // esse buffer pra qualquer disparo seguinte - inclusive sobrepostos (o
+  // mesmo som tocando 2x rápido, ex.: duas cartas viradas quase juntas),
+  // que `.play()` do Howler já suporta nativamente por instância.
+  private readonly howls = new Map<SoundEffectName, Howl>();
 
   configure(settings: Settings) {
     this.settings = settings;
   }
 
+  private getHowl(name: SoundEffectName): Howl | null {
+    const cached = this.howls.get(name);
+    if (cached) return cached;
+    const src = SOUND_SOURCES[name];
+    if (!src) return null;
+    const howl = new Howl({ src: [src] });
+    this.howls.set(name, howl);
+    return howl;
+  }
+
   play(name: SoundEffectName) {
     if (!this.settings?.soundEffects) return;
-    const src = SOUND_SOURCES[name];
-    if (!src || typeof Audio === 'undefined') return;
+    const howl = this.getHowl(name);
+    if (!howl) return;
     try {
-      const audio = new Audio(src);
-      audio.volume = Math.max(0, Math.min(100, this.settings.volume)) / 100;
-      void audio.play();
+      const id = howl.play();
+      howl.volume(Math.max(0, Math.min(100, this.settings.volume)) / 100, id);
     } catch {
       // Reprodução de áudio pode falhar por política do navegador (precisa de
       // interação do usuário) - falha silenciosamente, nunca quebra o jogo.
