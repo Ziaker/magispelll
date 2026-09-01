@@ -293,6 +293,17 @@ export function canActivateMagic(
   ctx: MagicActivationContext = {}
 ): boolean {
   const info = getMagicCardInfo(character, cardValue);
+  // Piromante (pedido do usuário: "os segundos efeitos de todas magias do
+  // piromante (de lançar a bola de fogo) só podem ser ativados na fase de
+  // combate"): o LANÇAMENTO é sempre uma jogada de Combate, nas 3 magias.
+  // Como o efeito PRÓPRIO de cada uma vive em fases diferentes (J na Compra,
+  // Q na Estratégia, K no Combate), cada carta ganha aqui uma janela extra no
+  // Combate exclusivamente pra lançar - sem isso, "lançar" seria uma opção
+  // impossível para J e Q, que nem chegam a ser ativáveis nessa fase. O
+  // efeito próprio continua restrito à fase da própria carta (guardado em
+  // handleExecuteMagic), e o lançamento em si é bloqueado fora do Combate
+  // por executeFireballLaunch - `ctx.canLaunchFireball` já embute a fase.
+  if (character === 'piromante' && phase === 'combat' && (ctx.canLaunchFireball ?? false)) return true;
   if (info.phase !== phase) return false;
 
   // Besta J (Recuperação Selvagem): precisa de ao menos 2 cartas NUMERAIS

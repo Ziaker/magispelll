@@ -1482,7 +1482,22 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       return;
     }
 
-    setPendingMagic({ playerNumber, cardId, type: magicType, character, selectedCards: [] });
+    // Piromante (pedido do usuário: lançar a Bola de Fogo é jogada de
+    // Combate): fora da fase do efeito próprio da carta, a ÚNICA coisa que
+    // essa ativação pode fazer é lançar - então o diálogo já abre com o
+    // lançamento escolhido, em vez de abrir no efeito próprio (desabilitado)
+    // e exigir um clique extra que, esquecido, viraria um Confirmar que o
+    // motor recusa em silêncio.
+    const opensAsFireballLaunch =
+      character === 'piromante' && gameState.phase !== getMagicCardInfo('piromante', magicType).phase;
+    setPendingMagic({
+      playerNumber,
+      cardId,
+      type: magicType,
+      character,
+      selectedCards: [],
+      ...(opensAsFireballLaunch ? { fireballLaunch: true } : {}),
+    });
   };
 
   // FIX (item 5 da 4ª rodada, cobertura completada no item 8 da 6ª): calcula
@@ -3532,12 +3547,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     const cap = getFireballCap(gameConfig);
                     const fireballValue = gameState[ownKey].fireballValue;
                     const spreadArmed = gameState[ownKey].piromanteSpreadArmed;
+                    // O efeito próprio de cada magia continua preso à fase da
+                    // própria carta (J na Compra, Q na Estratégia, K no
+                    // Combate) - no Combate, uma J/Q só pode LANÇAR (ver
+                    // canActivateMagic/handleExecuteMagic). Sem esta checagem
+                    // de fase o botão aparecia habilitado e o Confirmar era
+                    // recusado em silêncio pelo motor.
                     const ownEffectAvailable =
-                      pendingMagic.type === 'J'
+                      gameState.phase === getMagicCardInfo('piromante', pendingMagic.type).phase &&
+                      (pendingMagic.type === 'J'
                         ? Boolean(ctx.hasFireFuelInHand)
                         : pendingMagic.type === 'Q'
                           ? Boolean(ctx.hasRevealedBurnableOpponentCard)
-                          : Boolean(ctx.hasUnbattledHorizontalCardsInOpponentFieldForBurn);
+                          : Boolean(ctx.hasUnbattledHorizontalCardsInOpponentFieldForBurn));
                     const launchAvailable = Boolean(ctx.canLaunchFireball);
                     const isLaunch = Boolean(pendingMagic.fireballLaunch);
 

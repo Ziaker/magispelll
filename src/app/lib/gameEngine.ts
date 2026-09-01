@@ -1271,7 +1271,15 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
     hasUnbattledHorizontalCardsInOpponentFieldForBurn: getUnbattledHorizontalSlots(opponentState.field).some(
       (i) => !isSlotProtected(state, opponent, i)
     ),
-    canLaunchFireball: playerState.fireballValue > 0 && opponentState.field.some((slot) => Boolean(slot.faceDownCard) || slot.horizontalCards.length > 0),
+    // FIX (pedido do usuário): o lançamento da Bola de Fogo é uma jogada de
+    // COMBATE - fora dessa fase a opção nem aparece no diálogo (ver
+    // `launchAvailable` em GameBoard.tsx) e `canActivateMagic` não considera
+    // mais "posso lançar" como motivo pra liberar a magia. O bloqueio de
+    // verdade fica em executeFireballLaunch (nunca confiar só na UI).
+    canLaunchFireball:
+      state.phase === 'combat' &&
+      playerState.fireballValue > 0 &&
+      opponentState.field.some((slot) => Boolean(slot.faceDownCard) || slot.horizontalCards.length > 0),
   };
 }
 
@@ -2187,6 +2195,15 @@ export function getFireballCap(gameConfig: GameConfig): number {
  * jeito (o "tiro" foi dado, o alvo é que resistiu).
  */
 function executeFireballLaunch(state: GameState, player: PlayerNumber, targetSlot: number | undefined): GameState {
+  // FIX (pedido do usuário, repetido: "os segundos efeitos de todas magias do
+  // piromante (de lançar a bola de fogo) só podem ser ativados na fase de
+  // combate") - guard no MOTOR, não só na UI: `canLaunchFireball`
+  // (getMagicActivationContext) já esconde a opção fora do Combate, mas quem
+  // decide de verdade é aqui, no único ponto por onde os 3 lançamentos
+  // (J/Q/K) passam - assim nenhuma outra porta de entrada (IA, um diálogo que
+  // ficou aberto atravessando a virada de fase, um dispatch direto) consegue
+  // lançar fora da hora.
+  if (state.phase !== 'combat') return state;
   const playerKey = playerKeyOf(player);
   const opponentKey = opponentKeyOf(player);
   const opponent = opponentOf(player);
@@ -2932,6 +2949,10 @@ function handleExecuteMagic(
       const midState: GameState = { ...state, deck, discardPile, [playerKey]: { ...playerState, hand: handWithoutMagic } };
       return executeFireballLaunch(midState, player, selectedTargetSlot);
     }
+    // O efeito PRÓPRIO continua sendo de Compra - a janela extra que a carta
+    // ganha no Combate (ver canActivateMagic) existe só pra lançar a Bola de
+    // Fogo, nunca pra queimar combustível fora da hora.
+    if (state.phase !== 'draw') return state;
     const cap = getFireballCap(state.gameConfig);
     const fuelCards = handWithoutMagic.filter((c) => isPlainNumeralCard(c) && getEffectiveCardValue(c) < 5);
     const fuelSum = fuelCards.reduce((sum, c) => sum + getEffectiveCardValue(c), 0);
@@ -2966,6 +2987,9 @@ function handleExecuteMagic(
       const midState: GameState = { ...state, deck, discardPile, [playerKey]: { ...playerState, hand: handWithoutMagic } };
       return executeFireballLaunch(midState, player, selectedTargetSlot);
     }
+    // Idem ao Valete: o efeito próprio é de Estratégia; a janela extra no
+    // Combate (ver canActivateMagic) só serve pra lançar a Bola de Fogo.
+    if (state.phase !== 'strategy') return state;
     const targetId = selectedCards?.[0];
     if (!targetId) return state;
     const opponentState = state[opponentKey];

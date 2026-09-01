@@ -3629,12 +3629,56 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(state.player2.field[0].faceDownCard?.id === 'piro-k-main', 'A carta principal do slot NUNCA é afetada pela Queima do Reforço, só a horizontal');
 })();
 
+(function testPiromanteFireballLaunchOnlyInCombat() {
+  // Pedido do usuário: "os segundos efeitos de todas magias do piromante (de
+  // lançar a bola de fogo) só podem ser ativados na fase de combate".
+  const build = (phase: GameState['phase']): GameState => {
+    const state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
+    return {
+      ...state,
+      phase,
+      player1: { ...state.player1, hand: [makeCard('piro-phase-j', 'J')], fireballValue: 20 },
+      player2: {
+        ...state.player2,
+        field: [
+          { faceDownCard: makeCard('piro-phase-target', '5'), revealed: false, horizontalCards: [] },
+          { revealed: false, horizontalCards: [] },
+          { revealed: false, horizontalCards: [] },
+        ],
+      },
+    };
+  };
+  const launch = (state: GameState) =>
+    gameReducer(state, {
+      type: 'EXECUTE_MAGIC',
+      player: 1,
+      cardId: 'piro-phase-j',
+      character: 'piromante',
+      magicType: 'J',
+      selection: { fireballLaunch: true, selectedTargetSlot: 0 },
+    });
+
+  for (const phase of ['draw', 'strategy'] as const) {
+    const before = build(phase);
+    const after = launch(before);
+    assert(
+      after.player2.field[0].faceDownCard?.id === 'piro-phase-target' && after.player1.fireballValue === 20,
+      `FIX: lançar a Bola de Fogo é RECUSADO na fase de ${phase} - o alvo e a Bola continuam intactos`
+    );
+  }
+  const combatAfter = launch(build('combat'));
+  assert(
+    !combatAfter.player2.field[0].faceDownCard && combatAfter.player1.fireballValue === 0,
+    'FIX: o mesmo lançamento funciona normalmente na fase de Combate'
+  );
+})();
+
 (function testPiromanteFireballLaunchObliteratesWeakerSlot() {
   let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
   const jCard = makeCard('piro-launch-j-1', 'J');
   state = {
     ...state,
-    phase: 'draw',
+    phase: 'combat',
     player1: { ...state.player1, hand: [jCard], fireballValue: 20 },
     player2: {
       ...state.player2,
@@ -3667,7 +3711,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   const horizCard = makeCard('piro-token-horiz', '3');
   state = {
     ...state,
-    phase: 'draw',
+    phase: 'combat',
     player1: { ...state.player1, hand: [jCard], fireballValue: 5 },
     player2: {
       ...state.player2,
@@ -3748,7 +3792,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   // que 3 (nenhum deve ser obliterado - só reduzido).
   state = {
     ...state,
-    phase: 'draw',
+    phase: 'combat',
     player1: { ...state.player1, hand: [jCard], fireballValue: 9 },
     player2: {
       ...state.player2,
@@ -3784,7 +3828,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 
   state = {
     ...state,
-    phase: 'draw',
+    phase: 'combat',
     player1: { ...state.player1, hand: [jCard], fireballValue: 20 },
     player2: {
       ...state.player2,
