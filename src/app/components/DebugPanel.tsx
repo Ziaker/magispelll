@@ -8,13 +8,14 @@ import { ArrowLeft } from 'lucide-react';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../lib/gameConfig';
 import type { CharacterId } from '../lib/gameEngine';
 
-const CHARACTER_IDS: CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa'];
+const CHARACTER_IDS: CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante'];
 const CHARACTER_LABELS: Record<CharacterId, string> = {
   mago: 'Mago',
   besta: 'Besta',
   anjo: 'Anjo',
   mosqueteiro: 'Mosqueteiro',
   coringa: 'Coringa',
+  piromante: 'Piromante',
 };
 
 interface DebugPanelProps {

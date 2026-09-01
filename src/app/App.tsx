@@ -157,7 +157,11 @@ export default function App() {
    * do painel e vai direto pra 'game', igual o fluxo normal fazia depois de
    * character-selection.
    */
-  const handleDebugStart = (player1: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa', player2: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa', config: GameConfigType) => {
+  const handleDebugStart = (
+    player1: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante',
+    player2: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante',
+    config: GameConfigType
+  ) => {
     setGameConfig(config);
     setSelectedCharacters({ player1, player2 });
     setCurrentScreen('game');
