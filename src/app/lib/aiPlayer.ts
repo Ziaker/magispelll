@@ -59,6 +59,7 @@ import {
   type GameState,
   type PlayerNumber,
   type PlayerState,
+  type FieldSlot,
 } from './gameEngine';
 import { getEffectiveCardValue, isFieldEligible, isNumeralCard, isPlainNumeralCard, isValidAceTransformTarget, type Card } from './cardUtils';
 import { canActivateMagic } from './magicCards';
@@ -110,7 +111,32 @@ const AVERAGE_FIELD_CARD_VALUE = 6;
 // o parâmetro fosse opcional - obrigatório força um erro de compilação em
 // QUALQUER chamada que esqueça de passar o Spotlight de verdade, em vez de
 // um bug silencioso.
-function combatValue(card: Card, spotlight: SpotlightState | null): number {
+/**
+ * Coringa - valor que a Rainha armadilha REALMENTE teria se fosse revelada em
+ * combate agora: ela copia o valor de uma carta REVELADA do campo do
+ * oponente, e vale 1 quando não há nenhuma (mesma regra de
+ * applyCoringaTrapCombatValue em gameEngine.ts).
+ *
+ * FIX (pedido do usuário: "a IA do coringa fica usando a rainha primeiro ao
+ * invés de por segundo ou por último, a lógica da jogada é pra ser baseada na
+ * existência já presente de uma carta revelada no campo do oponente") - antes
+ * `combatValue` dava um 8 fixo pra Rainha, então ela parecia uma das melhores
+ * cartas da mão e era posicionada logo de cara, justamente quando o campo do
+ * oponente ainda está todo oculto e ela valeria só 1. Com o valor real, a
+ * Rainha naturalmente cai pro fim da fila enquanto não há nada revelado pra
+ * copiar, e sobe sozinha quando aparece um alvo bom.
+ */
+function coringaQueenCopyValue(opponentField: [FieldSlot, FieldSlot, FieldSlot] | undefined, spotlight: SpotlightState | null): number {
+  if (!opponentField) return 1;
+  const revealed = opponentField.flatMap((slot) => [
+    ...(slot.faceDownCard?.revealed ? [slot.faceDownCard] : []),
+    ...slot.horizontalCards.filter((c) => c.revealed),
+  ]);
+  if (revealed.length === 0) return 1;
+  return Math.max(...revealed.map((c) => getSpotlightAdjustedValue(c, spotlight)));
+}
+
+function combatValue(card: Card, spotlight: SpotlightState | null, opponentField?: [FieldSlot, FieldSlot, FieldSlot]): number {
   if (card.value === 'A' && card.transformedValue === undefined) {
     return AVERAGE_FIELD_CARD_VALUE;
   }
@@ -129,7 +155,9 @@ function combatValue(card: Card, spotlight: SpotlightState | null): number {
   if (!card.coringaTransformedToNumeral) {
     if (card.value === 'J') return 1;
     if (card.isMonster) return 15;
-    if (card.value === 'Q') return 8;
+    // Rainha: vale o que ela conseguiria COPIAR agora (1 sem alvo revelado) -
+    // ver coringaQueenCopyValue acima.
+    if (card.value === 'Q') return coringaQueenCopyValue(opponentField, spotlight);
     if (card.value === 'K') return 9;
   }
   return getSpotlightAdjustedValue(card, spotlight);
@@ -455,9 +483,20 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   //     vale, em grau menor, pra Rainha/Rei). Uma carta por decisão (o loop
   //     de decisão volta a chamar esta função de novo se sobrar mais
   //     alguma).
+  // FIX (pedido do usuário: "a IA do coringa fica spammando a transformação
+  // de carta em número, corrija isso") - a regra acima disparava assim que a
+  // janela abria e, como cada decisão transforma UMA carta, a IA gastava
+  // várias decisões seguidas transformando a mão inteira logo de cara, antes
+  // de jogar qualquer coisa no campo. Agora ela só transforma o que não
+  // consegue usar como ARMADILHA agora: enquanto houver slot principal vazio
+  // (onde Rainha/Rei/Monstro entrariam como armadilha de verdade), posicionar
+  // vem primeiro - a janela dura o turno inteiro, então nada se perde
+  // esperando. Com o campo cheio, a carta ficaria parada na mão de qualquer
+  // forma e transformá-la é ganho puro.
   if (character === 'coringa' && me.coringaTransformWindowUntilTurn !== undefined && state.turn <= me.coringaTransformWindowUntilTurn) {
+    const hasEmptyMainSlot = me.field.some((slot) => !slot.faceDownCard);
     const transformable = me.hand.find((c) => !c.coringaTransformedToNumeral && (c.value === 'J' || c.value === 'Q' || c.value === 'K'));
-    if (transformable) {
+    if (transformable && !hasEmptyMainSlot) {
       return { type: 'action', action: { type: 'TRANSFORM_CORINGA_MAGIC_CARD', player: ai, cardId: transformable.id } };
     }
   }
@@ -1695,7 +1734,10 @@ function decideFieldPlacement(state: GameState, ai: PlayerNumber, character: Cha
 
   if (numeralOrAce.length === 0) return null;
 
-  const chosen: Card = pickHighestBy(numeralOrAce, (c) => combatValue(c, state.spotlight));
+  // O campo do oponente entra na conta por causa da Rainha do Coringa, que
+  // vale o que conseguir COPIAR de uma carta revelada de lá (1 se não houver
+  // nenhuma) - ver coringaQueenCopyValue.
+  const chosen: Card = pickHighestBy(numeralOrAce, (c) => combatValue(c, state.spotlight, state[opponentKeyOf(ai)].field));
   return { type: 'PLAY_CARD', player: ai, cardId: chosen.id, slotIndex: emptySlotIndex, asHorizontal: false };
 }
 
