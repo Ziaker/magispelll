@@ -1,12 +1,12 @@
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { ArrowLeft, Wand2, Crosshair } from 'lucide-react';
+import { ArrowLeft, Wand2, Crosshair, Flame } from 'lucide-react';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { getCharacterIconBackground } from '../lib/characterThemes';
 
 interface CharactersListProps {
   onBack: () => void;
-  onSelectCharacter: (character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa') => void;
+  onSelectCharacter: (character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante') => void;
 }
 
 export function CharactersList({ onBack, onSelectCharacter }: CharactersListProps) {
@@ -50,6 +50,13 @@ export function CharactersList({ onBack, onSelectCharacter }: CharactersListProp
       icon: JesterHatIcon,
       color: '#3B4CCB',
       description: 'Trapaceiro que planta armadilhas viradas para baixo no próprio campo, explodindo em fumaça, empates forçados e roubo de valor quando o oponente menos espera.',
+    },
+    {
+      id: 'piromante' as const,
+      name: 'PIROMANTE',
+      icon: Flame,
+      color: '#CC5500',
+      description: 'Acumula uma Bola de Fogo visível no próprio campo queimando cartas como combustível, e a lança contra o campo do oponente pra reduzir ou obliterar o que estiver lá.',
     },
   ];
 

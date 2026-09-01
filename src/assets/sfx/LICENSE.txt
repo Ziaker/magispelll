@@ -166,3 +166,38 @@ relacionadas a palhaço, espetaculo e sorrisos"):
   Grande Final:
 
     coringa-numeral.ogg  <- Audio/Hit jingles/jingles_HIT10.ogg (Grande Final)
+
+---
+
+Piromante (personagem novo, "momento game design" - mecânica própria da
+Bola de Fogo) - 5 sons novos (Valete/Rainha/Rei + Monstro + Magia Numeral).
+Nenhum dos pacotes CC0 já usados no projeto (Kenney, os 2 do opengameart.org
+acima) tem sons de fogo/magia de fogo de verdade - pesquisados e baixados de
+https://mixkit.co/free-sound-effects/fire/ (Mixkit License - Sound Effects
+Free License: uso livre, incluindo comercial, sem exigência de crédito -
+ver https://mixkit.co/license/), convertidos de .mp3 pra .ogg com ffmpeg:
+
+    piromante-j.ogg        <- "Fast ignition fire" (Combustão)
+    piromante-q.ogg        <- "Fire spell with explosion" (Roubo Flamejante)
+    piromante-k.ogg         <- "Big fire flame burning" (Queima do Reforço)
+    piromante-monster.ogg  <- "Zippo fire close" (Brasa)
+    piromante-numeral.ogg  <- "Fireball spell" (Chama Repartida)
+
+---
+
+FIX (pedido do usuário: "mude todos sons de fogo do piromante pra sons de
+fogo de jogos ou sons de fogo curtos com menos de 1 segundo") - os 4 sons
+acima que ainda duravam vários segundos (piromante-j/q/k/numeral - os clipes
+originais do Mixkit vinham com bastante cauda/reverb depois do impacto
+principal) foram recortados com ffmpeg pro trecho de ~0.75-0.85s que contém
+o "golpe" de verdade do som (localizado via silencedetect/astats, não só o
+início do arquivo - o pico real de piromante-j.ogg, por exemplo, só começa
+por volta de 1.1s, não no começo), com um fade-out curto (~0.15-0.20s) no
+final pra não cortar seco. Fonte/licença continuam as mesmas acima (mesmo
+arquivo Mixkit, só reduzido) - nenhum download novo. piromante-monster.ogg
+("Zippo fire close") já durava só ~0.27s e não precisou de nenhum ajuste.
+
+    piromante-j.ogg        0.85s (era ~4.9s)
+    piromante-q.ogg        0.85s (era ~8.6s)
+    piromante-k.ogg        0.85s (era ~8.3s)
+    piromante-numeral.ogg  0.80s (era ~2.7s)

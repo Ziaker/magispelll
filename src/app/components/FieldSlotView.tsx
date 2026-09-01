@@ -7,6 +7,7 @@ import { FlipCard } from './FlipCard';
 import { CharacterMagicBurst } from './CharacterMagicBurst';
 import { MagicCalloutLabel } from './MagicCalloutLabel';
 import { CardShatterBurst } from './CardShatterBurst';
+import { FireShatterBurst } from './FireShatterBurst';
 import { CoringaSmokeBurst } from './CoringaSmokeBurst';
 import { CardImpactBurst } from './CardImpactBurst';
 import { CardKeywords } from './CardKeywords';
@@ -165,6 +166,19 @@ interface FieldSlotViewProps {
   isCombatSelected: boolean;
   isMonsterTargetChoice: boolean;
   isEffectFlashing: boolean;
+  /**
+   * Piromante (personagem novo, pedido do usuário: "as magias do piromante
+   * mal tem efeitos visuais, especialmente quanto a cartas queimar") - ids
+   * das cartas HORIZONTAIS deste slot que acabaram de ser alvo de uma magia
+   * (ex.: Queima do Reforço, que sempre mira uma horizontal do oponente, e
+   * às vezes o Roubo Flamejante) - `isEffectFlashing` acima já cobre a carta
+   * PRINCIPAL/o slot inteiro, mas nunca cobria uma horizontal específica
+   * (que nem chegava a receber highlight nenhum antes deste FIX). Mesma
+   * lista (`effectFlashCardIds`) que PlayerZone.tsx já usa pra cartas na
+   * mão - GameBoard.tsx é a única fonte de verdade de quais ids estão
+   * "em chamas" agora.
+   */
+  effectFlashCardIds?: string[];
   protectedSlot: boolean;
   phase: 'draw' | 'strategy' | 'combat';
   onSlotClick: (playerNumber: 1 | 2, slotIndex: number) => void;
@@ -178,6 +192,8 @@ interface FieldSlotViewProps {
   isShattering?: boolean;
   /** Coringa (redesenho completo, "armadilhas"): verdadeiro quando ESTE slot acabou de ter um Valete/Rei armadilha reagindo (dissipando em fumaça) - troca o burst mágico genérico por CoringaSmokeBurst.tsx. Ver BattleField.tsx/GameBoard.tsx. */
   isSmoking?: boolean;
+  /** Piromante (personagem novo, pedido explícito do usuário: "carta pegando fogo e se despedaçando") - verdadeiro quando ESTE slot acabou de ser atingido por um lançamento da Bola de Fogo (obliterado ou reduzido a carta-token) - troca o burst mágico genérico por FireShatterBurst.tsx. Ver BattleField.tsx/GameBoard.tsx. */
+  isBurning?: boolean;
   /** Efeitos de status contínuos (pedido do usuário): id da carta (principal OU horizontal, deste MESMO jogador) atualmente sob a Fúria Selvagem da Besta - ver BattleField.tsx/GameBoard.tsx (`monsterTargetCardId`). */
   doubledCardId?: string;
   /** Mosqueteiro (personagem novo) - id da carta (principal OU horizontal, deste MESMO jogador) reforçada pelo Tiro Certeiro (Rei), e o valor extra que ela recebe - ver BattleField.tsx/GameBoard.tsx (`mosqueteiroBoostedCardId`). */
@@ -235,6 +251,8 @@ export function FieldSlotView({
   activeMagicLabel,
   isShattering,
   isSmoking,
+  isBurning,
+  effectFlashCardIds,
   doubledCardId,
   boostedCardId,
   boostAmount,
@@ -473,6 +491,7 @@ export function FieldSlotView({
         <TooltipTrigger asChild>
           <div
             className="relative flex flex-col items-center"
+            data-card-id={`slot-p${playerNumber}-${i}`}
             style={
               hasTower
                 ? ({
@@ -786,6 +805,8 @@ export function FieldSlotView({
                   <CardShatterBurst active={isShattering} />
                 ) : isSmoking ? (
                   <CoringaSmokeBurst active={isSmoking} />
+                ) : isBurning ? (
+                  <FireShatterBurst active={isBurning} />
                 ) : (
                   <CharacterMagicBurst active={isEffectFlashing} character={activeMagicCaster ?? 'mago'} />
                 )}
@@ -950,6 +971,14 @@ export function FieldSlotView({
                     front={<PlayingCard horizontal value={hCard.value} suit={hCard.suit} card={hCard} />}
                     back={<PlayingCard horizontal faceDown />}
                   />
+                  {/* Piromante (pedido do usuário: "as magias do piromante
+                      mal tem efeitos visuais, especialmente quanto a cartas
+                      queimar") - Queima do Reforço (e às vezes o Roubo
+                      Flamejante) sempre mira uma horizontal do CAMPO, não da
+                      mão - sem isto, essa carta não tinha NENHUM feedback
+                      visual ao ser queimada (effectFlashCardIds nunca
+                      chegava até aqui). */}
+                  <CharacterMagicBurst active={Boolean(effectFlashCardIds?.includes(hCard.id))} character={activeMagicCaster ?? 'mago'} />
                   {/* Fúria Selvagem da Besta mirando uma horizontal
                       específica (em vez da carta principal do slot).
                       FIX (pedido do usuário: "o X2 fica encima da carta

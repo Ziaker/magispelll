@@ -28,7 +28,7 @@
  * EXTENSÃO: Para adicionar novo personagem, adicione entrada em MONSTER_EFFECTS
  */
 
-export type MonsterCharacter = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
+export type MonsterCharacter = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
 
 interface MonsterEffect {
   name: string;
@@ -85,6 +85,14 @@ export const MONSTER_EFFECTS: Record<MonsterCharacter, MonsterEffect> = {
     name: 'Carta Coringa',
     description: 'Tratada como uma carta de número 15 - posicione normalmente no campo',
     detailedDescription: 'Não usa a Zona Monstro - é posicionada no campo (principal ou horizontal) como uma carta numeral comum, valendo 15 fixo no combate. Se for revelada pelo oponente ainda na Estratégia, volta oculta pra sua mão, que é embaralhada.',
+  },
+  // Piromante (personagem novo) - efeito mais simples dos 6: soma um valor
+  // fixo direto na Bola de Fogo, sem exigir nenhum alvo (ativa direto, igual
+  // à Proteção Divina do Anjo/Recarga Rápida do Mosqueteiro).
+  piromante: {
+    name: 'Brasa',
+    description: 'Adiciona 5 à sua Bola de Fogo',
+    detailedDescription: 'Ativa direto (sem escolher alvo) e adiciona 5 à sua Bola de Fogo, até o teto atual.',
   },
 };
 

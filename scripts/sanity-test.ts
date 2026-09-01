@@ -13,6 +13,7 @@ import {
   opponentOf,
   isSlotProtected,
   getMagicActivationContext,
+  getFireballCap,
   type CharacterId,
   type GameState,
   type PlayerNumber,
@@ -40,21 +41,28 @@ function assert(condition: boolean, message: string) {
 }
 
 function countAllCards(state: GameState): number {
-  const inHands = state.player1.hand.length + state.player2.hand.length;
+  // Piromante (personagem novo) - cartas-token (`isFireToken`, ver
+  // cardUtils.ts) são sintéticas: nunca existiram no baralho original de 54
+  // cartas (nascem do nada quando a Bola de Fogo reduz um slot sem
+  // obliterar) e nunca vão pro descarte quando saem de campo - por design,
+  // ficam de FORA da conservação total, senão qualquer lançamento que crie
+  // uma delas pareceria "carta duplicada do nada" para este helper.
+  const isReal = (c: Card | undefined): c is Card => Boolean(c) && !c.isFireToken;
+  const inHands = state.player1.hand.filter(isReal).length + state.player2.hand.filter(isReal).length;
   // FIX (Modo Towers): a reserva da torre (cartas empilhadas abaixo do topo -
   // ver FieldSlot.towerReserve em gameEngine.ts) precisa contar aqui também,
   // senão este helper subconta sempre que uma torre existir no momento da
   // contagem, gerando falsos positivos de "cartas sumindo".
   const inFields =
-    state.player1.field.reduce((n, s) => n + (s.faceDownCard ? 1 : 0) + (s.towerReserve?.length ?? 0) + s.horizontalCards.length, 0) +
-    state.player2.field.reduce((n, s) => n + (s.faceDownCard ? 1 : 0) + (s.towerReserve?.length ?? 0) + s.horizontalCards.length, 0);
+    state.player1.field.reduce((n, s) => n + (isReal(s.faceDownCard) ? 1 : 0) + (s.towerReserve?.filter(isReal).length ?? 0) + s.horizontalCards.filter(isReal).length, 0) +
+    state.player2.field.reduce((n, s) => n + (isReal(s.faceDownCard) ? 1 : 0) + (s.towerReserve?.filter(isReal).length ?? 0) + s.horizontalCards.filter(isReal).length, 0);
   // FIX (itens 4 e 7 da 3ª rodada): a carta Monstro de cada jogador pode
   // estar na zona própria (PlayerState.monsterCard), fora de `field` - sem
   // contá-la aqui, este helper subcontaria o total sempre que um Monstro
   // estivesse posicionado, gerando falsos positivos de "cartas sumindo" no
   // teste de conservação (inclusive na simulação IA vs IA completa abaixo).
-  const inMonsterZones = (state.player1.monsterCard ? 1 : 0) + (state.player2.monsterCard ? 1 : 0);
-  return inHands + inFields + inMonsterZones + state.deck.length + state.discardPile.length;
+  const inMonsterZones = (isReal(state.player1.monsterCard) ? 1 : 0) + (isReal(state.player2.monsterCard) ? 1 : 0);
+  return inHands + inFields + inMonsterZones + state.deck.filter(isReal).length + state.discardPile.filter(isReal).length;
 }
 
 function makeCard(id: string, value: string, suit = '♠'): Card {
@@ -1628,6 +1636,20 @@ function simulateAiVsAiGame(
     ['coringa', 'mosqueteiro'],
     ['mosqueteiro', 'coringa'],
     ['coringa', 'coringa'],
+    // Piromante (personagem novo, "momento game design" - Bola de Fogo/carta-
+    // token) - mesma cobertura dos outros 5: um confronto contra cada
+    // personagem existente + o espelho.
+    ['piromante', 'mago'],
+    ['mago', 'piromante'],
+    ['piromante', 'besta'],
+    ['besta', 'piromante'],
+    ['piromante', 'anjo'],
+    ['anjo', 'piromante'],
+    ['piromante', 'mosqueteiro'],
+    ['mosqueteiro', 'piromante'],
+    ['piromante', 'coringa'],
+    ['coringa', 'piromante'],
+    ['piromante', 'piromante'],
   ];
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, monsterCards: true };
   const expectedTotalCards = 54; // 52 + 2 Coringas
@@ -1691,6 +1713,8 @@ function simulateAiVsAiGame(
     ['mago', 'besta'],
     ['besta', 'anjo'],
     ['anjo', 'mago'],
+    ['piromante', 'mago'],
+    ['piromante', 'piromante'],
   ];
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, monsterCards: true, towersMode: true };
   // FIX (Modo Towers): baralho comum (54) + 20 numerais extras + 2 Áses extras = 76.
@@ -3339,6 +3363,313 @@ function makeReactionsBaseState(config: GameConfig): GameState {
     !state.player1.field[1].horizontalCards.some((c) => c.id === horiz2.id),
     'Sem exceção do Coringa envolvida, o limite normal de 1 carta horizontal "de verdade" por turno continua bloqueando a 2ª'
   );
+})();
+
+// ---------------------------------------------------------------------------
+// 33. Piromante (personagem novo, "momento game design") - Bola de Fogo:
+//     combustão (J), roubo flamejante (Q), queima do reforço (K), teto,
+//     lançamento (obliterar/reduzir a carta-token), Chama Repartida
+//     (Magia Numeral) e o bloqueio da Proteção Divina do Anjo.
+// ---------------------------------------------------------------------------
+(function testPiromanteJCombustaoGathersFuelFromHand() {
+  let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
+  const jCard = makeCard('piro-j-1', 'J');
+  const fuel1 = makeCard('piro-fuel-1', '3');
+  const fuel2 = makeCard('piro-fuel-2', '4');
+  const keep = makeCard('piro-keep-1', '7');
+  state = { ...state, phase: 'draw', player1: { ...state.player1, hand: [jCard, fuel1, fuel2, keep], fireballValue: 0 } };
+
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: jCard.id,
+    character: 'piromante',
+    magicType: 'J',
+    selection: {},
+  });
+
+  assert(state.player1.fireballValue === 7, `FIX Piromante J: cartas <5 da mão somam à Bola de Fogo (recebido: ${state.player1.fireballValue})`);
+  assert(!state.player1.hand.some((c) => c.id === fuel1.id || c.id === fuel2.id), 'As cartas queimadas saem da mão');
+  assert(state.player1.hand.some((c) => c.id === keep.id), 'Uma carta >=5 na mão NUNCA é queimada pela Combustão');
+  assert(state.discardPile.some((c) => c.id === fuel1.id) && state.discardPile.some((c) => c.id === fuel2.id), 'As cartas queimadas vão pro descarte normalmente (são cartas reais)');
+})();
+
+(function testPiromanteFireballCapRespected() {
+  let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
+  const jCard = makeCard('piro-j-cap', 'J');
+  const fuel1 = makeCard('piro-fuel-cap-1', '4');
+  const fuel2 = makeCard('piro-fuel-cap-2', '4');
+  state = { ...state, phase: 'draw', player1: { ...state.player1, hand: [jCard, fuel1, fuel2], fireballValue: 18 } };
+
+  state = gameReducer(state, { type: 'EXECUTE_MAGIC', player: 1, cardId: jCard.id, character: 'piromante', magicType: 'J', selection: {} });
+
+  assert(
+    state.player1.fireballValue === getFireballCap(DEFAULT_GAME_CONFIG),
+    `FIX Piromante: a Bola de Fogo nunca ultrapassa o teto (18+8 -> capado em ${getFireballCap(DEFAULT_GAME_CONFIG)}, recebido: ${state.player1.fireballValue})`
+  );
+})();
+
+(function testPiromanteQRoubaCartaRevelada() {
+  let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
+  const qCard = makeCard('piro-q-1', 'Q');
+  const targetCard = makeCard('piro-q-target', '6');
+  targetCard.revealed = true;
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [qCard], fireballValue: 0 },
+    player2: { ...state.player2, hand: [targetCard] },
+  };
+
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: qCard.id,
+    character: 'piromante',
+    magicType: 'Q',
+    selection: { selectedCards: [targetCard.id] },
+  });
+
+  assert(state.player1.fireballValue === 6, `FIX Piromante Q: valor da carta roubada soma à Bola de Fogo (recebido: ${state.player1.fireballValue})`);
+  assert(!state.player2.hand.some((c) => c.id === targetCard.id), 'A carta roubada some da mão do oponente');
+  assert(state.discardPile.some((c) => c.id === targetCard.id), 'A carta roubada vai pro descarte (é uma carta real)');
+})();
+
+(function testPiromanteQRejectsUnrevealedCard() {
+  let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
+  const qCard = makeCard('piro-q-2', 'Q');
+  const hiddenCard = makeCard('piro-q-hidden', '6');
+  hiddenCard.revealed = false;
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [qCard], fireballValue: 0 },
+    player2: { ...state.player2, hand: [hiddenCard] },
+  };
+
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: qCard.id,
+    character: 'piromante',
+    magicType: 'Q',
+    selection: { selectedCards: [hiddenCard.id] },
+  });
+
+  assert(state.player1.fireballValue === 0, 'FIX Piromante Q: uma carta ainda não revelada do oponente nunca pode ser alvo (motor rejeita, mesmo sem confiar só na UI)');
+  assert(state.player2.hand.some((c) => c.id === hiddenCard.id), 'A carta oculta continua intacta na mão do oponente');
+})();
+
+(function testPiromanteKQueimaHorizontalNaoBatalhada() {
+  let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('piro-k-1', 'K');
+  const horizCard = makeCard('piro-k-horiz', '5');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: { ...state.player1, hand: [kCard], fireballValue: 0 },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: makeCard('piro-k-main', '8'), revealed: false, horizontalCards: [horizCard] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: kCard.id,
+    character: 'piromante',
+    magicType: 'K',
+    selection: { selectedCards: [horizCard.id] },
+  });
+
+  assert(state.player1.fireballValue === 5, `FIX Piromante K: valor da horizontal queimada soma à Bola de Fogo (recebido: ${state.player1.fireballValue})`);
+  assert(state.player2.field[0].horizontalCards.length === 0, 'A horizontal queimada some do campo do oponente');
+  assert(state.player2.field[0].faceDownCard?.id === 'piro-k-main', 'A carta principal do slot NUNCA é afetada pela Queima do Reforço, só a horizontal');
+})();
+
+(function testPiromanteFireballLaunchObliteratesWeakerSlot() {
+  let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
+  const jCard = makeCard('piro-launch-j-1', 'J');
+  state = {
+    ...state,
+    phase: 'draw',
+    player1: { ...state.player1, hand: [jCard], fireballValue: 20 },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: makeCard('piro-obliterate-target', '5'), revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: jCard.id,
+    character: 'piromante',
+    magicType: 'J',
+    selection: { fireballLaunch: true, selectedTargetSlot: 0 },
+  });
+
+  assert(!state.player2.field[0].faceDownCard, 'FIX Piromante: um slot com valor total <= a Bola de Fogo é OBLITERADO por completo (fica vazio)');
+  assert(state.player1.fireballValue === 0, 'A Bola de Fogo é consumida (volta a 0) depois de lançada');
+  assert(state.discardPile.some((c) => c.id === 'piro-obliterate-target'), 'A carta obliterada vai pro descarte normalmente (é uma carta real)');
+})();
+
+(function testPiromanteFireballLaunchLeavesFireToken() {
+  let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
+  const jCard = makeCard('piro-launch-j-2', 'J');
+  const mainCard = makeCard('piro-token-main', '8');
+  const horizCard = makeCard('piro-token-horiz', '3');
+  state = {
+    ...state,
+    phase: 'draw',
+    player1: { ...state.player1, hand: [jCard], fireballValue: 5 },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: mainCard, revealed: false, horizontalCards: [horizCard] }, // total = 11
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  const totalBefore = countAllCards(state);
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: jCard.id,
+    character: 'piromante',
+    magicType: 'J',
+    selection: { fireballLaunch: true, selectedTargetSlot: 0 },
+  });
+
+  const tokenCard = state.player2.field[0].faceDownCard;
+  assert(Boolean(tokenCard?.isFireToken), 'FIX Piromante: um slot com valor total MAIOR que a Bola de Fogo vira uma carta-token com o valor restante, em vez de obliterado');
+  assert(tokenCard?.transformedValue === 6, `A carta-token vale o RESTANTE (11 - 5 = 6, recebido: ${tokenCard?.transformedValue})`);
+  assert(state.player2.field[0].horizontalCards.length === 0, 'A horizontal original some do slot (foi queimada, é carta real, vai pro descarte)');
+  assert(
+    state.discardPile.some((c) => c.id === mainCard.id) && state.discardPile.some((c) => c.id === horizCard.id),
+    'As 2 cartas REAIS que estavam no slot vão pro descarte normalmente'
+  );
+  assert(!state.discardPile.some((c) => c.isFireToken), 'FIX (pedido explícito do usuário): a carta-token NUNCA vai pro descarte - nem ela mesma, nem nenhuma outra token, aparece lá');
+  assert(
+    countAllCards(state) === totalBefore,
+    `FIX: a carta-token fica de FORA da conservação total de cartas REAIS (é sintética, nunca existiu no baralho) - total antes e depois do lançamento continua igual (${totalBefore} -> ${countAllCards(state)})`
+  );
+})();
+
+(function testPiromanteFireTokenNeverEntersDiscardWhenLeavingField() {
+  // Constrói diretamente um estado com uma carta-token já em campo (como se
+  // tivesse sido criada por um lançamento anterior) e força ela a PERDER uma
+  // disputa de combate normal - o pedido do usuário foi explícito: "não vai
+  // pro descarte" vale pra QUALQUER jeito dela sair de campo, não só no
+  // instante em que é criada (ver pushToDiscard em gameEngine.ts).
+  let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
+  const fireToken: Card = { id: 'piro-existing-token', value: 'FIRE', suit: '🔥', transformedValue: 4, isFireToken: true, revealed: true };
+  const strongerCard = makeCard('piro-token-loser-opponent', '9');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: { ...state.player1, field: [{ faceDownCard: fireToken, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] },
+    player2: { ...state.player2, field: [{ faceDownCard: strongerCard, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] },
+  };
+
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: state.firstToFlip, slotIndex: 0 });
+  const other = state.firstToFlip === 1 ? 2 : 1;
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: other as 1 | 2, slotIndex: 0 });
+  state = gameReducer(state, { type: 'RESOLVE_COMBAT' });
+  state = gameReducer(state, { type: 'FINALIZE_COMBAT' });
+
+  assert(!state.discardPile.some((c) => c.id === fireToken.id), 'FIX (pedido explícito do usuário): uma carta-token que perde uma disputa de combate desaparece, NUNCA vai pro descarte');
+  assert(!state.player1.field.some((s) => s.faceDownCard?.id === fireToken.id), 'A carta-token some do campo depois de perder o combate, como qualquer carta derrotada');
+})();
+
+(function testPiromanteChamaRepartidaSpreadsAcross3Slots() {
+  let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
+  const six1 = makeCard('piro-numeral-6-1', '6');
+  const six2 = makeCard('piro-numeral-6-2', '6');
+  const six3 = makeCard('piro-numeral-6-3', '6');
+  const jCard = makeCard('piro-spread-j', 'J');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [six1, six2, six3], field: [{ revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] } };
+
+  assert(canActivateNumeralSpell('piromante', state.player1.hand, state.player1.field, false, state.spotlight), 'Pré-condição: com 3 seis na mão e campo vazio, a Magia Numeral do Piromante pode ser ativada');
+  state = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
+  state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
+  assert(state.player1.piromanteSpreadArmed === true, 'FIX: ativar Chama Repartida (6,6,6) arma o próximo lançamento para se espalhar pelos 3 slots');
+
+  // Agora lança a Bola de Fogo (valor 9, dividido por 3 = 3 por slot) contra
+  // um campo do oponente com os 3 slots preenchidos, cada um valendo mais
+  // que 3 (nenhum deve ser obliterado - só reduzido).
+  state = {
+    ...state,
+    phase: 'draw',
+    player1: { ...state.player1, hand: [jCard], fireballValue: 9 },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: makeCard('piro-spread-t0', '10'), revealed: false, horizontalCards: [] },
+        { faceDownCard: makeCard('piro-spread-t1', '10'), revealed: false, horizontalCards: [] },
+        { faceDownCard: makeCard('piro-spread-t2', '10'), revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: jCard.id,
+    character: 'piromante',
+    magicType: 'J',
+    selection: { fireballLaunch: true },
+  });
+
+  for (let i = 0; i < 3; i++) {
+    const token = state.player2.field[i].faceDownCard;
+    assert(Boolean(token?.isFireToken) && token?.transformedValue === 7, `FIX Chama Repartida: slot ${i} recebe só 1/3 da Bola de Fogo (9/3=3 de 10 -> resta 7, recebido: ${token?.transformedValue})`);
+  }
+  assert(state.player1.fireballValue === 0 && state.player1.piromanteSpreadArmed === false, 'A Bola de Fogo e a Chama Repartida são consumidas depois do lançamento em espalhado');
+})();
+
+(function testPiromanteFireballBlockedByAngelProtection() {
+  let state = createInitialState('piromante', 'anjo', DEFAULT_GAME_CONFIG);
+  const joker = makeCard('piro-vs-anjo-joker', 'JOKER', '🃏');
+  joker.isMonster = true;
+  const jCard = makeCard('piro-blocked-j', 'J');
+  const targetCard = makeCard('piro-blocked-target', '5');
+
+  state = {
+    ...state,
+    phase: 'draw',
+    player1: { ...state.player1, hand: [jCard], fireballValue: 20 },
+    player2: {
+      ...state.player2,
+      monsterCard: joker,
+      field: [{ faceDownCard: targetCard, revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  // Ativa a Proteção Divina do Anjo (protege o campo inteiro) ANTES do lançamento.
+  state = gameReducer(state, { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: 2 });
+  assert(isSlotProtected(state, 2, 0) === true, 'Pré-condição: o slot alvo está protegido pela Proteção Divina');
+
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: jCard.id,
+    character: 'piromante',
+    magicType: 'J',
+    selection: { fireballLaunch: true, selectedTargetSlot: 0 },
+  });
+
+  assert(state.player2.field[0].faceDownCard?.id === targetCard.id, 'FIX (pedido explícito do usuário: "bloqueia"): a Proteção Divina do Anjo impede COMPLETAMENTE o efeito da Bola de Fogo no slot protegido');
+  assert(state.player1.fireballValue === 0, 'A Bola de Fogo ainda é consumida mesmo quando o alvo resiste (o "tiro" foi dado)');
 })();
 
 // ---------------------------------------------------------------------------

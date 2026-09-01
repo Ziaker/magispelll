@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Orbit, Feather, Sparkles, Zap } from 'lucide-react';
+import { Orbit, Feather, Sparkles, Zap, Flame } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import type { CharacterId } from '../lib/gameEngine';
 
@@ -201,6 +201,55 @@ export function CharacterMagicBurst({ active, character }: { active: boolean; ch
                   transition={{ duration: 1.2, ease: 'easeOut' }}
                 >
                   <Sparkles className="w-14 h-14" style={{ color, filter: `drop-shadow(0 0 8px ${color})` }} />
+                </motion.div>
+              </>
+            )}
+
+            {/* Piromante (personagem novo, pedido do usuário: "as magias do
+                piromante mal tem efeitos visuais, especialmente quanto a
+                cartas queimar") - antes este componente não tinha NENHUM
+                motivo próprio pro Piromante (caía no flash de cor genérico
+                acima, sem nada de "fogo" de verdade) - usado em toda
+                ativação que não passa pelo FireShatterBurst.tsx (reservado
+                só pro "grande momento" do lançamento da Bola de Fogo): a
+                Combustão (cartas da própria mão), o Roubo Flamejante e a
+                Queima do Reforço (carta alvo do oponente). */}
+            {character === 'piromante' && (
+              <>
+                {/* Línguas de fogo subindo pelas bordas. */}
+                {[8, 32, 58, 82].map((left, idx) => (
+                  <motion.div
+                    key={idx}
+                    className="absolute bottom-0 rounded-full"
+                    style={{
+                      left: `${left}%`,
+                      width: 9,
+                      height: 20,
+                      background: `linear-gradient(to top, ${color}, #FFE0B3, transparent)`,
+                    }}
+                    initial={{ opacity: 0, scaleY: 0.3, y: 0 }}
+                    animate={{ opacity: [0, 1, 0], scaleY: [0.3, 1.3, 0.6], y: [0, -22, -36] }}
+                    transition={{ duration: 0.75, delay: idx * 0.05, ease: 'easeOut' }}
+                  />
+                ))}
+                {/* Brasas subindo do centro. */}
+                {[-14, -4, 6, 16].map((x, idx) => (
+                  <motion.div
+                    key={`ember-${idx}`}
+                    className="absolute rounded-full"
+                    style={{ left: `calc(50% + ${x}px)`, bottom: '30%', width: 4, height: 4, backgroundColor: '#FFB380', boxShadow: `0 0 5px ${color}` }}
+                    initial={{ opacity: 0, y: 0 }}
+                    animate={{ opacity: [0, 1, 0], y: [0, -40, -56], x: [0, x > 0 ? 10 : -10] }}
+                    transition={{ duration: 1, delay: idx * 0.09, ease: 'easeOut' }}
+                  />
+                ))}
+                {/* Núcleo em brasa, pulsando. */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.3 }}
+                  animate={{ opacity: [0, 1, 0], scale: [0.3, 2, 1.4] }}
+                  transition={{ duration: 0.9, ease: 'easeOut' }}
+                >
+                  <Flame className="w-14 h-14" style={{ color, filter: `drop-shadow(0 0 10px ${color})` }} />
                 </motion.div>
               </>
             )}

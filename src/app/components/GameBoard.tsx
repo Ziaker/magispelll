@@ -42,13 +42,14 @@ import { SpotlightSidebar } from './SpotlightSidebar';
 import { ReactionAlertBanner } from './ReactionAlertBanner';
 import { ReactionNegatedBurst, type ReactionNegatedBurstSpec } from './ReactionNegatedBurst';
 import { BulletImpactBurst, type BulletImpactSpec } from './BulletImpactBurst';
+import { FireballProjectile, type FireballProjectileSpec } from './FireballProjectile';
 import { ChromaticFlash } from './ChromaticFlash';
 import { ROULETTE_DURATION_MS } from './AceTransformBurst';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Toaster } from './ui/sonner';
 import { ScrollArea } from './ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
-import { getDisplayValue, isNumeralCard, isPlainNumeralCard, isValidAceTransformTarget, type Card } from '../lib/cardUtils';
+import { getDisplayValue, isNumeralCard, isPlainNumeralCard, isValidAceTransformTarget, getEffectiveCardValue, type Card } from '../lib/cardUtils';
 import { isUntransformedAce } from '../lib/fusion';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { getNumeralSpellInfo } from '../lib/numeralSpells';
@@ -77,6 +78,8 @@ import {
   getMagicActivationContext,
   canFormOrReinforceTower,
   isCoringaRawTrapCard,
+  getFireballCap,
+  canMagicTriggerReactionAnnouncement,
   type CharacterId,
   type GameAction,
   type GameState,
@@ -114,6 +117,8 @@ interface PendingMagic {
   selectedTargetSlot?: number;
   /** Mosqueteiro - Rainha (Rajada Reveladora): ids das cartas do oponente escolhidas para revelar - ver MagicSelection em gameEngine.ts. */
   selectedRevealCardIds?: string[];
+  /** Piromante - verdadeiro quando o jogador escolheu, no diálogo, lançar a Bola de Fogo já acumulada em vez do efeito próprio de alimentar (J/Q/K) - ver MagicSelection.fireballLaunch em gameEngine.ts. */
+  fireballLaunch?: boolean;
 }
 
 export function GameBoard({ onBack, player1Character, player2Character, gameConfig }: GameBoardProps) {
@@ -428,6 +433,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [shatteringSlot, setShatteringSlot] = useState<{ player: 1 | 2; slotIndex: number } | null>(null);
   /** Coringa (redesenho completo, "armadilhas"): slot que acabou de ter um Valete/Rei armadilha reagindo (dissipando em fumaça) - dispara CoringaSmokeBurst.tsx nele. Ver o useEffect de log logo abaixo (Estratégia) e o de combatResolution (Combate). */
   const [smokingSlot, setSmokingSlot] = useState<{ player: 1 | 2; slotIndex: number } | null>(null);
+  /** Piromante (personagem novo, pedido explícito do usuário: "carta pegando fogo e se despedaçando") - slot(s) do oponente que acabaram de ser atingidos por um lançamento da Bola de Fogo - dispara FireShatterBurst.tsx neles. Ver applyMagicEffectPresentation. */
+  const [burningSlots, setBurningSlots] = useState<Array<{ player: 1 | 2; slotIndex: number }>>([]);
   // FIX (item 8 da 6ª rodada): esticado de 1000ms para 1300ms junto com a
   // duração da própria animação em MagicEffectBurst.tsx (0.9s → 1.1s) - sem
   // isso, o estado `active` seria desligado ANTES do burst terminar de
@@ -732,6 +739,21 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    * a partir das posições de tela conhecidas (mesmo cardPositionsRef acima).
    */
   const [bulletImpacts, setBulletImpacts] = useState<BulletImpactSpec[]>([]);
+  /**
+   * Piromante (pedido explícito do usuário: "projéteis visualmente indo em
+   * direção aos seus alvos") - uma bola de fogo por slot alvo, viajando da
+   * própria FireballMeter.tsx do jogador que lançou até o slot no campo do
+   * oponente (mesmas posições reais via cardPositionsRef acima, agora
+   * incluindo os data-card-id sintéticos "piromante-fireball-pN"/"slot-pN-i"
+   * - ver FireballMeter.tsx/FieldSlotView.tsx). O impacto de verdade
+   * (FireShatterBurst.tsx, ver burningSlots) e o dispatch que aplica a
+   * mudança no motor só acontecem DEPOIS dessa animação (ver
+   * FIREBALL_TRAVEL_MS/dispatchMagicAction abaixo) - a bola precisa
+   * visivelmente CHEGAR primeiro.
+   */
+  const [fireballProjectiles, setFireballProjectiles] = useState<FireballProjectileSpec[]>([]);
+  /** Duração (s) do voo da Bola de Fogo - ver fireballProjectiles acima. */
+  const FIREBALL_TRAVEL_MS = 550;
 
   /**
    * `player` usa `cardId` (uma carta mágica própria do mesmo valor da
@@ -1183,8 +1205,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           // equivalente dispararia, ANTES do dispatch (mesma ordem já usada
           // pelos handlers humanos: calcular alvo com o estado ATUAL, só
           // depois aplicar a mudança) - ver triggerAiActionEffects abaixo.
-          triggerAiActionEffects(decision.action);
-          dispatch(decision.action);
+          // FIX (checagem extensa por bugs - burst fantasma/duplicado no
+          // Modo Reações): mesma checagem usada nos handlers humanos (ver
+          // canMagicTriggerReactionAnnouncement em gameEngine.ts) - se esta
+          // ação da IA for só um ANÚNCIO, a apresentação NÃO toca aqui, só
+          // depois via o timer de 3s (que já chama triggerAiActionEffects
+          // de novo quando a reação se resolve).
+          const isAnnouncement =
+            (decision.action.type === 'EXECUTE_MAGIC' || decision.action.type === 'ACTIVATE_SIMPLE_MAGIC') &&
+            canMagicTriggerReactionAnnouncement(gameState, decision.action.player, decision.action.cardId);
+          if (!isAnnouncement) {
+            triggerAiActionEffects(decision.action);
+          }
+          dispatchMagicAction(decision.action);
         } else {
           dispatch({ type: 'TOGGLE_READY', player: ai });
         }
@@ -1424,9 +1457,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // NENHUM efeito visual (ver comentário de computeMagicEffectTargets
       // abaixo) - sem alvo único pra destacar, usa o burst genérico no
       // próprio jogador (ver flashSelfEffect acima).
-      flashSelfEffect(playerNumber, character, getMagicCardInfo(character, magicType).name);
+      // FIX (checagem extensa por bugs - burst fantasma/duplicado no Modo
+      // Reações): ver canMagicTriggerReactionAnnouncement em gameEngine.ts -
+      // se esta ativação for na verdade só um ANÚNCIO (efeito represado em
+      // pendingReaction), a apresentação some daqui e só toca depois, no
+      // mesmo caminho que já trata a resolução da reação.
+      if (!canMagicTriggerReactionAnnouncement(gameState, playerNumber, cardId)) {
+        flashSelfEffect(playerNumber, character, getMagicCardInfo(character, magicType).name);
+        soundManager.play(magicSoundFor(character, magicType));
+      }
       dispatch({ type: 'ACTIVATE_SIMPLE_MAGIC', player: playerNumber, cardId });
-      soundManager.play(magicSoundFor(character, magicType));
       return;
     }
 
@@ -1492,6 +1532,30 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       if (pm.selectedRevealCardIds?.length) cardIds.push(...pm.selectedRevealCardIds);
     } else if (pm.character === 'mosqueteiro' && pm.type === 'K') {
       if (pm.selectedCards?.[0]) cardIds.push(pm.selectedCards[0]);
+    } else if (pm.character === 'piromante') {
+      if (pm.fireballLaunch) {
+        // Lançamento da Bola de Fogo: mira o slot único escolhido, ou os 3
+        // slots do oponente de uma vez com "Chama Repartida" armada (ver
+        // executeFireballLaunch em gameEngine.ts) - usado só para o flash
+        // genérico (o burst de fogo de verdade é o FireShatterBurst, ver
+        // applyMagicEffectPresentation abaixo).
+        const spread = gameState[playerKeyOf(pm.playerNumber)].piromanteSpreadArmed;
+        if (spread) {
+          for (let i = 0; i < 3; i++) slots.push({ player: opponentNumber, slotIndex: i });
+        } else if (pm.selectedTargetSlot !== undefined) {
+          slots.push({ player: opponentNumber, slotIndex: pm.selectedTargetSlot });
+        }
+      } else if (pm.type === 'J') {
+        // Combustão: junta TODAS as cartas <5 da própria mão automaticamente
+        // (sem seleção manual) - calcula aqui a mesma regra de
+        // handleExecuteMagic (gameEngine.ts) só pra saber quais destacar.
+        const ownHand = gameState[playerKeyOf(pm.playerNumber)].hand;
+        ownHand.forEach((c) => {
+          if (c.id !== pm.cardId && isPlainNumeralCard(c) && getEffectiveCardValue(c) < 5) cardIds.push(c.id);
+        });
+      } else if (pm.selectedCards?.[0]) {
+        cardIds.push(pm.selectedCards[0]);
+      }
     }
     return { slots, cardIds };
   };
@@ -1518,6 +1582,64 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       setShatteringSlot(shatterTarget);
       setTimeout(() => setShatteringSlot((prev) => (prev === shatterTarget ? null : prev)), delay(EFFECT_FLASH_DURATION_MS));
     }
+    // Piromante (pedido explícito do usuário: "projéteis visualmente indo em
+    // direção aos seus alvos" + "carta pegando fogo e se despedaçando") - a
+    // Bola de Fogo primeiro VIAJA de verdade (FireballProjectile.tsx, da
+    // própria FireballMeter.tsx do jogador até cada slot mirado - inclui
+    // slots protegidos/vazios também, o "tiro" é dado mesmo que erre) e SÓ
+    // DEPOIS que ela chega (mesmo FIREBALL_TRAVEL_MS usado por
+    // dispatchMagicAction abaixo pra atrasar a mudança de verdade no motor)
+    // o impacto de verdade (FireShatterBurst.tsx) dispara - nunca em slots
+    // protegidos pela Proteção Divina do Anjo (bloqueia por completo, ver
+    // isSlotProtected/executeFireballLaunch em gameEngine.ts) nem em slots
+    // já vazios (nada pra pegar fogo ali).
+    if (character === 'piromante' && pm.fireballLaunch && targets.slots.length > 0) {
+      // FIX: o mesmo valor JÁ escalado pela preferência de velocidade de
+      // animação (`delay()`) precisa valer tanto pro `setTimeout` que agenda
+      // o impacto/dispatch QUANTO pra duração de verdade da animação do
+      // projétil (`durationS` abaixo) - senão, com animações mais lentas
+      // (Configurações -> "Velocidade de animação"), a bola terminaria de
+      // voar antes do impacto realmente disparar (ou o contrário).
+      const scaledTravelMs = delay(FIREBALL_TRAVEL_MS);
+      const originRect = cardPositionsRef.current.get(`piromante-fireball-p${pm.playerNumber}`);
+      if (originRect) {
+        const from = { left: originRect.left, top: originRect.top, width: originRect.width, height: originRect.height };
+        // FIX (checagem extensa de desempenho): "Chama Repartida" mira os 3
+        // slots de uma vez - 3 FireballProjectile.tsx simultâneos, cada um
+        // com 8 animações em loop próprias. Reduz o rastro de brasas de
+        // cada um (6 -> 3) só quando há mais de 1 alvo, compensando a
+        // multiplicação sem reduzir nada no caso comum (lançamento único).
+        const emberCount = targets.slots.length > 1 ? 3 : undefined;
+        const projectileSpecs: FireballProjectileSpec[] = [];
+        for (const t of targets.slots) {
+          const targetRect = cardPositionsRef.current.get(`slot-p${t.player}-${t.slotIndex}`);
+          if (!targetRect) continue;
+          projectileSpecs.push({
+            key: `${pm.cardId}-${t.player}-${t.slotIndex}-${gameState.turn}`,
+            from,
+            to: { left: targetRect.left, top: targetRect.top, width: targetRect.width, height: targetRect.height },
+            durationS: scaledTravelMs / 1000,
+            emberCount,
+          });
+        }
+        if (projectileSpecs.length > 0) {
+          setFireballProjectiles(projectileSpecs);
+          setTimeout(() => setFireballProjectiles((prev) => (prev === projectileSpecs ? [] : prev)), scaledTravelMs);
+        }
+      }
+
+      setTimeout(() => {
+        const hitSlots = targets.slots.filter((t) => {
+          if (isSlotProtectedFor(t.player, t.slotIndex)) return false;
+          const slot = gameState[playerKeyOf(t.player)].field[t.slotIndex];
+          return Boolean(slot.faceDownCard) || slot.horizontalCards.length > 0 || (slot.towerReserve?.length ?? 0) > 0;
+        });
+        if (hitSlots.length > 0) {
+          setBurningSlots(hitSlots);
+          setTimeout(() => setBurningSlots((prev) => (prev === hitSlots ? [] : prev)), delay(EFFECT_FLASH_DURATION_MS));
+        }
+      }, scaledTravelMs);
+    }
     // FIX (pedido do usuário: "som") - a Destruição de Reforço toca um som de
     // vidro quebrando (card-shatter) em vez do zap genérico de magia, pra
     // combinar com o CardShatterBurst.tsx visual. FIX (pedido do usuário: "o
@@ -1536,6 +1658,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // até 3), os tiros disparam escalonados, como uma rajada de verdade.
     if (character === 'mosqueteiro' && targets.cardIds.length > 0) {
       const burstId = `${pm.cardId}-${Date.now()}`;
+      // Pedido explícito do usuário: "projéteis visualmente indo em direção
+      // aos seus alvos para o... mosqueteiro" - a própria carta mágica que
+      // ele acabou de ativar (ainda na mão neste instante, ver
+      // cardPositionsRef) é a origem real do tiro, em vez de nascer do nada
+      // na borda da tela.
+      const casterRect = cardPositionsRef.current.get(pm.cardId);
+      const fromRect = casterRect ? { left: casterRect.left, top: casterRect.top, width: casterRect.width, height: casterRect.height } : undefined;
       const rawSpecs: (BulletImpactSpec | null)[] = targets.cardIds.map((cardId, idx) => {
         const rect = cardPositionsRef.current.get(cardId);
         if (!rect) return null;
@@ -1543,6 +1672,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           key: `${burstId}-${cardId}`,
           rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
           delay: idx * 0.12,
+          from: fromRect,
         };
       });
       const specs: BulletImpactSpec[] = rawSpecs.filter((s): s is BulletImpactSpec => s !== null);
@@ -1553,12 +1683,62 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     }
   };
 
+  /**
+   * Piromante (personagem novo, pedido do usuário: "as magias do piromante
+   * mal tem efeitos visuais, especialmente quanto a cartas queimar") - as 3
+   * magias de efeito próprio (Combustão/Roubo Flamejante/Queima do Reforço)
+   * QUEIMAM uma carta e a removem de campo/mão no MESMO dispatch que
+   * dispara o flash (CharacterMagicBurst, ver applyMagicEffectPresentation).
+   * Como React já teria re-renderizado com a carta REMOVIDA do array (mão
+   * ou horizontalCards) antes do burst ter qualquer chance de aparecer, o
+   * elemento que hospedaria o CharacterMagicBurst nunca chega a montar com
+   * `active=true` - o fogo "queima uma carta que já não existe mais". Só as
+   * outras 3 magias do jogo que DESTROEM uma carta em vez de revelar/trocar
+   * (Destruição de Reforço do Mago) evitam esse problema porque miram um
+   * SLOT inteiro (container estável, sempre existe, só troca de conteúdo) -
+   * as 3 do Piromante miram uma CARTA específica (mão ou horizontal), cujo
+   * próprio container de fato desaparece. Por isso, só para essas 3 magias,
+   * o dispatch que aplica a mudança de verdade (removendo a carta) espera o
+   * tempo do próprio burst passar primeiro - a carta fica visível "pegando
+   * fogo" por um instante antes de sumir de vez. Lançamentos da Bola de Fogo
+   * (fireballLaunch) continuam imediatos - miram um slot (FireShatterBurst),
+   * sem esse problema.
+   */
+  const dispatchMagicAction = (action: GameAction) => {
+    const isPiromante = action.type === 'EXECUTE_MAGIC' && action.character === 'piromante';
+    if (isPiromante && !action.selection.fireballLaunch) {
+      // Combustão/Roubo Flamejante/Queima do Reforço: ver o comentário
+      // completo acima da definição desta função (a carta queimada some do
+      // estado no MESMO dispatch que dispara o flash - sem este atraso, o
+      // burst nunca teria um quadro pra aparecer antes da carta sumir).
+      setTimeout(() => dispatch(action), delay(450));
+    } else if (isPiromante && action.selection.fireballLaunch) {
+      // Lançamento da Bola de Fogo: pedido explícito do usuário ("projéteis
+      // visualmente indo em direção aos seus alvos") - a mudança de verdade
+      // no motor (obliterar/reduzir o slot) só acontece depois que a bola
+      // visivelmente CHEGA no alvo (FireballProjectile.tsx, mesmo
+      // FIREBALL_TRAVEL_MS usado lá em applyMagicEffectPresentation).
+      setTimeout(() => dispatch(action), delay(FIREBALL_TRAVEL_MS));
+    } else {
+      dispatch(action);
+    }
+  };
+
   const executeMagicEffect = () => {
     if (!pendingMagic) return;
-    const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds } = pendingMagic;
-    const selection: MagicSelection = { selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds };
-    applyMagicEffectPresentation(pendingMagic);
-    dispatch({ type: 'EXECUTE_MAGIC', player: playerNumber, cardId, character, magicType: type, selection });
+    const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch } = pendingMagic;
+    const selection: MagicSelection = { selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch };
+    // FIX (checagem extensa por bugs - burst fantasma/duplicado no Modo
+    // Reações): ver canMagicTriggerReactionAnnouncement em gameEngine.ts -
+    // se esta ativação for na verdade só um ANÚNCIO (efeito represado em
+    // pendingReaction, oponente ainda pode negar), a apresentação NÃO toca
+    // aqui - só depois, no mesmo caminho que já trata a resolução da reação
+    // (negada -> nenhum burst, correto; expira sem reação -> o timer de 3s
+    // em GameBoard.tsx já dispara a apresentação exatamente uma vez).
+    if (!canMagicTriggerReactionAnnouncement(gameState, playerNumber, cardId)) {
+      applyMagicEffectPresentation(pendingMagic);
+    }
+    dispatchMagicAction({ type: 'EXECUTE_MAGIC', player: playerNumber, cardId, character, magicType: type, selection });
     setPendingMagic(null);
   };
 
@@ -1591,6 +1771,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         selectedTargetPlayer: action.selection.selectedTargetPlayer,
         selectedTargetSlot: action.selection.selectedTargetSlot,
         selectedRevealCardIds: action.selection.selectedRevealCardIds,
+        fireballLaunch: action.selection.fireballLaunch,
       });
     } else if (action.type === 'ACTIVATE_SIMPLE_MAGIC') {
       // Só usada pelo Anjo J (Bênção Divina) e K (Reforço Angelical) - as
@@ -1665,6 +1846,26 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           character,
           getMonsterEffect(character).name
         );
+        dispatch({ type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: playerNumber });
+        soundManager.play(monsterSoundFor(character));
+        setPendingMonsterTarget(null);
+        return;
+      }
+
+      // FIX (bug real relatado pelo usuário: "a carta monstro do piromante
+      // nunca ativa quando clica, ela pede pra clicar no campo mas quando
+      // clica nada acontece") - Brasa (Piromante) TAMBÉM ativa direto, sem
+      // escolher slot nenhum (só soma 5 na própria Bola de Fogo - ver
+      // handleActivateMonsterEffectSimple/gameEngine.ts) - mas nunca tinha
+      // sido adicionada aqui, então o clique caía no fluxo padrão
+      // (pendingMonsterTarget), que só sabe tratar Mago/Besta em
+      // handleFieldSlotClick - um clique no campo depois disso não batia em
+      // nenhum `if` ali e só limpava o estado pendente em silêncio, sem
+      // nunca despachar a ativação. Mesmo padrão do Anjo acima: sem alvo de
+      // campo pra destacar, usa flashSelfEffect (mesmo burst "algo
+      // aconteceu com este jogador" que J/K do Anjo já usam).
+      if (character === 'piromante') {
+        flashSelfEffect(playerNumber, character, getMonsterEffect(character).name);
         dispatch({ type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: playerNumber });
         soundManager.play(monsterSoundFor(character));
         setPendingMonsterTarget(null);
@@ -1991,10 +2192,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         secondsLeft={reactionCountdown}
       />
       <ReactionNegatedBurst spec={reactionNegatedBurst} />
-      {/* Mosqueteiro (pedido do usuário: "efeitos visuais de balas sendo
-          disparadas nas cartas que as magias do mosqueteiro utiliza") - ver
-          applyMagicEffectPresentation acima. */}
-      <BulletImpactBurst specs={bulletImpacts} />
       <PhaseTransition phase={gameState.phase} show={showPhaseTransition} spotlight={gameState.spotlight} loneTower={Boolean(gameState.combatLoneTower)} />
       <CombatResult
         show={showCombatResult}
@@ -2260,12 +2457,14 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     onRemoveHorizontalCard={handleRemoveHorizontalCard}
                     monsterTargetSelection={pendingMonsterTarget}
                     effectFlashSlots={effectFlashSlots}
+                    effectFlashCardIds={effectFlashCardIds}
                     player1Ready={gameState.player1.readyForNextPhase}
                     player2Ready={gameState.player2.readyForNextPhase}
                     activeMagicCaster={activeMagicCaster}
                     activeMagicLabel={activeMagicLabel}
                     shatteringSlot={shatteringSlot}
                     smokingSlot={smokingSlot}
+                    burningSlots={burningSlots}
                     player1DoubledCardId={
                       gameState.player1Character === 'besta' && gameState.player1.monsterCard?.monsterUsed
                         ? gameState.player1.monsterTargetCardId
@@ -2286,6 +2485,11 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     selectedForTower={selectedForTower}
                     onFormTower={handleFormTower}
                     canFormTower={(playerNumber, slotIndex) => canFormOrReinforceTower(gameState, playerNumber, slotIndex, Array.from(selectedForTower))}
+                    player1FireballValue={player1Character === 'piromante' ? gameState.player1.fireballValue : undefined}
+                    player2FireballValue={player2Character === 'piromante' ? gameState.player2.fireballValue : undefined}
+                    fireballCap={getFireballCap(gameConfig)}
+                    player1SpreadArmed={gameState.player1.piromanteSpreadArmed}
+                    player2SpreadArmed={gameState.player2.piromanteSpreadArmed}
                   />
                 </div>
                 <SpotlightSidebar spotlight={gameState.spotlight} />
@@ -2701,6 +2905,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     ? 'Selecione (às cegas) até 3 cartas da mão do oponente para descartar, depois escolha o que revelar'
                     : 'Selecione até 3 cartas da sua mão para descartar, depois escolha o que revelar';
                 if (character === 'mosqueteiro' && type === 'K') return 'Selecione uma carta do seu campo para reforçar';
+                if (character === 'piromante') return 'Escolha entre o efeito próprio (alimentar a Bola de Fogo) ou lançar a Bola de Fogo já acumulada';
                 return '';
               })()}
             </DialogDescription>
@@ -3314,6 +3519,142 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   );
                 })()}
 
+                {/* Piromante (personagem novo) - as 3 magias (J/Q/K) sempre
+                    oferecem a MESMA escolha: fazer o efeito próprio de
+                    alimentar a Bola de Fogo, OU lançar a Bola de Fogo já
+                    acumulada contra o oponente (pedido explícito do usuário -
+                    ver MagicSelection.fireballLaunch em gameEngine.ts). O
+                    bloco de escolha é compartilhado pelas 3; só o texto/alvo
+                    do efeito próprio muda por tipo. */}
+                {pendingMagic.character === 'piromante' &&
+                  (() => {
+                    const ctx = getMagicActivationContext(gameState, pendingMagic.playerNumber);
+                    const cap = getFireballCap(gameConfig);
+                    const fireballValue = gameState[ownKey].fireballValue;
+                    const spreadArmed = gameState[ownKey].piromanteSpreadArmed;
+                    const ownEffectAvailable =
+                      pendingMagic.type === 'J'
+                        ? Boolean(ctx.hasFireFuelInHand)
+                        : pendingMagic.type === 'Q'
+                          ? Boolean(ctx.hasRevealedBurnableOpponentCard)
+                          : Boolean(ctx.hasUnbattledHorizontalCardsInOpponentFieldForBurn);
+                    const launchAvailable = Boolean(ctx.canLaunchFireball);
+                    const isLaunch = Boolean(pendingMagic.fireballLaunch);
+
+                    return (
+                      <div className="space-y-3">
+                        <div className="flex gap-2 flex-wrap">
+                          <button
+                            disabled={!ownEffectAvailable}
+                            onClick={() => setPendingMagic({ ...pendingMagic, fireballLaunch: false, selectedTargetSlot: undefined, selectedCards: [] })}
+                            className={`flex-1 min-w-[160px] px-3 py-2 rounded border-2 text-[11px] text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                              !isLaunch ? 'border-[#6CC47A] bg-[#6CC47A]/10 text-[#EFE7D6]' : 'border-[#C59E4F]/30 hover:border-[#C59E4F] text-[#BFB6A6]'
+                            }`}
+                          >
+                            {pendingMagic.type === 'J' && 'Combustão: queime as cartas <5 da mão'}
+                            {pendingMagic.type === 'Q' && 'Roubo Flamejante: queime uma carta revelada do oponente'}
+                            {pendingMagic.type === 'K' && 'Queima do Reforço: queime uma horizontal do oponente'}
+                          </button>
+                          <button
+                            disabled={!launchAvailable}
+                            onClick={() => setPendingMagic({ ...pendingMagic, fireballLaunch: true, selectedCards: undefined })}
+                            className={`flex-1 min-w-[160px] px-3 py-2 rounded border-2 text-[11px] text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                              isLaunch ? 'border-[#FF8033] bg-[#FF8033]/10 text-[#EFE7D6]' : 'border-[#C59E4F]/30 hover:border-[#C59E4F] text-[#BFB6A6]'
+                            }`}
+                          >
+                            🔥 Lançar a Bola de Fogo ({fireballValue}/{cap}){spreadArmed && ' - Chama Repartida armada!'}
+                          </button>
+                        </div>
+
+                        {isLaunch && !spreadArmed && (
+                          <div className="space-y-2">
+                            <p className="text-[#BFB6A6] text-[12px]">Selecione o slot do campo do oponente a atingir:</p>
+                            <div className="flex gap-3">
+                              {gameState[opponentKey].field.map((slot, slotIdx) => {
+                                const protectedSlot = isSlotProtectedFor(opponentNumber, slotIdx);
+                                return (
+                                  <button
+                                    key={slotIdx}
+                                    disabled={protectedSlot}
+                                    onClick={() => setPendingMagic({ ...pendingMagic, selectedTargetSlot: slotIdx })}
+                                    className={`w-20 h-16 border-2 rounded flex flex-col items-center justify-center text-[10px] transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                                      pendingMagic.selectedTargetSlot === slotIdx
+                                        ? 'border-[#FF8033] bg-[#FF8033]/15 text-[#EFE7D6]'
+                                        : 'border-[#C59E4F]/30 hover:border-[#C59E4F] text-[#BFB6A6]'
+                                    }`}
+                                  >
+                                    <span>Slot {slotIdx + 1}</span>
+                                    {protectedSlot && <span className="text-[8px] text-[#7AA7C4]">Protegido</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {isLaunch && spreadArmed && (
+                          <p className="text-[#BFB6A6] text-[11px]">
+                            Chama Repartida armada: a Bola de Fogo vai se dividir e atingir os 3 slots do campo do oponente de uma vez, cada um recebendo 1/3 do valor.
+                          </p>
+                        )}
+
+                        {!isLaunch && pendingMagic.type === 'J' && (
+                          <p className="text-[#BFB6A6] text-[11px]">
+                            Todas as cartas de valor menor que 5 na sua mão serão queimadas automaticamente e somadas à Bola de Fogo.
+                          </p>
+                        )}
+
+                        {!isLaunch && pendingMagic.type === 'Q' && (
+                          <div className="space-y-2">
+                            <p className="text-[#BFB6A6] text-[12px]">Selecione uma carta revelada do oponente (mão ou horizontal, 2-10) para queimar:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {[
+                                ...gameState[opponentKey].hand.filter((c) => c.revealed && getEffectiveCardValue(c) >= 2 && getEffectiveCardValue(c) <= 10),
+                                ...gameState[opponentKey].field.flatMap((slot) =>
+                                  slot.horizontalCards.filter((c) => c.revealed && getEffectiveCardValue(c) >= 2 && getEffectiveCardValue(c) <= 10)
+                                ),
+                              ].map((c) => (
+                                <div
+                                  key={c.id}
+                                  onClick={() => setPendingMagic({ ...pendingMagic, selectedCards: [c.id] })}
+                                  className={`cursor-pointer transition-all hover:scale-105 rounded ${
+                                    (pendingMagic.selectedCards || [])[0] === c.id ? 'ring-2 ring-[#FF8033]' : ''
+                                  }`}
+                                >
+                                  <PlayingCard value={c.value} suit={c.suit} card={c} />
+                                </div>
+                              ))}
+                            </div>
+                            {!ownEffectAvailable && <p className="text-[#8A5A5A] text-[11px]">Nenhuma carta revelada disponível para queimar agora.</p>}
+                          </div>
+                        )}
+
+                        {!isLaunch && pendingMagic.type === 'K' && (
+                          <div className="space-y-2">
+                            <p className="text-[#BFB6A6] text-[12px]">Selecione uma carta horizontal (não combatida) do campo do oponente para queimar:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {gameState[opponentKey].field.flatMap((slot, slotIdx) =>
+                                slot.horizontalCards
+                                  .filter((c) => !c.battled)
+                                  .map((c) => (
+                                    <div
+                                      key={c.id}
+                                      onClick={() => !isSlotProtectedFor(opponentNumber, slotIdx) && setPendingMagic({ ...pendingMagic, selectedCards: [c.id] })}
+                                      className={`cursor-pointer transition-all hover:scale-105 rounded ${
+                                        (pendingMagic.selectedCards || [])[0] === c.id ? 'ring-2 ring-[#FF8033]' : ''
+                                      } ${isSlotProtectedFor(opponentNumber, slotIdx) ? 'opacity-30 pointer-events-none' : ''}`}
+                                    >
+                                      <PlayingCard value={c.value} suit={c.suit} card={c} />
+                                    </div>
+                                  ))
+                              )}
+                            </div>
+                            {!ownEffectAvailable && <p className="text-[#8A5A5A] text-[11px]">Nenhuma horizontal disponível para queimar agora.</p>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                 <div className="flex gap-3 pt-2">
                   <Button
                     onClick={executeMagicEffect}
@@ -3329,6 +3670,28 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                       if (character === 'mosqueteiro' && type === 'J') return !selectedCards || selectedCards.length === 0;
                       if (character === 'mosqueteiro' && type === 'Q') return !selectedCards || selectedCards.length === 0;
                       if (character === 'mosqueteiro' && type === 'K') return !selectedCards || selectedCards.length === 0;
+                      if (character === 'piromante') {
+                        if (pendingMagic.fireballLaunch) {
+                          const spreadArmed = gameState[playerKeyOf(pendingMagic.playerNumber)].piromanteSpreadArmed;
+                          return !spreadArmed && selectedTargetSlot === undefined;
+                        }
+                        // FIX (bug real relatado pelo usuário: "não dá pra
+                        // clicar em confirmar mesmo tendo 2 três na mão") -
+                        // `fireballLaunch` pode estar `false` (clicou em
+                        // "efeito próprio" explicitamente) OU ainda
+                        // `undefined` (nunca clicou em nenhum dos dois
+                        // botões) - os dois precisam se comportar IGUAL
+                        // aqui, porque o botão "efeito próprio" já nasce
+                        // visualmente destacado por padrão (ver o estilo
+                        // `!isLaunch` dele, mais abaixo) mesmo sem clique
+                        // nenhum. Exigir um clique EXPLÍCITO só pra "confirmar
+                        // a opção que já está selecionada na tela" travava o
+                        // Confirmar mesmo com cartas <5 elegíveis visíveis na
+                        // mão - o usuário via a Combustão "escolhida" mas não
+                        // conseguia avançar.
+                        if (type === 'J') return false; // Combustão própria não exige seleção (junta tudo automaticamente)
+                        return !selectedCards || selectedCards.length === 0;
+                      }
                       return false;
                     })()}
                     className="flex-1 bg-[#6CC47A] hover:bg-[#4A8A5A] text-[#0F1113] disabled:opacity-30"
@@ -3672,6 +4035,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         de tamanho (senão a carta arrastada ficaria ~18% maior que o resto
         do tabuleiro, que continua encolhido). */}
     <CardDragLayer />
+    {/* FIX ("projéteis não aparecem disparando"): mesma causa raiz e mesma
+        correção do CardDragLayer.tsx acima - estes dois viviam DENTRO da
+        árvore com `zoom: 0.85`, então seus `position: fixed` calculados a
+        partir de `getBoundingClientRect()` (px de tela REAL) eram
+        reinterpretados nessa escala reduzida e desenhados bem fora do lugar
+        (perto do canto superior esquerdo da tela, não perto da origem/alvo
+        de verdade) - o projétil TÉCNICAMENTE disparava (o dispatch/som/dano
+        aconteciam certinho) mas o efeito visual em si nunca aparecia no
+        lugar certo. Movidos pra FORA da árvore zoomada, como irmãos dela. */}
+    <BulletImpactBurst specs={bulletImpacts} />
+    {fireballProjectiles.map((spec) => (
+      <FireballProjectile key={spec.key} spec={spec} />
+    ))}
     </>
   );
 }

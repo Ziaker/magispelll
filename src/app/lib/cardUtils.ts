@@ -33,6 +33,7 @@
  * @property fused - Se esta carta nasceu da variante "Fusão" (soma de 2 cartas numerais - ver fusion.ts). Puramente informativo (palavra-chave visual, ver keywords.ts) - não muda nenhuma regra de combate/ativação.
  * @property fusionSources - Só presente em carta fundida (fused): as cartas ORIGINAIS (nunca fundidas) que foram consumidas para criá-la, já achatadas (uma fusão de uma carta já fundida guarda as folhas originais dela, não a carta intermediária) - usado para "desfazer" a fusão quando ela vai para o descarte (ver expandFusedCard) e manter a composição real do baralho, em vez de a carta fundida virar uma magia "fantasma" extra que nunca existiu no baralho original.
  * @property coringaTransformedToNumeral - Coringa (redesenho completo, pedido do usuário) - Magia Numeral "Mão de Ferro" (7,7,7): permanentemente `true` numa carta de magia (J/Q/K) que o jogador transformou em carta de número 11/12/13 apertando o botão liberado pela janela de 1 turno do efeito (ver `transformedValue`, reutilizado aqui: 11/12/13). Uma vez marcada, a carta LARGA de vez seu comportamento de armadilha (nunca mais dispara os efeitos de revelação na Estratégia/Combate descritos em cardUtils.ts/gameEngine.ts) e passa a se comportar como uma carta de campo comum, permanentemente - ver isCoringaRawTrapCard.
+ * @property isFireToken - Piromante (personagem novo) - `true` numa carta-TOKEN criada quando a Bola de Fogo reduz (sem obliterar) o valor de um slot do oponente: uma carta sintética, `value: 'FIRE'`/`transformedValue` = valor restante depois da redução, que representa as brasas/cinzas do que sobrou. Diferente de QUALQUER outra carta do jogo, uma carta-token NUNCA existiu no baralho original de 54 cartas - ela é criada do nada no momento do lançamento e, se algum dia sair do campo (ex.: perde uma disputa de combate), simplesmente desaparece em vez de ir para a pilha de descarte (ver pushToDiscard/executeFireballLaunch em gameEngine.ts) - por isso nunca conta na conservação total de cartas do jogo.
  *
  * EXTENSÃO: Adicione novas propriedades para novos efeitos ou mecânicas
  */
@@ -49,6 +50,7 @@ export type Card = {
   fused?: boolean;
   fusionSources?: Card[];
   coringaTransformedToNumeral?: boolean;
+  isFireToken?: boolean;
 };
 
 /** Naipes do baralho francês padrão */
@@ -301,6 +303,13 @@ export function isValidAceTransformTarget(card: Card): boolean {
   if (card.value === 'A' && card.transformedValue === undefined) return false;
   if (card.value === 'J' || card.value === 'Q' || card.value === 'K') return false;
   if (card.isMonster) return false;
+  // FIX (checagem extensa por bugs - interação Piromante): uma carta-token
+  // de Bola de Fogo (`isFireToken`, ver pushToDiscard em gameEngine.ts) tem
+  // `transformedValue` igual ao valor RESTANTE do slot queimado (fora do
+  // intervalo normal 2-10 depois de sucessivos ataques) - sem esta exclusão,
+  // um Ás podia copiar esse valor e virar uma carta "zumbi" permanentemente
+  // injogável (nenhum slot/combate reconhece esse número).
+  if (card.isFireToken) return false;
   return true;
 }
 

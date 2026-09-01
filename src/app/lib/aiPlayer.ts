@@ -53,6 +53,7 @@ import {
   getEffectiveDrawLimit,
   towerEligibleValue,
   isTowerSlot,
+  getFireballCap,
   type CharacterId,
   type GameAction,
   type GameState,
@@ -303,6 +304,53 @@ function pickRandomN<T>(items: T[], count: number): T[] {
 // Fase de Compra
 // ============================================================================
 
+/**
+ * Piromante (personagem novo) - qual slot do oponente mirar ao lançar a Bola
+ * de Fogo: prioriza um slot que ela consiga OBLITERAR de vez (valor total <=
+ * Bola de Fogo), escolhendo o de MAIOR valor total entre esses (maximiza o
+ * que é destruído); sem nenhum totalmente obliterável, mira o de MAIOR valor
+ * mesmo assim (reduz o mais perigoso, mesmo sem eliminar) - nunca mira um
+ * slot vazio ou protegido (Proteção Divina do Anjo). `null` = nenhum alvo
+ * válido agora (campo do oponente vazio ou tudo protegido).
+ */
+function pickFireballTarget(state: GameState, ai: PlayerNumber): number | null {
+  const opponent = opponentOf(ai);
+  const opponentState = state[playerKeyOf(opponent)];
+  const candidates = opponentState.field
+    .map((slot, i) => {
+      if (isSlotProtected(state, opponent, i)) return null;
+      const cards = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...slot.horizontalCards];
+      if (cards.length === 0) return null;
+      return { slotIndex: i, total: cards.reduce((sum, c) => sum + getEffectiveCardValue(c), 0) };
+    })
+    .filter((c): c is { slotIndex: number; total: number } => c !== null);
+  if (candidates.length === 0) return null;
+
+  const fireballValue = state[playerKeyOf(ai)].fireballValue;
+  const obliteratable = candidates.filter((c) => c.total <= fireballValue);
+  const pool = obliteratable.length > 0 ? obliteratable : candidates;
+  return pickHighestBy(pool, (c) => c.total).slotIndex;
+}
+
+/**
+ * Piromante (personagem novo) - vale a pena lançar a Bola de Fogo AGORA?
+ * Sim se ela consegue obliterar algum slot do oponente de vez, OU se já
+ * está muito perto do teto (deixar acumular mais seria desperdiçar
+ * combustível que vai se perder no arredondamento pro teto).
+ */
+function shouldLaunchFireball(state: GameState, ai: PlayerNumber): boolean {
+  const me = state[playerKeyOf(ai)];
+  if (me.fireballValue <= 0) return false;
+  const target = pickFireballTarget(state, ai);
+  if (target === null) return false;
+  const opponent = opponentOf(ai);
+  const opponentState = state[playerKeyOf(opponent)];
+  const slot = opponentState.field[target];
+  const total = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...slot.horizontalCards].reduce((sum, c) => sum + getEffectiveCardValue(c), 0);
+  const cap = getFireballCap(state.gameConfig);
+  return me.fireballValue >= total || me.fireballValue >= cap - 3;
+}
+
 function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   const character = characterOf(state, ai);
   const me = state[playerKeyOf(ai)];
@@ -411,6 +459,39 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
     const transformable = me.hand.find((c) => !c.coringaTransformedToNumeral && (c.value === 'J' || c.value === 'Q' || c.value === 'K'));
     if (transformable) {
       return { type: 'action', action: { type: 'TRANSFORM_CORINGA_MAGIC_CARD', player: ai, cardId: transformable.id } };
+    }
+  }
+
+  // 3c. Piromante (personagem novo) - Combustão (Valete): prioriza sempre
+  //     ALIMENTAR a Bola de Fogo com o combustível disponível (nunca perde
+  //     valor, e o Valete pode ser jogado de novo mais tarde se sobrar mais
+  //     combustível). Só lança se não houver combustível NENHUM na mão
+  //     agora - ver shouldLaunchFireball.
+  if (character === 'piromante') {
+    const jCard = me.hand.find((c) => c.value === 'J');
+    if (jCard && canActivateMagic('draw', 'piromante', 'J', getMagicActivationContext(state, ai))) {
+      if (ctx.hasFireFuelInHand) {
+        return {
+          type: 'action',
+          action: { type: 'EXECUTE_MAGIC', player: ai, cardId: jCard.id, character: 'piromante', magicType: 'J', selection: {} },
+        };
+      }
+      if (shouldLaunchFireball(state, ai)) {
+        const target = pickFireballTarget(state, ai);
+        if (target !== null) {
+          return {
+            type: 'action',
+            action: {
+              type: 'EXECUTE_MAGIC',
+              player: ai,
+              cardId: jCard.id,
+              character: 'piromante',
+              magicType: 'J',
+              selection: { fireballLaunch: true, selectedTargetSlot: target },
+            },
+          };
+        }
+      }
     }
   }
 
@@ -953,6 +1034,16 @@ function decideMonsterEffect(state: GameState, ai: PlayerNumber, character: Char
   // campo normal (ver isCoringaTrapFieldEligible/decideFieldPlacement/
   // decideHorizontalPlacement).
 
+  // Piromante (personagem novo) - Brasa (+5 na Bola de Fogo, sem alvo) quase
+  // não tem desvantagem real, então ativa sempre que possível - só freia na
+  // última carga se a Bola de Fogo já estiver perto do teto (senão o
+  // combustível extra se perderia no arredondamento pro teto).
+  if (character === 'piromante') {
+    const cap = getFireballCap(state.gameConfig);
+    if (holdBackLastCharge && me.fireballValue >= cap - 2) return null;
+    return { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: ai };
+  }
+
   return null;
 }
 
@@ -1342,6 +1433,45 @@ function decideStrategyMagic(state: GameState, ai: PlayerNumber, character: Char
   if (character === 'mosqueteiro') return decideMosqueteiroJ(state, ai) ?? decideMosqueteiroQ(state, ai);
   // Coringa (redesenho completo) nunca chega aqui - Rainha/Rei são
   // posicionados no campo normal (decideFieldPlacement), não ativados.
+  if (character === 'piromante') return decidePiromanteQ(state, ai);
+  return null;
+}
+
+/**
+ * Piromante (personagem novo) - Roubo Flamejante (Rainha): queima a carta
+ * revelada mais valiosa do oponente (mão ou horizontal no campo, valor 2-10)
+ * disponível - prioriza SEMPRE alimentar a Bola de Fogo (nunca perde valor,
+ * e ainda sabota o oponente de brinde) sobre lançar; só lança se não houver
+ * nenhum alvo pra queimar agora.
+ */
+function decidePiromanteQ(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  const qCard = me.hand.find((c) => c.value === 'Q');
+  if (!qCard || !canActivateMagic('strategy', 'piromante', 'Q', getMagicActivationContext(state, ai))) return null;
+
+  const opponentState = state[playerKeyOf(opponentOf(ai))];
+  const candidates = [
+    ...opponentState.hand.filter((c) => c.revealed && isNumeralCard(c)),
+    ...opponentState.field.flatMap((slot) => slot.horizontalCards.filter((c) => c.revealed && isNumeralCard(c))),
+  ];
+  if (candidates.length > 0) {
+    const best = pickHighestBy(candidates, (c) => getEffectiveCardValue(c));
+    return { type: 'EXECUTE_MAGIC', player: ai, cardId: qCard.id, character: 'piromante', magicType: 'Q', selection: { selectedCards: [best.id] } };
+  }
+
+  if (shouldLaunchFireball(state, ai)) {
+    const target = pickFireballTarget(state, ai);
+    if (target !== null) {
+      return {
+        type: 'EXECUTE_MAGIC',
+        player: ai,
+        cardId: qCard.id,
+        character: 'piromante',
+        magicType: 'Q',
+        selection: { fireballLaunch: true, selectedTargetSlot: target },
+      };
+    }
+  }
   return null;
 }
 
@@ -1889,10 +2019,63 @@ function decideMosqueteiroK(state: GameState, ai: PlayerNumber): GameAction | nu
   };
 }
 
+/**
+ * Piromante K (Queima do Reforço): queima uma carta horizontal (não
+ * combatida) do campo do oponente, somando seu valor à Bola de Fogo - ou
+ * lança a Bola de Fogo já acumulada, mesma escolha J/Q/K. Mira apenas o
+ * valor REVELADO ao decidir entre candidatas (nunca olha o valor de uma
+ * carta ainda não revelada do oponente, igual ao Mago K acima); se nenhuma
+ * candidata estiver revelada, sorteia entre elas às cegas.
+ */
+function decidePiromanteK(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  const kCard = me.hand.find((c) => c.value === 'K');
+  if (!kCard) return null;
+  if (!canActivateMagic('combat', 'piromante', 'K', getMagicActivationContext(state, ai))) return null;
+
+  const opponent = opponentOf(ai);
+  const opponentField = state[opponentKeyOf(ai)].field;
+  const candidates = getUnbattledHorizontalSlots(opponentField)
+    .filter((i) => !isSlotProtected(state, opponent, i))
+    .flatMap((i) => opponentField[i].horizontalCards.filter((c) => !c.battled));
+
+  if (candidates.length > 0) {
+    const revealedCandidates = candidates.filter((c) => c.revealed);
+    const target =
+      revealedCandidates.length > 0
+        ? pickHighestBy(revealedCandidates, (c) => getEffectiveCardValue(c))
+        : candidates[Math.floor(Math.random() * candidates.length)];
+    return {
+      type: 'EXECUTE_MAGIC',
+      player: ai,
+      cardId: kCard.id,
+      character: 'piromante',
+      magicType: 'K',
+      selection: { selectedCards: [target.id] },
+    };
+  }
+
+  if (shouldLaunchFireball(state, ai)) {
+    const target = pickFireballTarget(state, ai);
+    if (target !== null) {
+      return {
+        type: 'EXECUTE_MAGIC',
+        player: ai,
+        cardId: kCard.id,
+        character: 'piromante',
+        magicType: 'K',
+        selection: { fireballLaunch: true, selectedTargetSlot: target },
+      };
+    }
+  }
+  return null;
+}
+
 function decideCombatMagic(state: GameState, ai: PlayerNumber, character: CharacterId): GameAction | null {
   if (character === 'mago') return decideMagoK(state, ai);
   if (character === 'besta') return decideBestaK(state, ai);
   if (character === 'mosqueteiro') return decideMosqueteiroK(state, ai);
+  if (character === 'piromante') return decidePiromanteK(state, ai);
   return null;
 }
 

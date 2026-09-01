@@ -26,7 +26,7 @@
 export type MagicCardType = 'J' | 'Q' | 'K';
 
 /** Personagens jogáveis. EXTENSÃO: adicione novos personagens aqui */
-export type Character = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
+export type Character = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
 
 /** Fases do turno. IMPORTANTE: a ordem é fixa: draw → strategy → combat */
 export type Phase = 'draw' | 'strategy' | 'combat';
@@ -149,6 +149,38 @@ export const MAGIC_CARDS: Record<Character, Record<MagicCardType, MagicCardInfo>
         'Pode ser posicionado como carta PRINCIPAL normal. Se for revelado pelo OPONENTE ainda na Estratégia, explode em fumaça e nuvens (descartado) e você compra um Ás. Revelado no Combate, explode: a disputa vira empate e a carta do oponente volta pra mão dele (no Modo Towers, só o topo da torre dele é removido).',
     },
   },
+
+  // Piromante (personagem novo, "momento game design" - mecânica própria: a
+  // Bola de Fogo, um combustível visível no campo do próprio jogador, ver
+  // PlayerState.fireballValue/FIREBALL_CAP em gameEngine.ts). As 3 magias
+  // (J/Q/K) SEMPRE oferecem uma escolha na hora de ativar: o efeito próprio
+  // listado abaixo (que ALIMENTA a Bola de Fogo) OU LANÇAR a Bola de Fogo já
+  // acumulada contra um slot do oponente (reduz o valor total dali pelo
+  // valor da Bola de Fogo; se a Bola for maior ou igual, oblitera o slot
+  // inteiro; se for menor, o slot vira uma única carta-token com o valor
+  // restante - ver executeFireballLaunch em gameEngine.ts). Essa escolha é
+  // do jogador a cada ativação (ver `selectedFireballLaunch` no diálogo de
+  // magia, GameBoard.tsx), nunca automática.
+  piromante: {
+    J: {
+      name: 'Valete - Combustão',
+      phase: 'draw',
+      description:
+        'Todas as suas cartas de valor menor que 5 (2, 3 ou 4) na mão se juntam e viram combustível: a SOMA delas é adicionada à sua Bola de Fogo (até o teto) e essas cartas são descartadas. OU: lance a Bola de Fogo já acumulada contra um slot do oponente.',
+    },
+    Q: {
+      name: 'Rainha - Roubo Flamejante',
+      phase: 'strategy',
+      description:
+        'Escolha uma carta revelada do oponente (na mão ou no campo, valor de 2 a 10) - ela é queimada (vai pro descarte) e seu valor é adicionado à sua Bola de Fogo (até o teto). OU: lance a Bola de Fogo já acumulada contra um slot do oponente.',
+    },
+    K: {
+      name: 'Rei - Queima do Reforço',
+      phase: 'combat',
+      description:
+        'Queime uma carta horizontal do campo do oponente (vai pro descarte) - seu valor é adicionado à sua Bola de Fogo (até o teto). OU: lance a Bola de Fogo já acumulada contra um slot do oponente.',
+    },
+  },
 };
 
 /** Retorna as informações de uma Carta Mágica específica */
@@ -228,6 +260,18 @@ export interface MagicActivationContext {
   hasOpponentHandCards?: boolean;
   /** Rainha do Mosqueteiro: precisa de ao menos 1 carta ainda oculta do oponente (mão ou campo) pra revelar. */
   hasRevealableOpponentCards?: boolean;
+  /**
+   * Piromante (personagem novo) - as 3 magias (J/Q/K) sempre têm DUAS formas
+   * de ativar (efeito próprio de alimentar a Bola de Fogo, OU lançá-la já
+   * acumulada) - o botão fica habilitado se QUALQUER uma das duas for
+   * possível agora; qual delas o jogador realmente escolhe é decidido no
+   * diálogo de ativação (GameBoard.tsx), não aqui.
+   */
+  hasFireFuelInHand?: boolean;
+  hasRevealedBurnableOpponentCard?: boolean;
+  hasUnbattledHorizontalCardsInOpponentFieldForBurn?: boolean;
+  /** Bola de Fogo > 0 E existe pelo menos 1 slot do oponente com alguma carta pra mirar. */
+  canLaunchFireball?: boolean;
 }
 
 /**
@@ -376,6 +420,24 @@ export function canActivateMagic(
   // como magia de verdade é depois de transformada pela Mão de Ferro (Magia
   // Numeral 7,7,7) - aí ela já nem passa mais no filtro de "é uma carta de
   // magia" (ver `isMagic`/`coringaTransformedToNumeral`, PlayerZone.tsx).
+
+  // Piromante J (Combustão): tem cartas <5 na mão pra virar combustível, OU
+  // já tem Bola de Fogo suficiente pra lançar contra algum alvo.
+  if (character === 'piromante' && cardValue === 'J') {
+    return (ctx.hasFireFuelInHand ?? false) || (ctx.canLaunchFireball ?? false);
+  }
+
+  // Piromante Q (Roubo Flamejante): tem carta revelada do oponente pra
+  // queimar, OU pode lançar a Bola de Fogo já acumulada.
+  if (character === 'piromante' && cardValue === 'Q') {
+    return (ctx.hasRevealedBurnableOpponentCard ?? false) || (ctx.canLaunchFireball ?? false);
+  }
+
+  // Piromante K (Queima do Reforço): tem carta horizontal do oponente pra
+  // queimar, OU pode lançar a Bola de Fogo já acumulada.
+  if (character === 'piromante' && cardValue === 'K') {
+    return (ctx.hasUnbattledHorizontalCardsInOpponentFieldForBurn ?? false) || (ctx.canLaunchFireball ?? false);
+  }
 
   // Sem condições especiais além da fase (Mago J, Anjo K)
   return true;

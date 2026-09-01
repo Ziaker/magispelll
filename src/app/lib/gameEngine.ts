@@ -48,7 +48,7 @@ import { getCharacterTheme } from './characterThemes';
 export type Phase = 'draw' | 'strategy' | 'combat';
 export type PlayerNumber = 1 | 2;
 export type PlayerKey = 'player1' | 'player2';
-export type CharacterId = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
+export type CharacterId = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
 
 export type FieldSlot = {
   faceDownCard?: Card;
@@ -225,6 +225,27 @@ export interface PlayerState {
    * feita mesmo depois de fechar.
    */
   coringaTransformWindowUntilTurn?: number;
+  /**
+   * Piromante (personagem novo, "momento game design") - a Bola de Fogo:
+   * combustível visível no campo do próprio jogador, formado somando o
+   * valor de cartas queimadas (próprias ou do oponente, ver as 3 magias em
+   * magicCards.ts) até um teto (`FIREBALL_CAP`/`FIREBALL_CAP_TOWERS`, ver
+   * getFireballCap). Lançada contra um slot do oponente através de
+   * qualquer uma das 3 magias (Valete/Rainha/Rei, escolhendo "lançar" em
+   * vez do efeito próprio de alimentar) - ver executeFireballLaunch.
+   * Reseta pra 0 depois de lançada.
+   */
+  fireballValue: number;
+  /**
+   * Piromante - Magia Numeral "Chama Repartida" (6,6,6): `true` enquanto o
+   * PRÓXIMO lançamento da Bola de Fogo (não importa quantos turnos até lá)
+   * deve se propagar pros 3 slots do oponente de uma vez, com o valor
+   * dividido entre eles, em vez de mirar 1 slot só com o valor total -
+   * consumido (volta a `false`) assim que esse próximo lançamento acontece,
+   * sem nenhum prazo por turno (diferente de `coringaTransformWindowUntilTurn`
+   * acima) - ver executeFireballLaunch.
+   */
+  piromanteSpreadArmed: boolean;
 }
 
 /**
@@ -451,6 +472,17 @@ export interface MagicSelection {
    * estiver ativa - ver mosqueteiroRedirectNextDiscard).
    */
   selectedRevealCardIds?: string[];
+  /**
+   * Piromante (personagem novo) - as 3 magias (J/Q/K) sempre têm duas formas
+   * de ativar (efeito próprio de alimentar a Bola de Fogo, OU lançá-la já
+   * acumulada contra o campo do oponente) - `true` quando o jogador escolheu
+   * a 2ª opção nesta ativação. Quando `true`, `selectedTargetSlot` (já
+   * existe acima) é o slot do oponente mirado; `selectedCards`/`selectedSlot`
+   * são ignorados. Quando `false`/ausente, a magia faz seu efeito próprio de
+   * sempre (Valete não precisa de seleção nenhuma; Rainha/Rei usam
+   * `selectedCards` com a carta do oponente a queimar).
+   */
+  fireballLaunch?: boolean;
 }
 
 export type GameAction =
@@ -585,6 +617,8 @@ function createPlayerState(hand: Card[], handLimit: number): PlayerState {
     mosqueteiroBoostedCardId: undefined,
     mosqueteiroBoostAmount: 0,
     coringaTransformWindowUntilTurn: undefined,
+    fireballValue: 0,
+    piromanteSpreadArmed: false,
   };
 }
 
@@ -719,7 +753,14 @@ function appendLog(state: GameState, log: LogEntry[], type: LogEventType, messag
 function pushToDiscard(state: Pick<GameState, 'deck' | 'discardPile' | 'gameConfig'>, cards: Card[]): { deck: Card[]; discardPile: Card[] } {
   if (cards.length === 0) return { deck: state.deck, discardPile: state.discardPile };
 
-  let discardPile = [...state.discardPile, ...resetCardsForDiscard(expandFusedCards(cards))];
+  // Piromante (personagem novo) - uma carta-token (`isFireToken`, ver
+  // cardUtils.ts) nunca existiu no baralho original de 54 cartas - ela
+  // simplesmente DESAPARECE ao sair de campo, em vez de entrar na pilha de
+  // descarte (senão a conservação total de cartas do jogo, que todo o
+  // resto do motor assume como invariante fixo, quebraria pra sempre a
+  // cada Bola de Fogo lançada sem obliterar o alvo).
+  const realCards = cards.filter((c) => !c.isFireToken);
+  let discardPile = [...state.discardPile, ...resetCardsForDiscard(expandFusedCards(realCards))];
   let deck = state.deck;
 
   if (state.gameConfig.autoShuffle && discardPile.length >= 20) {
@@ -1162,6 +1203,16 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
     hasRevealableOpponentCards:
       opponentState.hand.some((c) => !c.revealed) ||
       opponentState.field.some((slot) => (slot.faceDownCard && !slot.faceDownCard.revealed) || slot.horizontalCards.some((h) => !h.revealed)),
+    // Piromante (personagem novo) - ver comentário completo em
+    // MagicActivationContext (magicCards.ts).
+    hasFireFuelInHand: playerState.hand.some((c) => isPlainNumeralCard(c) && getEffectiveCardValue(c) < 5),
+    hasRevealedBurnableOpponentCard:
+      opponentState.hand.some((c) => c.revealed && isNumeralCard(c)) ||
+      opponentState.field.some((slot) => slot.horizontalCards.some((h) => h.revealed && isNumeralCard(h))),
+    hasUnbattledHorizontalCardsInOpponentFieldForBurn: getUnbattledHorizontalSlots(opponentState.field).some(
+      (i) => !isSlotProtected(state, opponent, i)
+    ),
+    canLaunchFireball: playerState.fireballValue > 0 && opponentState.field.some((slot) => Boolean(slot.faceDownCard) || slot.horizontalCards.length > 0),
   };
 }
 
@@ -2042,6 +2093,109 @@ function handleActivateSimpleMagic(state: GameState, player: PlayerNumber, cardI
   return state;
 }
 
+/** Piromante - teto da Bola de Fogo (30 no Modo Towers, 20 normalmente - pedido do usuário). */
+export function getFireballCap(gameConfig: GameConfig): number {
+  return gameConfig.towersMode ? 30 : 20;
+}
+
+/**
+ * Piromante (personagem novo, "momento game design") - lança a Bola de Fogo
+ * acumulada contra o campo do oponente. Compartilhada pelas 3 magias (J/Q/K
+ * escolhendo "lançar" em vez do efeito próprio de alimentar - ver
+ * MagicSelection.fireballLaunch) - a única diferença entre elas é QUAL carta
+ * sai da mão do jogador antes de chamar esta função.
+ *
+ * Sem `piromanteSpreadArmed` (Magia Numeral "Chama Repartida" não ativa):
+ * mira 1 slot só (`targetSlot`), reduzindo/obliterando pelo valor TOTAL da
+ * Bola de Fogo.
+ * Com `piromanteSpreadArmed`: mira os 3 slots do oponente de uma vez, cada
+ * um recebendo só uma FRAÇÃO do valor (dividido por 3, arredondado pra
+ * baixo - o resto da divisão se perde, mesmo trade-off "força concentrada
+ * vs espalhada" descrito pelo usuário).
+ *
+ * Cada slot atingido: soma o valor de TUDO que está empilhado ali (carta
+ * principal + reserva de torre, se houver + horizontal(is) - ver
+ * isTowerSlot/FieldSlot). Se a fatia da Bola de Fogo for >= a esse total, o
+ * slot inteiro é obliterado (fica vazio). Se for menor, todas as cartas de
+ * lá saem (descartadas normalmente, são cartas REAIS) e uma única
+ * carta-token nova (`isFireToken`, ver cardUtils.ts) com o valor restante
+ * ocupa o lugar da carta principal - nunca vai pro descarte quando sai de
+ * campo depois (ver pushToDiscard).
+ *
+ * Slots protegidos por Proteção Divina do Anjo (isSlotProtected) são
+ * ignorados por completo (pedido do usuário: "bloqueia") - o fogo passa
+ * por cima sem efeito nenhum ali, mas a Bola de Fogo é consumida do mesmo
+ * jeito (o "tiro" foi dado, o alvo é que resistiu).
+ */
+function executeFireballLaunch(state: GameState, player: PlayerNumber, targetSlot: number | undefined): GameState {
+  const playerKey = playerKeyOf(player);
+  const opponentKey = opponentKeyOf(player);
+  const opponent = opponentOf(player);
+  const playerState = state[playerKey];
+  const opponentState = state[opponentKey];
+  const fireballValue = playerState.fireballValue;
+  if (fireballValue <= 0) return state;
+
+  const spread = playerState.piromanteSpreadArmed;
+  const targets = spread ? [0, 1, 2] : targetSlot !== undefined ? [targetSlot] : [];
+  if (targets.length === 0) return state;
+
+  const perTargetValue = spread ? Math.floor(fireballValue / 3) : fireballValue;
+
+  let newField = [...opponentState.field] as [FieldSlot, FieldSlot, FieldSlot];
+  let deck = state.deck;
+  let discardPile = state.discardPile;
+  let log = state.log;
+
+  for (const slotIndex of targets) {
+    if (isSlotProtected(state, opponent, slotIndex)) {
+      log = appendLog(state, log, 'magic', `A Bola de Fogo de Jogador ${player} não teve efeito no slot ${slotIndex + 1} de Jogador ${opponent} - protegido!`, { player, slotIndex });
+      continue;
+    }
+    if (perTargetValue <= 0) continue;
+    const slot = newField[slotIndex];
+    const slotCards = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...(slot.towerReserve ?? []), ...slot.horizontalCards];
+    if (slotCards.length === 0) continue;
+    const slotTotal = slotCards.reduce((sum, c) => sum + getEffectiveCardValue(c), 0);
+
+    const pushed = pushToDiscard({ deck, discardPile, gameConfig: state.gameConfig }, slotCards);
+    deck = pushed.deck;
+    discardPile = pushed.discardPile;
+
+    if (perTargetValue >= slotTotal) {
+      newField[slotIndex] = { revealed: false, horizontalCards: [] };
+      log = appendLog(state, log, 'magic', `A Bola de Fogo de Jogador ${player} obliterou o slot ${slotIndex + 1} de Jogador ${opponent}!`, { player, slotIndex });
+    } else {
+      const remaining = slotTotal - perTargetValue;
+      const tokenCard: Card = {
+        id: `fire-token-p${player}-t${state.turn}-s${slotIndex}-v${fireballValue}`,
+        value: 'FIRE',
+        suit: '🔥',
+        transformedValue: remaining,
+        isFireToken: true,
+        revealed: true,
+      };
+      newField[slotIndex] = { faceDownCard: tokenCard, revealed: true, horizontalCards: [] };
+      log = appendLog(
+        state,
+        log,
+        'magic',
+        `A Bola de Fogo de Jogador ${player} reduziu o slot ${slotIndex + 1} de Jogador ${opponent} - restam ${remaining}`,
+        { player, slotIndex }
+      );
+    }
+  }
+
+  return {
+    ...state,
+    deck,
+    discardPile,
+    log,
+    [playerKey]: { ...playerState, fireballValue: 0, piromanteSpreadArmed: false },
+    [opponentKey]: { ...opponentState, field: newField },
+  };
+}
+
 function handleExecuteMagic(
   state: GameState,
   action: { player: PlayerNumber; cardId: string; character: CharacterId; magicType: MagicCardType; selection: MagicSelection }
@@ -2280,7 +2434,15 @@ function handleExecuteMagic(
     setField(targetKey, newTargetField);
     // 4. A carta antiga do slot alvo volta para a mão de quem era dona do slot
     //    (não necessariamente quem ativou a magia nem quem cedeu a carta nova).
-    if (oldCard) {
+    // FIX (checagem extensa por bugs - interação Piromante x Mago): uma
+    // carta-token de Bola de Fogo (`isFireToken`, ver cardUtils.ts) nunca
+    // existiu no baralho de 54 cartas - ela precisa DESAPARECER ao sair do
+    // campo (mesma regra que pushToDiscard já aplica em todo outro lugar),
+    // nunca ir pra mão de ninguém. Sem esta checagem, Substituição Arcana
+    // conseguia "resgatar" o token pra mão (e de lá, até jogá-lo de volta
+    // ao campo como se fosse uma carta de verdade) - o único ponto de saída
+    // de campo que não passava por pushToDiscard.
+    if (oldCard && !oldCard.isFireToken) {
       setHand(targetKey, [...handOf(targetKey), oldCard]);
     }
 
@@ -2670,7 +2832,12 @@ function handleExecuteMagic(
     const mainCard = playerState.field.find((slot) => slot.faceDownCard?.id === targetId)?.faceDownCard;
     const horizontalCard = playerState.field.flatMap((slot) => slot.horizontalCards).find((c) => c.id === targetId);
     const targetCard = mainCard ?? horizontalCard;
-    if (!targetCard) return state;
+    // FIX (checagem extensa por bugs - interação Piromante x Mosqueteiro):
+    // Tiro Certeiro foi desenhado pra reforçar uma carta numeral de verdade
+    // no combate - uma carta-token de Bola de Fogo (`isFireToken`) nunca
+    // deveria ser um alvo válido (cosmético, mas inconsistente com a
+    // identidade visual/temática do efeito).
+    if (!targetCard || targetCard.isFireToken) return state;
 
     const boostAmount = playerState.mosqueteiroDiscardsThisTurn + playerState.mosqueteiroDiscardsTurnMinus1;
     const { deck, discardPile } = pushToDiscard(state, [card]);
@@ -2693,6 +2860,130 @@ function handleExecuteMagic(
         mosqueteiroBoostedCardId: targetId,
         mosqueteiroBoostAmount: boostAmount,
       },
+    };
+  }
+
+  // ----- Piromante J: Combustão -----
+  // Fase de COMPRA. `selection.fireballLaunch` decide qual dos 2 caminhos:
+  // lançar a Bola de Fogo já acumulada (ver executeFireballLaunch), ou o
+  // efeito próprio (junta cartas <5 da mão como combustível).
+  if (character === 'piromante' && magicType === 'J') {
+    if (selection.fireballLaunch) {
+      const { deck, discardPile } = pushToDiscard(state, [card]);
+      const midState: GameState = { ...state, deck, discardPile, [playerKey]: { ...playerState, hand: handWithoutMagic } };
+      return executeFireballLaunch(midState, player, selectedTargetSlot);
+    }
+    const cap = getFireballCap(state.gameConfig);
+    const fuelCards = handWithoutMagic.filter((c) => isPlainNumeralCard(c) && getEffectiveCardValue(c) < 5);
+    const fuelSum = fuelCards.reduce((sum, c) => sum + getEffectiveCardValue(c), 0);
+    const fuelIds = new Set(fuelCards.map((c) => c.id));
+    const newHand = handWithoutMagic.filter((c) => !fuelIds.has(c.id));
+    const { deck, discardPile } = pushToDiscard(state, [card, ...fuelCards]);
+    const newFireball = Math.min(cap, playerState.fireballValue + fuelSum);
+    const log =
+      fuelCards.length > 0
+        ? appendLog(
+            state,
+            state.log,
+            'magic',
+            `Combustão: Jogador ${player} queimou ${fuelCards.length} carta(s) da mão e somou ${fuelSum} à Bola de Fogo (agora ${newFireball})`,
+            { player, cardValue: card.value }
+          )
+        : appendLog(state, state.log, 'magic', `Combustão: Jogador ${player} não tinha cartas pequenas na mão pra queimar`, { player, cardValue: card.value });
+    return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: newHand, fireballValue: newFireball } };
+  }
+
+  // ----- Piromante Q: Roubo Flamejante -----
+  // Fase de ESTRATÉGIA. Efeito próprio: queima uma carta REVELADA do
+  // oponente (mão, ou horizontal no campo) valendo 2-10. FIX (simplificação
+  // consciente por escopo/tempo): não aceita a carta PRINCIPAL de um slot
+  // (nem torre) como alvo aqui - remover ela exigiria promover a reserva de
+  // torre pro novo topo (mesma lógica de handleResolveCombat), fora do
+  // escopo desta primeira versão. Mão e horizontais já cobrem a maior parte
+  // dos casos de uso reais.
+  if (character === 'piromante' && magicType === 'Q') {
+    if (selection.fireballLaunch) {
+      const { deck, discardPile } = pushToDiscard(state, [card]);
+      const midState: GameState = { ...state, deck, discardPile, [playerKey]: { ...playerState, hand: handWithoutMagic } };
+      return executeFireballLaunch(midState, player, selectedTargetSlot);
+    }
+    const targetId = selectedCards?.[0];
+    if (!targetId) return state;
+    const opponentState = state[opponentKey];
+    const handTarget = opponentState.hand.find((c) => c.id === targetId);
+    const horizTarget = opponentState.field.flatMap((slot) => slot.horizontalCards).find((c) => c.id === targetId);
+    const targetCard = handTarget ?? horizTarget;
+    if (!targetCard || !targetCard.revealed) return state;
+    const value = getEffectiveCardValue(targetCard);
+    if (value < 2 || value > 10) return state;
+    if (horizTarget && isSlotProtected(state, opponent, 0)) return state;
+
+    const newOpponentHand = opponentState.hand.filter((c) => c.id !== targetId);
+    const newOpponentField = opponentState.field.map((slot) => ({
+      ...slot,
+      horizontalCards: slot.horizontalCards.filter((c) => c.id !== targetId),
+    })) as [FieldSlot, FieldSlot, FieldSlot];
+
+    const cap = getFireballCap(state.gameConfig);
+    const newFireball = Math.min(cap, playerState.fireballValue + value);
+    const { deck, discardPile } = pushToDiscard(state, [card, targetCard]);
+    const log = appendLog(
+      state,
+      state.log,
+      'magic',
+      `Roubo Flamejante: Jogador ${player} queimou ${targetCard.value}${targetCard.suit} de Jogador ${opponent} e somou ${value} à Bola de Fogo (agora ${newFireball})`,
+      { player, cardValue: card.value }
+    );
+    return {
+      ...state,
+      deck,
+      discardPile,
+      log,
+      [playerKey]: { ...playerState, hand: handWithoutMagic, fireballValue: newFireball },
+      [opponentKey]: { ...opponentState, hand: newOpponentHand, field: newOpponentField },
+    };
+  }
+
+  // ----- Piromante K: Queima do Reforço -----
+  // Fase de COMBATE. Efeito próprio: queima uma carta horizontal do campo
+  // do oponente (mesmo alvo do Rei do Mago - Destruição de Reforço - mas em
+  // vez de só descartar, o valor dela vira combustível).
+  if (character === 'piromante' && magicType === 'K') {
+    if (selection.fireballLaunch) {
+      const { deck, discardPile } = pushToDiscard(state, [card]);
+      const midState: GameState = { ...state, deck, discardPile, [playerKey]: { ...playerState, hand: handWithoutMagic } };
+      return executeFireballLaunch(midState, player, selectedTargetSlot);
+    }
+    const targetId = selectedCards?.[0];
+    if (!targetId) return state;
+    const opponentState = state[opponentKey];
+    const targetSlotIndex = opponentState.field.findIndex((slot) => slot.horizontalCards.some((c) => c.id === targetId && !c.battled));
+    if (targetSlotIndex === -1) return state;
+    if (isSlotProtected(state, opponent, targetSlotIndex)) return state;
+    const targetCard = opponentState.field[targetSlotIndex].horizontalCards.find((c) => c.id === targetId)!;
+
+    const value = getEffectiveCardValue(targetCard);
+    const newOpponentField = opponentState.field.map((slot, i) =>
+      i === targetSlotIndex ? { ...slot, horizontalCards: slot.horizontalCards.filter((c) => c.id !== targetId) } : slot
+    ) as [FieldSlot, FieldSlot, FieldSlot];
+
+    const cap = getFireballCap(state.gameConfig);
+    const newFireball = Math.min(cap, playerState.fireballValue + value);
+    const { deck, discardPile } = pushToDiscard(state, [card, targetCard]);
+    const log = appendLog(
+      state,
+      state.log,
+      'magic',
+      `Queima do Reforço: Jogador ${player} queimou uma horizontal de Jogador ${opponent} e somou ${value} à Bola de Fogo (agora ${newFireball})`,
+      { player, cardValue: card.value }
+    );
+    return {
+      ...state,
+      deck,
+      discardPile,
+      log,
+      [playerKey]: { ...playerState, hand: handWithoutMagic, fireballValue: newFireball },
+      [opponentKey]: { ...opponentState, field: newOpponentField },
     };
   }
 
@@ -2731,6 +3022,42 @@ function handleExecuteMagic(
  * (ver handleResolvePendingReaction) - assim nenhuma lógica de nenhuma magia
  * precisa saber que o Modo Reações existe.
  */
+/**
+ * Verdadeiro se ativar `cardId` (do jogador `player`) AGORA resultaria num
+ * ANÚNCIO (Modo Reações) em vez de aplicação imediata - a MESMA checagem que
+ * `maybeDeferForReaction` usa internamente pra decidir isso, extraída aqui
+ * pra ser reaproveitada pela UI (GameBoard.tsx).
+ *
+ * FIX (checagem extensa por bugs - achado independente, não relacionado ao
+ * Piromante): a apresentação visual/sonora de UMA ativação de magia
+ * (`applyMagicEffectPresentation`) sempre disparava ANTES do dispatch,
+ * incondicionalmente - inclusive quando o Modo Reações estava ligado e a
+ * ativação na verdade seria só ANUNCIADA (efeito real represado em
+ * `pendingReaction`, sem aplicar nada ainda). Isso causava dois sintomas: (1)
+ * se o oponente reagia (negava), o burst já tinha tocado à toa, pra um
+ * efeito que nunca aconteceu; (2) se ninguém reagia a tempo, o burst tocava
+ * DE NOVO quando RESOLVE_PENDING_REACTION finalmente aplicava o efeito de
+ * verdade (ver o timer de 3s em GameBoard.tsx, que corretamente dispara a
+ * apresentação nesse momento - o bug era o disparo ANTECIPADO extra, não a
+ * apresentação em si). GameBoard.tsx agora chama esta função ANTES de
+ * disparar a apresentação: se ela retornar `true`, a apresentação é adiada
+ * pro mesmo caminho que já trata a resolução da reação (nega -> nenhum burst
+ * toca, correto; expira sem reação -> `triggerAiActionEffects` já dispara a
+ * apresentação exatamente uma vez).
+ */
+export function canMagicTriggerReactionAnnouncement(state: GameState, player: PlayerNumber, cardId: string): boolean {
+  if (!state.gameConfig.reactionsMode) return false;
+
+  const card = state[playerKeyOf(player)].hand.find((c) => c.id === cardId);
+  if (!card || (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K')) return false;
+
+  const opponent = opponentOf(player);
+  const opponentKey = playerKeyOf(opponent);
+  const opponentState = state[opponentKey];
+  const reactionsUsed = state.reactionsUsedThisPhase[opponent] ?? 0;
+  return reactionsUsed < state.gameConfig.reactionsLimit && opponentState.hand.some((c) => c.value === card.value);
+}
+
 function maybeDeferForReaction(
   state: GameState,
   originalAction: GameAction,
@@ -2739,17 +3066,11 @@ function maybeDeferForReaction(
   resultState: GameState
 ): GameState {
   if (resultState === state) return state; // a ativação seria rejeitada de qualquer forma - Reações não muda isso
-  if (!state.gameConfig.reactionsMode) return resultState;
+  if (!canMagicTriggerReactionAnnouncement(state, player, cardId)) return resultState;
 
   const card = state[playerKeyOf(player)].hand.find((c) => c.id === cardId);
-  if (!card || (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K')) return resultState; // nunca deveria acontecer - só magias passam por aqui
-
+  if (!card || (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K')) return resultState; // sempre verdadeiro aqui (já checado acima) - só pra estreitar o tipo de card.value
   const opponent = opponentOf(player);
-  const opponentKey = playerKeyOf(opponent);
-  const opponentState = state[opponentKey];
-  const reactionsUsed = state.reactionsUsedThisPhase[opponent] ?? 0;
-  const canOpponentReact = reactionsUsed < state.gameConfig.reactionsLimit && opponentState.hand.some((c) => c.value === card.value);
-  if (!canOpponentReact) return resultState; // ninguém pode reagir - aplica normalmente, sem anúncio nem pausa
 
   const playerKey = playerKeyOf(player);
   const playerState = state[playerKey];
@@ -3033,11 +3354,37 @@ function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumbe
     };
   }
 
+  // Piromante (Brasa): também ativa direto, sem slot alvo - só soma um
+  // valor fixo à Bola de Fogo, até o teto atual.
+  if (character === 'piromante') {
+    const cap = getFireballCap(state.gameConfig);
+    const newFireball = Math.min(cap, playerState.fireballValue + 5);
+    const log = appendLog(state, state.log, 'monster', `Jogador ${player} ativou - +5 na Bola de Fogo (agora ${newFireball})`, { player });
+    return {
+      ...state,
+      log,
+      [playerKey]: {
+        ...playerState,
+        monsterCard: { ...monster, monsterUsed: true, monsterUseCount: (monster.monsterUseCount ?? 0) + 1 },
+        monsterTargetSlot: undefined,
+        monsterTargetCardId: undefined,
+        fireballValue: newFireball,
+      },
+    };
+  }
+
   // Besta a partir daqui - precisa de um slot válido (0-2) e de uma carta
   // específica dentro dele.
   if (targetSlotIndex === undefined || targetSlotIndex < 0 || targetSlotIndex > 2) return state;
   const slot = playerState.field[targetSlotIndex];
-  const candidateIds = [slot.faceDownCard?.id, ...slot.horizontalCards.map((c) => c.id)].filter((id): id is string => Boolean(id));
+  // FIX (checagem extensa por bugs - interação Piromante x Besta): exclui
+  // cartas-token de Bola de Fogo (`isFireToken`) dos alvos válidos - Fúria
+  // Selvagem foi desenhada pra dobrar uma carta numeral de verdade no
+  // combate, e um token nunca deveria ser um alvo "de verdade" (cosmético,
+  // mas inconsistente com a identidade visual/temática do efeito).
+  const candidateIds = [slot.faceDownCard, ...slot.horizontalCards]
+    .filter((c) => c && !c.isFireToken)
+    .map((c) => c!.id);
   if (!targetCardId || !candidateIds.includes(targetCardId)) return state; // precisa apontar pra uma carta que realmente está neste slot
 
   const log = appendLog(state, state.log, 'monster', `Jogador ${player} ativou no slot ${targetSlotIndex + 1} - carta selecionada será dobrada no combate`, { player });
@@ -3384,6 +3731,18 @@ function handleFinalizeNumeralSpell(state: GameState): GameState {
       `Mão de Ferro: no próximo turno, Jogador ${player} pode transformar cartas de magia em cartas de número 11, 12 ou 13`,
       { player }
     );
+  } else if (character === 'piromante') {
+    // Chama Repartida (personagem novo) - não altera a Bola de Fogo em si,
+    // só ARMA o PRÓXIMO lançamento dela pra se propagar aos 3 slots do
+    // oponente de uma vez (valor dividido, não total) - sem prazo por
+    // turno, ao contrário de coringaTransformWindowUntilTurn acima (fica
+    // armado até realmente ser consumido por um lançamento, não importa
+    // quantos turnos demore - ver executeFireballLaunch).
+    updatedPlayer = {
+      ...updatedPlayer,
+      piromanteSpreadArmed: true,
+    };
+    log = appendLog(state, log, 'numeral-spell', `Chama Repartida: o próximo lançamento da Bola de Fogo de Jogador ${player} vai atingir os 3 slots do oponente`, { player });
   } else {
     // FIX (pedido do usuário): a Visão Arcana do Mago documenta "todas as
     // cartas do oponente estarão reveladas" (inclui as que ele comprar) - mas

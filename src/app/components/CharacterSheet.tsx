@@ -1,13 +1,13 @@
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { ArrowLeft, Wand2, Crosshair } from 'lucide-react';
+import { ArrowLeft, Wand2, Crosshair, Flame } from 'lucide-react';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { CharacterDivider } from './CharacterDivider';
 import { ScrollArea } from './ui/scroll-area';
 import { getCharacterIconBackground } from '../lib/characterThemes';
 
 interface CharacterSheetProps {
-  character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa';
+  character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
   onBack: () => void;
 }
 
@@ -286,6 +286,55 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
       monsterEffect: {
         name: 'Carta Coringa',
         effect: 'Não usa a Zona Monstro - é posicionada no campo (principal ou horizontal) como uma carta numeral comum, valendo 15 fixo no Combate. Se for revelada pelo oponente ainda na Estratégia, volta oculta pra sua mão, que é embaralhada.',
+      },
+    },
+    piromante: {
+      name: 'PIROMANTE',
+      icon: Flame,
+      color: '#CC5500',
+      profile: 'Acumula uma Bola de Fogo visível no próprio campo, queimando cartas (suas ou do oponente) como combustível. Cada uma das 3 magias sempre oferece uma escolha: alimentar a Bola de Fogo mais um pouco, ou lançá-la de vez contra o campo do oponente.',
+      spells: [
+        {
+          card: 'Valete (J)',
+          phase: 'Compra',
+          name: 'Combustão',
+          description: 'Todas as suas cartas de valor menor que 5 (2, 3 ou 4) na mão se juntam e viram combustível - a soma delas vai pra Bola de Fogo (até o teto) e essas cartas são descartadas. Ou: lance a Bola de Fogo já acumulada.',
+        },
+        {
+          card: 'Rainha (Q)',
+          phase: 'Estratégia',
+          name: 'Roubo Flamejante',
+          description: 'Escolha uma carta revelada do oponente (mão ou campo, valor 2 a 10) - ela é queimada (descartada) e seu valor vai pra Bola de Fogo. Ou: lance a Bola de Fogo já acumulada.',
+        },
+        {
+          card: 'Rei (K)',
+          phase: 'Combate',
+          name: 'Queima do Reforço',
+          description: 'Queime uma carta horizontal do campo do oponente (descartada) - seu valor vai pra Bola de Fogo. Ou: lance a Bola de Fogo já acumulada.',
+        },
+      ],
+      strategies: [
+        {
+          title: 'Fogo Cruzado',
+          description: 'A Rainha e o Rei sabotam o campo do oponente enquanto alimentam sua Bola de Fogo ao mesmo tempo - cada carta queimada é uma dupla vantagem.',
+        },
+        {
+          title: 'Tudo ou Nada',
+          description: 'Uma Bola de Fogo igual ou maior que o total de um slot oblitera ele por completo - meça o campo do oponente antes de decidir lançar.',
+        },
+        {
+          title: 'Chama Repartida',
+          description: 'Reúna três 6s pra armar o próximo lançamento pra atingir os 3 slots do oponente de uma vez, com o valor dividido - ótimo contra um campo cheio de cartas fracas.',
+        },
+      ],
+      numericSpell: {
+        cards: '6, 6, 6',
+        name: 'Chama Repartida',
+        effect: 'Não altera a Bola de Fogo em si - só arma o PRÓXIMO lançamento dela pra atingir os 3 slots do campo do oponente de uma vez, com o valor dividido entre eles em vez do total.',
+      },
+      monsterEffect: {
+        name: 'Brasa',
+        effect: 'Ativa direto (sem escolher alvo) e adiciona 5 à sua Bola de Fogo, até o teto atual.',
       },
     },
   };
