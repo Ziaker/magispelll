@@ -911,10 +911,18 @@ function decideMonsterEffect(state: GameState, ai: PlayerNumber, character: Char
     // `combatValue` aqui fazia a IA preferir dobrar uma carta comum a um Ás
     // cru já em campo, e podia até recusar a última carga do Monstro achando
     // que o Ás (6) não justificava, quando dobrá-lo (28) claramente valeria.
+    // FIX (mesma classe do Tiro Certeiro do Mosqueteiro, ver decideMosqueteiroK):
+    // handleActivateMonsterEffectSimple exclui cartas-token de Bola de Fogo
+    // (`isFireToken`, Piromante) dos alvos válidos - incluí-las aqui fazia a
+    // IA propor uma Fúria Selvagem que o motor rejeitava em silêncio.
     const candidates: { slotIndex: number; cardId: string; value: number }[] = [];
     me.field.forEach((slot, i) => {
-      if (slot.faceDownCard) candidates.push({ slotIndex: i, cardId: slot.faceDownCard.id, value: getEffectiveCardValue(slot.faceDownCard) });
-      slot.horizontalCards.forEach((c) => candidates.push({ slotIndex: i, cardId: c.id, value: getEffectiveCardValue(c) }));
+      if (slot.faceDownCard && !slot.faceDownCard.isFireToken) {
+        candidates.push({ slotIndex: i, cardId: slot.faceDownCard.id, value: getEffectiveCardValue(slot.faceDownCard) });
+      }
+      slot.horizontalCards
+        .filter((c) => !c.isFireToken)
+        .forEach((c) => candidates.push({ slotIndex: i, cardId: c.id, value: getEffectiveCardValue(c) }));
     });
     if (candidates.length === 0) return null;
     const best = pickHighestBy(candidates, (c) => c.value);
@@ -2001,10 +2009,21 @@ function decideMosqueteiroK(state: GameState, ai: PlayerNumber): GameAction | nu
   if (!canActivateMagic('combat', 'mosqueteiro', 'K', getMagicActivationContext(state, ai))) return null;
   if (me.mosqueteiroDiscardsThisTurn + me.mosqueteiroDiscardsTurnMinus1 <= 0) return null;
 
+  // FIX (falha intermitente da suíte, "a IA nunca propõe uma ação que o motor
+  // rejeita em silêncio"): handleExecuteMagic recusa uma carta-token de Bola
+  // de Fogo (`isFireToken`, Piromante) como alvo do Tiro Certeiro, mas esta
+  // lista de candidatos aceitava qualquer carta do campo - contra o Piromante,
+  // um slot reduzido a token virava o "melhor alvo" (valor restante alto) e a
+  // IA propunha uma ativação que o motor devolvia sem mudar nada, travando a
+  // vez dela. Mesmo critério do motor aqui.
   const candidates: { id: string; value: number }[] = [];
   me.field.forEach((slot) => {
-    if (slot.faceDownCard) candidates.push({ id: slot.faceDownCard.id, value: getSpotlightAdjustedValue(slot.faceDownCard, state.spotlight) });
-    slot.horizontalCards.forEach((h) => candidates.push({ id: h.id, value: getSpotlightAdjustedValue(h, state.spotlight) }));
+    if (slot.faceDownCard && !slot.faceDownCard.isFireToken) {
+      candidates.push({ id: slot.faceDownCard.id, value: getSpotlightAdjustedValue(slot.faceDownCard, state.spotlight) });
+    }
+    slot.horizontalCards
+      .filter((h) => !h.isFireToken)
+      .forEach((h) => candidates.push({ id: h.id, value: getSpotlightAdjustedValue(h, state.spotlight) }));
   });
   if (candidates.length === 0) return null;
 

@@ -2723,6 +2723,143 @@ function makeReactionsBaseState(config: GameConfig): GameState {
 })();
 
 // ---------------------------------------------------------------------------
+// N+4b. Modo Towers - erosão da torre (pedido do usuário: "as torres estão se
+//       descartando após a primeira disputa, isso SÓ DEVE ACONTECER caso
+//       esteja disputando contra uma outra torre, caso não, apenas descarta a
+//       carta de cima da torre" + "caso tenha uma disputa vencida ou empatada
+//       contra uma carta avulsa, a torre deve permanecer no campo (caso ainda
+//       tenha mais que um componente)"). A regra deixou de depender de
+//       `combatLoneTower` (estreita demais - exigia a torre como ÚNICO
+//       conteúdo do campo) e passou a ser decidida por combate, comparando as
+//       duas cartas que batalharam - ver resolveCombatSlot em gameEngine.ts.
+// ---------------------------------------------------------------------------
+/** Monta um Combate já resolvível: torre de `towerCards` (topo por último) do J1 no slot 0 vs uma carta do J2 no slot 0. */
+function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]): GameState {
+  let state = createInitialState('mago', 'besta', { ...DEFAULT_GAME_CONFIG, towersMode: true });
+  const top = towerCards[towerCards.length - 1];
+  const reserve = towerCards.slice(0, -1);
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      field: [
+        { faceDownCard: top, towerReserve: reserve, revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: p2Card, towerReserve: p2Reserve, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: state.firstToFlip, slotIndex: 0 });
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: opponentOf(state.firstToFlip), slotIndex: 0 });
+  state = gameReducer(state, { type: 'RESOLVE_COMBAT' });
+  return gameReducer(state, { type: 'FINALIZE_COMBAT' });
+}
+
+(function testTowerErodesWhenLosingToPlainCard() {
+  // Torre 3+3 (total 6) PERDE para uma carta avulsa 10 - mesmo perdendo, só o
+  // topo é descartado e a torre continua em campo.
+  const state = setupTowerCombat([makeCard('erode-bottom', '3'), makeCard('erode-top', '3')], makeCard('erode-p2', '10'));
+  const towerSlot = state.player1.field[0];
+  assert(
+    towerSlot.faceDownCard?.id === 'erode-bottom',
+    `FIX: torre que PERDE para carta avulsa só perde o topo - a reserva vira o novo topo (recebido: ${towerSlot.faceDownCard?.id})`
+  );
+  assert(
+    state.discardPile.some((c) => c.id === 'erode-top') && !state.discardPile.some((c) => c.id === 'erode-bottom'),
+    'FIX: só a carta do topo antigo foi pro descarte - a de baixo permanece no campo'
+  );
+})();
+
+(function testTowerSurvivesTieWithPlainCard() {
+  // Torre 3+3 (total 6) EMPATA com uma carta avulsa 6.
+  const state = setupTowerCombat([makeCard('tie-bottom', '3'), makeCard('tie-top', '3')], makeCard('tie-p2', '6'));
+  assert(
+    state.player1.field[0].faceDownCard?.id === 'tie-bottom',
+    `FIX: torre que EMPATA com carta avulsa permanece no campo, só perdendo o topo (recebido: ${state.player1.field[0].faceDownCard?.id})`
+  );
+})();
+
+(function testTowerFullyDiscardedAgainstAnotherTower() {
+  // Torre vs torre: as duas vão INTEIRAS pro descarte (única exceção da regra).
+  const state = setupTowerCombat(
+    [makeCard('tvt-p1-bottom', '4'), makeCard('tvt-p1-top', '4')],
+    makeCard('tvt-p2-top', '5'),
+    [makeCard('tvt-p2-bottom', '5')]
+  );
+  assert(
+    !state.player1.field[0].faceDownCard && !state.player2.field[0].faceDownCard,
+    'FIX: torre CONTRA torre - os dois slots ficam vazios (é a única situação que descarta a torre inteira)'
+  );
+  assert(
+    ['tvt-p1-bottom', 'tvt-p1-top', 'tvt-p2-top', 'tvt-p2-bottom'].every((id) => state.discardPile.some((c) => c.id === id)),
+    'FIX: torre contra torre - as 4 cartas das duas torres foram todas para o descarte, nenhuma some do jogo'
+  );
+})();
+
+(function testTowerSurvivesDisputeClose() {
+  // Mesma torre, mas o J2 já tem 1 vitória: esta derrota FECHA a disputa
+  // (2 vitórias) - antes isso limpava o campo inteiro, apagando a torre junto.
+  let state = createInitialState('mago', 'besta', { ...DEFAULT_GAME_CONFIG, towersMode: true });
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      field: [
+        // Torre de 3 cartas de propósito: depois de perder o topo nesta
+        // disputa ela ainda tem 2 componentes, ou seja, continua sendo uma
+        // torre ("caso ainda tenha mais que um componente", pedido do
+        // usuário) - uma torre que erode até a última carta vira um slot
+        // comum e é varrida na virada de turno como qualquer outra carta.
+        {
+          faceDownCard: makeCard('disp-top', '2'),
+          towerReserve: [makeCard('disp-bottom', '2'), makeCard('disp-middle', '2')],
+          revealed: true,
+          horizontalCards: [],
+        },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      combatWins: 1,
+      field: [
+        { faceDownCard: makeCard('disp-p2', '10'), revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: state.firstToFlip, slotIndex: 0 });
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: opponentOf(state.firstToFlip), slotIndex: 0 });
+  state = gameReducer(state, { type: 'RESOLVE_COMBAT' });
+  assert(state.combatResolution?.disputeWinner === 2, 'Pré-condição: esta derrota fechou a disputa para o Jogador 2');
+  state = gameReducer(state, { type: 'FINALIZE_COMBAT' });
+  assert(
+    state.player1.field[0].faceDownCard?.id === 'disp-middle',
+    `FIX: disputa FECHADA contra carta avulsa não apaga mais a torre - ela continua em campo com a reserva promovida (recebido: ${state.player1.field[0].faceDownCard?.id})`
+  );
+  assert(
+    state.player1.field[0].towerReserve?.some((c) => c.id === 'disp-bottom') === true,
+    'FIX: a torre sobrevive à virada de turno com o resto da reserva intacto (não é varrida por advancePhaseState)'
+  );
+  assert(
+    state.discardPile.filter((c) => c.id === 'disp-middle' || c.id === 'disp-bottom').length === 0,
+    'FIX: as cartas da torre preservada NÃO foram para o descarte (nada fica em campo e no descarte ao mesmo tempo)'
+  );
+})();
+
+// ---------------------------------------------------------------------------
 // N+5. Coringa (redesenho completo, "armadilhas") - cada carta de magia (J/Q/K)
 //      e o Monstro viram uma armadilha posicionável no campo em vez de ativar
 //      um efeito "na mão". Ver isCoringaRawTrapCard/applyCoringaTrapReaction/

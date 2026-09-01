@@ -820,6 +820,65 @@ export function isTowerSlot(slot: FieldSlot): boolean {
   return Boolean(slot.towerReserve && slot.towerReserve.length > 0);
 }
 
+/**
+ * Modo Towers - resolve UM slot no fim de um combate/disputa (fonte única
+ * usada pelos dois caminhos de handleFinalizeCombat: disputa fechada e
+ * combate normal).
+ *
+ * FIX (pedido do usuário: "as torres estão se descartando após a primeira
+ * disputa, isso SÓ DEVE ACONTECER caso esteja disputando contra uma outra
+ * torre, caso não, apenas descarta a carta de cima da torre"): uma torre
+ * agora ERODE (perde só a carta do topo, a que acabou de batalhar) e
+ * permanece no campo com o resto da reserva, promovendo a próxima carta a
+ * novo topo - vencendo, perdendo ou empatando, e mesmo quando a disputa
+ * fecha. Ela só vai INTEIRA pro descarte em dois casos: quando batalhou
+ * contra OUTRA torre, ou quando já estava na última carta (reserva vazia -
+ * "caso ainda tenha mais que um componente", pedido do usuário).
+ *
+ * Antes isso dependia de `combatLoneTower`, calculado uma única vez na
+ * entrada da fase de Combate e só quando a torre era o ÚNICO conteúdo do
+ * campo do dono E o oponente não tinha nenhuma torre - condições estreitas
+ * demais, que na prática faziam a torre inteira ir pro descarte logo na
+ * primeira disputa. `combatLoneTower` continua existindo, mas só alimenta a
+ * cutscene de transição de fase (PhaseTransition.tsx) - não decide mais
+ * nenhuma regra de descarte.
+ */
+/**
+ * Campo com os slots de TORRE preservados e todo o resto esvaziado - usado
+ * nos dois pontos onde o campo era limpo por completo entre turnos
+ * (handleToggleReady no fim do Combate e advancePhaseState na virada pra
+ * Compra). Uma torre é uma estrutura que persiste: só some batalhando contra
+ * outra torre, ou erodindo até a última carta (ver resolveCombatSlot).
+ * Sempre use junto com `nonTowerFieldCards` (mesmo critério) para montar a
+ * lista de descarte - senão uma carta ficaria em campo E no descarte.
+ */
+function keepTowerSlots(field: [FieldSlot, FieldSlot, FieldSlot]): [FieldSlot, FieldSlot, FieldSlot] {
+  return field.map((slot) => (isTowerSlot(slot) ? slot : { revealed: false, horizontalCards: [] })) as [FieldSlot, FieldSlot, FieldSlot];
+}
+
+/** Contrapartida de `keepTowerSlots`: as cartas que ELE descarta (tudo que não está num slot de torre). */
+function nonTowerFieldCards(field: [FieldSlot, FieldSlot, FieldSlot]): Card[] {
+  return field
+    .filter((slot) => !isTowerSlot(slot))
+    .flatMap((slot) => [slot.faceDownCard, ...slot.horizontalCards])
+    .filter((c): c is Card => Boolean(c));
+}
+
+function resolveCombatSlot(slot: FieldSlot, erodeOnly: boolean): { newSlot: FieldSlot; discarded: Card[] } {
+  const reserve = slot.towerReserve ?? [];
+  if (!erodeOnly || reserve.length === 0) {
+    const discarded = [slot.faceDownCard, ...reserve, ...slot.horizontalCards].filter((c): c is Card => Boolean(c));
+    return { newSlot: { revealed: false, horizontalCards: [] }, discarded };
+  }
+  const newTop = reserve[reserve.length - 1];
+  const newReserve = reserve.slice(0, -1);
+  const discarded = [slot.faceDownCard, ...slot.horizontalCards].filter((c): c is Card => Boolean(c));
+  return {
+    newSlot: { faceDownCard: newTop, towerReserve: newReserve.length > 0 ? newReserve : undefined, revealed: true, horizontalCards: [] },
+    discarded,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Coringa (redesenho completo, pedido do usuário) - "cartas armadilha"
 //
@@ -4134,46 +4193,53 @@ function handleFinalizeCombat(state: GameState): GameState {
     // abaixo (a menos que a partida tenha acabado agora), é ele quem decide
     // se a carta Monstro persiste ou descarta - aqui só o campo normal (os 3
     // slots de combate) é descartado.
-    cardsToDiscard = [...fieldCards(player1.field), ...fieldCards(player2.field)];
-    player1 = { ...player1, field: emptyField() };
-    player2 = { ...player2, field: emptyField() };
+    // FIX (pedido do usuário: "caso tenha uma disputa vencida ou empatada
+    // contra uma carta avulsa, a torre deve permanecer no campo (caso ainda
+    // tenha mais que um componente)") - fechar a disputa não é mais uma
+    // exceção que apaga torres: o slot que BATALHOU segue a mesma regra de
+    // erosão de resolveCombatSlot (só perde o topo, a menos que tenha
+    // enfrentado outra torre), e uma torre parada num slot que NEM chegou a
+    // batalhar permanece intacta (não disputou contra torre nenhuma, então
+    // não há motivo pra ela se descartar). Todo o resto do campo continua
+    // sendo descartado como antes.
+    const p1FoughtSlot = player1.field[p1SlotIndex];
+    const p2FoughtSlot = player2.field[p2SlotIndex];
+    const towerVsTower = isTowerSlot(p1FoughtSlot) && isTowerSlot(p2FoughtSlot);
+
+    const resolveWholeField = (
+      field: [FieldSlot, FieldSlot, FieldSlot],
+      foughtIndex: number
+    ): { newField: [FieldSlot, FieldSlot, FieldSlot]; discarded: Card[] } => {
+      const discarded: Card[] = [];
+      const newField = field.map((slot, i) => {
+        if (i === foughtIndex) {
+          const result = resolveCombatSlot(slot, isTowerSlot(slot) && !towerVsTower);
+          discarded.push(...result.discarded);
+          return result.newSlot;
+        }
+        if (isTowerSlot(slot)) return slot;
+        discarded.push(...[slot.faceDownCard, ...slot.horizontalCards].filter((c): c is Card => Boolean(c)));
+        return { revealed: false, horizontalCards: [] } as FieldSlot;
+      }) as [FieldSlot, FieldSlot, FieldSlot];
+      return { newField, discarded };
+    };
+
+    const p1FieldResult = resolveWholeField(player1.field, p1SlotIndex);
+    const p2FieldResult = resolveWholeField(player2.field, p2SlotIndex);
+    cardsToDiscard = [...p1FieldResult.discarded, ...p2FieldResult.discarded];
+    player1 = { ...player1, field: p1FieldResult.newField };
+    player2 = { ...player2, field: p2FieldResult.newField };
   } else {
     const p1Slot = player1.field[p1SlotIndex];
     const p2Slot = player2.field[p2SlotIndex];
 
-    // Modo Towers - "torre solitária" (pedido do usuário, ver comentário
-    // completo de `combatLoneTower` em GameState): em vez de descartar a
-    // torre INTEIRA como qualquer slot normal, ela só perde a carta do topo
-    // (que acabou de batalhar) - o restante da reserva permanece no slot,
-    // promovendo a próxima carta a novo topo, pronta pra próxima disputa. Só
-    // quando a reserva já está vazia (última carta da torre) ela vira um
-    // slot comum, igual ao resto do jogo.
-    const loneTower = state.combatLoneTower;
-    const isP1LoneTower = loneTower?.towerOwner === 1 && loneTower.slotIndex === p1SlotIndex;
-    const isP2LoneTower = loneTower?.towerOwner === 2 && loneTower.slotIndex === p2SlotIndex;
-
-    const resolveSlot = (slot: FieldSlot, isLoneTower: boolean): { newSlot: FieldSlot; discarded: Card[] } => {
-      if (!isLoneTower) {
-        // FIX (Modo Towers, pedido do usuário - bug real encontrado): a
-        // reserva da torre (cartas empilhadas abaixo do topo) não entrava
-        // aqui - o slot era resetado pra vazio sem essas cartas nunca irem
-        // pro descarte, sumindo do jogo de vez (quebrava a conservação
-        // total de cartas da partida).
-        const discarded = [slot.faceDownCard, ...(slot.towerReserve ?? []), ...slot.horizontalCards].filter((c): c is Card => Boolean(c));
-        return { newSlot: { revealed: false, horizontalCards: [] }, discarded };
-      }
-      const reserve = slot.towerReserve ?? [];
-      const discarded = [slot.faceDownCard, ...slot.horizontalCards].filter((c): c is Card => Boolean(c));
-      if (reserve.length === 0) {
-        return { newSlot: { revealed: false, horizontalCards: [] }, discarded };
-      }
-      const newTop = reserve[reserve.length - 1];
-      const newReserve = reserve.slice(0, -1);
-      return {
-        newSlot: { faceDownCard: newTop, towerReserve: newReserve.length > 0 ? newReserve : undefined, revealed: true, horizontalCards: [] },
-        discarded,
-      };
-    };
+    // Modo Towers: uma torre só perde a carta do topo por combate; só vai
+    // inteira pro descarte se batalhou contra OUTRA torre (ou se já estava
+    // na última carta). Ver resolveCombatSlot para a regra completa.
+    const towerVsTower = isTowerSlot(p1Slot) && isTowerSlot(p2Slot);
+    const isP1LoneTower = isTowerSlot(p1Slot) && !towerVsTower;
+    const isP2LoneTower = isTowerSlot(p2Slot) && !towerVsTower;
+    const resolveSlot = resolveCombatSlot;
 
     // Coringa (redesenho completo) - Rei armadilha: a carta do OPONENTE
     // (nunca a do próprio Coringa, que explode/descarta normalmente via
@@ -4321,14 +4387,21 @@ function handleToggleReady(state: GameState, player: PlayerNumber): GameState {
     // Monstro NÃO é mais descartada incondicionalmente aqui - ela só se
     // descarta depois do 3º uso, decidido por advancePhaseState logo abaixo
     // (chamado sempre no final desta função, inclusive daqui).
-    const cardsToDiscard = [...fieldCards(next.player1.field), ...fieldCards(next.player2.field)];
+    // FIX (pedido do usuário, Modo Towers): uma torre permanece no campo -
+    // ela só é destruída batalhando (contra outra torre) ou erodindo até a
+    // última carta (ver resolveCombatSlot). Encerrar a fase de Combate com os
+    // dois "Prontos" não é combate nenhum, então os slots de torre são
+    // preservados aqui em vez de descartados junto com o resto do campo -
+    // `keepTowerSlots` e a lista de descarte abaixo usam o MESMO critério
+    // (slot de torre ou não), pra nenhuma carta ficar em campo E no descarte.
+    const cardsToDiscard = [...nonTowerFieldCards(next.player1.field), ...nonTowerFieldCards(next.player2.field)];
     const { deck, discardPile } = pushToDiscard(next, cardsToDiscard);
     next = {
       ...next,
       deck,
       discardPile,
-      player1: { ...next.player1, field: emptyField(), readyForNextPhase: false },
-      player2: { ...next.player2, field: emptyField(), readyForNextPhase: false },
+      player1: { ...next.player1, field: keepTowerSlots(next.player1.field), readyForNextPhase: false },
+      player2: { ...next.player2, field: keepTowerSlots(next.player2.field), readyForNextPhase: false },
     };
     if (cardsToDiscard.length > 0) {
       next = { ...next, log: appendLog(state, next.log, 'combat', `Todas as cartas do campo foram descartadas`) };
@@ -4437,9 +4510,15 @@ function advancePhaseState(state: GameState): GameState {
       });
     }
 
+    // FIX (pedido do usuário, Modo Towers): esta varredura de "sobras" precisa
+    // usar EXATAMENTE o mesmo critério de `keepTowerSlots` (aplicado ao campo
+    // logo abaixo) - `fieldCards` inclui a reserva da torre, então descartar
+    // por ele enquanto o campo preserva a torre deixava as MESMAS cartas em
+    // campo e no descarte ao mesmo tempo (duplicação real, pega pelo teste de
+    // conservação de cartas da suíte).
     const leftover = [
-      ...fieldCards(state.player1.field),
-      ...fieldCards(state.player2.field),
+      ...nonTowerFieldCards(state.player1.field),
+      ...nonTowerFieldCards(state.player2.field),
       ...(p1Monster.discarded ? [p1Monster.discarded] : []),
       ...(p2Monster.discarded ? [p2Monster.discarded] : []),
     ];
@@ -4516,7 +4595,10 @@ function advancePhaseState(state: GameState): GameState {
       p.coringaTransformWindowUntilTurn !== undefined && newTurn <= p.coringaTransformWindowUntilTurn ? p.coringaTransformWindowUntilTurn : undefined,
     horizontalStackBonus: 0,
     combatWins: 0,
-    field: newPhase === 'draw' ? emptyField() : p.field,
+    // FIX (pedido do usuário, Modo Towers): a virada de turno preserva os
+    // slots de torre (ver keepTowerSlots) - quem chama já descartou o resto
+    // do campo, então nada fica em campo e no descarte ao mesmo tempo.
+    field: newPhase === 'draw' ? keepTowerSlots(p.field) : p.field,
     monsterCard: newPhase === 'draw' ? monster.kept : p.monsterCard,
     monsterTargetSlot: newPhase === 'draw' ? undefined : p.monsterTargetSlot,
     monsterTargetCardId: newPhase === 'draw' ? undefined : p.monsterTargetCardId,
