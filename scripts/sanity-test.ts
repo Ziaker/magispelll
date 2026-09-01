@@ -747,6 +747,40 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
   assert(!stillHasOldCard, 'FIX item 16: nenhuma carta da mão antiga do oponente sobra depois da Fúria Sanguinária');
   assert(state.player2.hand.length > 6, 'FIX item 16: o oponente compra de volta MAIS de 6 cartas');
   assert(!state.activeNumeralSpells[1], 'FIX item 16: a Besta não deixa nenhum efeito "pendurado" (activeNumeralSpells) - o efeito já foi todo aplicado imediatamente');
+
+  // Pedido do usuário: "a magia numeral da besta devia forçar pelo resto do
+  // turno, o descarte de toda carta maior que 6, não só quando é ativado".
+  assert(
+    state.player2.hand.every((c) => !['7', '8', '9', '10'].includes(c.value)),
+    'FIX: logo após a ativação, nenhuma carta acima de 6 sobra na mão do oponente (a varredura roda no mesmo dispatch)'
+  );
+  const totalBefore = countAllCards(state);
+  const sneaked = makeCard('sneaked-10', '10');
+  state = {
+    ...state,
+    player2: { ...state.player2, hand: [...state.player2.hand, sneaked] },
+  };
+  // Qualquer ação seguinte no MESMO turno dispara a varredura de novo.
+  state = gameReducer(state, { type: 'TOGGLE_PAUSE' });
+  assert(
+    !state.player2.hand.some((c) => c.id === 'sneaked-10') && state.discardPile.some((c) => c.id === 'sneaked-10'),
+    'FIX: uma carta > 6 que chegue na mão DEPOIS da ativação, no mesmo turno, é descartada na hora'
+  );
+  assert(countAllCards(state) === totalBefore + 1, 'A carta queimada pela Fúria Sanguinária vai pro descarte (nunca some do jogo)');
+
+  // Passado o turno em que a pressão vale (a ativação já virou o turno - ver
+  // o fim de handleFinalizeNumeralSpell), o efeito acaba e a mesma carta
+  // volta a poder ficar na mão.
+  const nextTurnState: GameState = {
+    ...state,
+    turn: state.turn + 1,
+    player2: { ...state.player2, hand: [...state.player2.hand, makeCard('later-10', '10')] },
+  };
+  const afterTurn = gameReducer(nextTurnState, { type: 'TOGGLE_PAUSE' });
+  assert(
+    afterTurn.player2.hand.some((c) => c.id === 'later-10'),
+    'FIX: a Fúria Sanguinária expira com a virada de turno - cartas acima de 6 voltam a poder ficar na mão'
+  );
 })();
 
 // ---------------------------------------------------------------------------

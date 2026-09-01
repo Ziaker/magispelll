@@ -226,6 +226,18 @@ export interface PlayerState {
    */
   coringaTransformWindowUntilTurn?: number;
   /**
+   * Besta - Fúria Sanguinária (pedido do usuário: "a magia numeral da besta
+   * devia forçar pelo resto do turno, o descarte de toda carta maior que 6,
+   * não só quando é ativado"): turno até o qual ESTE jogador (o alvo da
+   * magia, nunca quem lançou) não consegue segurar carta numeral de valor
+   * maior que 6 - toda uma que chegar na mão (compra da fase de Compra, ou
+   * qualquer efeito que dê cartas) é descartada na hora. Ver
+   * applyBestaBloodRageSweep, aplicado depois de TODA ação do reducer, e
+   * `expiresAtTurn`/`coringaTransformWindowUntilTurn` acima para o mesmo
+   * padrão de janela por número de turno.
+   */
+  bestaBloodRageUntilTurn?: number;
+  /**
    * Piromante (personagem novo, "momento game design") - a Bola de Fogo:
    * combustível visível no campo do próprio jogador, formado somando o
    * valor de cartas queimadas (próprias ou do oponente, ver as 3 magias em
@@ -1287,7 +1299,55 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
 // Reducer principal
 // ============================================================================
 
+/**
+ * Besta - Fúria Sanguinária (pedido do usuário: o efeito "força pelo resto do
+ * turno o descarte de toda carta maior que 6", não só no instante da
+ * ativação). Roda depois de TODA ação (ver gameReducer logo abaixo) em vez de
+ * ser espalhado por cada ponto que dá cartas a um jogador (compra da fase de
+ * Compra, Benção Divina, Recuperação Selvagem, devolução de campo pra mão,
+ * Magia Numeral do oponente...) - um único ponto de estrangulamento é a
+ * mesma estratégia já usada pelo guard de `numeralSpellPending` no topo do
+ * reducer, e não tem como uma fonte nova de cartas "esquecer" de respeitar a
+ * regra.
+ *
+ * "Carta maior que 6" = carta numeral pura de valor efetivo > 6 (7, 8, 9,
+ * 10). Ás e magias (J/Q/K) ficam de fora de propósito: o mesmo critério
+ * (`isPlainNumeralCard`) que a Combustão do Piromante usa pro seu "menor que
+ * 5", pra não transformar o efeito num "descarte toda a mão".
+ */
+function applyBestaBloodRageSweep(state: GameState): GameState {
+  let next = state;
+  for (const player of [1, 2] as PlayerNumber[]) {
+    const key = playerKeyOf(player);
+    const playerState = next[key];
+    const until = playerState.bestaBloodRageUntilTurn;
+    if (until === undefined || next.turn > until) continue;
+    const burned = playerState.hand.filter((c) => isPlainNumeralCard(c) && getEffectiveCardValue(c) > 6);
+    if (burned.length === 0) continue;
+    const kept = playerState.hand.filter((c) => !burned.includes(c));
+    const { deck, discardPile } = pushToDiscard(next, burned);
+    next = {
+      ...next,
+      deck,
+      discardPile,
+      [key]: { ...playerState, hand: kept },
+      log: appendLog(
+        next,
+        next.log,
+        'numeral-spell',
+        `Fúria Sanguinária: Jogador ${player} não pode segurar cartas acima de 6 - ${burned.length} carta(s) queimada(s) na mão`,
+        { player }
+      ),
+    };
+  }
+  return next;
+}
+
 export function gameReducer(state: GameState, action: GameAction): GameState {
+  return applyBestaBloodRageSweep(reduceGameAction(state, action));
+}
+
+function reduceGameAction(state: GameState, action: GameAction): GameState {
   // Modo de debug - passthrough puro, ANTES de qualquer guard de fase/janela
   // pendente abaixo (numeralSpellPending, pendingReaction etc.) de propósito:
   // um cenário de debug precisa poder substituir o estado mesmo no meio de
@@ -3763,12 +3823,26 @@ function handleFinalizeNumeralSpell(state: GameState): GameState {
     deck = remaining;
     discardPile = ensured.discardPile;
 
-    updatedOpponent = { ...opponentState, hand: drawn };
+    // FIX (pedido do usuário: "a magia numeral da besta devia forçar pelo
+    // resto do turno, o descarte de toda carta maior que 6, não só quando é
+    // ativado") - além do descarte/recompra imediatos acima, a pressão agora
+    // DURA: enquanto o turno não virar, toda carta numeral de valor > 6 que
+    // cair na mão do oponente é descartada na hora (ver
+    // applyBestaBloodRageSweep, que roda depois de qualquer ação). Isso vale
+    // inclusive para as cartas recém-compradas logo acima - a varredura roda
+    // no fim deste mesmo dispatch.
+    // `state.turn + 1` (e não `state.turn`) pelo mesmo motivo da Visão Arcana
+    // do Mago logo abaixo: ativar uma Magia Numeral PULA a fase de Combate e
+    // já vira o turno (ver o final desta função), então "o resto do turno"
+    // que o jogador enxerga é justamente o turno seguinte - onde o oponente
+    // de fato compra e joga. Marcar o turno atual faria o efeito expirar no
+    // mesmo instante em que foi criado.
+    updatedOpponent = { ...opponentState, hand: drawn, bestaBloodRageUntilTurn: state.turn + 1 };
     log = appendLog(
       state,
       log,
       'numeral-spell',
-      `Fúria Sanguinária: Jogador ${opponent} descartou a mão inteira (${opponentState.hand.length} carta(s)) e comprou ${drawn.length} carta(s) de volta`,
+      `Fúria Sanguinária: Jogador ${opponent} descartou a mão inteira (${opponentState.hand.length} carta(s)) e comprou ${drawn.length} carta(s) de volta - e não consegue segurar cartas acima de 6 pelo resto do turno`,
       { player: opponent }
     );
   } else if (character === 'mosqueteiro') {
