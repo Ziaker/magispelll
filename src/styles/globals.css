@@ -243,6 +243,38 @@ html {
   animation: victory-glow-pulse 0.9s ease-in-out infinite;
 }
 
+/* Indicador "escolhe agora" (pedido do usuário: "referência visual mostrando
+   qual é o jogador que vai escolher a primeira carta na disputa do turno")
+   - diferente do victory-glow acima (burst de ~0.9s por design, só quando
+   uma disputa fecha), este fica ACESO durante toda a janela em que aquele
+   jogador pode escolher o slot - pode durar várias disputas dentro da mesma
+   fase de combate, então é um estado CONTÍNUO, não um momento pontual.
+   Mesma técnica de performance do .animate-tower-glow mais abaixo
+   (box-shadow fixo num ::before próprio, só a opacity pulsa - compositor,
+   sem repintar a cada frame) em vez de animar box-shadow direto como o
+   victory-glow acima faz - e um período mais lento (2.2s, igual ao
+   tower-glow) pra ficar visualmente distinguível de um victory-glow que
+   esteja tocando ao mesmo tempo na mesma zona (uma disputa pode fechar sem
+   a fase de combate terminar - os dois brilhos podem coexistir). */
+@keyframes first-picker-glow-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+
+.animate-first-picker-glow {
+  position: relative;
+}
+
+.animate-first-picker-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 30px 6px var(--glow-color, #C59E4F);
+  animation: first-picker-glow-pulse 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
 /* Modo Towers (pedido do usuário: "deixe visualmente mais destacado as
    torres") - brilho pulsante permanente ao redor de qualquer slot que seja
    uma torre - mais lento e suave que o victory-glow acima (não é um "grande

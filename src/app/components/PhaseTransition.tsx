@@ -96,9 +96,20 @@ interface PhaseTransitionProps {
    * (ícone, cor, animação) permanece o mesmo.
    */
   loneTower?: boolean;
+  /**
+   * FIX (pedido do usuário: "quando o jogo começa... com o anúncio (...) e
+   * mostre quais modos de jogo estão ativos") - `true` só na transição de
+   * ENTRADA numa partida (turno 1, Fase de Compra - mount real ou uma
+   * revanche, ver `isGameStart` em GameBoard.tsx). Controla se a seção de
+   * `activeModes` abaixo aparece - as outras transições de fase (turno 2 em
+   * diante) não repetem essa lista toda vez.
+   */
+  isGameStart?: boolean;
+  /** Rótulos já formatados dos modos de jogo ativos nesta partida (ver GameBoard.tsx) - `[]` = nenhuma variante ligada, mostra "Modo Clássico". Só renderizado quando `isGameStart`. */
+  activeModes?: string[];
 }
 
-export function PhaseTransition({ phase, show, spotlight, loneTower }: PhaseTransitionProps) {
+export function PhaseTransition({ phase, show, spotlight, loneTower, isGameStart, activeModes = [] }: PhaseTransitionProps) {
   const { settings } = useSettings();
 
   const phaseConfig = {
@@ -194,6 +205,23 @@ export function PhaseTransition({ phase, show, spotlight, loneTower }: PhaseTran
                         settleDelay={ROULETTE_DURATION_MS + idx * SPOTLIGHT_ROULETTE_STAGGER_MS}
                       />
                     ))}
+                  </div>
+                )}
+                {/* FIX (pedido do usuário, item 2.1: "deveria mostrar uma
+                    mensagem mostrando quais modos de jogo estão ativos") -
+                    só no anúncio de início de partida (isGameStart), não em
+                    toda transição de fase - senão repetiria a cada turno.
+                    Spotlight não aparece nesta lista (já tem a própria
+                    cutscene de roleta acima) - "Modo Clássico" quando
+                    nenhuma variante está ligada, em vez de omitir a seção,
+                    pra sempre confirmar visualmente que a configuração
+                    escolhida foi aplicada. */}
+                {isGameStart && (
+                  <div className="mt-4 flex flex-col items-center gap-1">
+                    <p className="text-[#EFE7D6] text-[13px] uppercase tracking-wider">Modos ativos</p>
+                    <p className="text-[#BFB6A6] text-[15px]">
+                      {activeModes.length > 0 ? activeModes.join(' · ') : 'Modo Clássico'}
+                    </p>
                   </div>
                 )}
               </div>
