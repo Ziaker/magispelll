@@ -23,6 +23,7 @@ import { getDisplayValue, type Card } from '../src/app/lib/cardUtils';
 import { DEFAULT_GAME_CONFIG, MIN_DISCARD_LIMIT, type GameConfig } from '../src/app/lib/gameConfig';
 import { getLogEffectInfo } from '../src/app/lib/logFormat';
 import { decideAiAction, decideReactionToMagic } from '../src/app/lib/aiPlayer';
+import { simulateSteps } from '../src/app/lib/simulateGame';
 import { canActivateNumeralSpell } from '../src/app/lib/numeralSpells';
 import { canActivateMagic } from '../src/app/lib/magicCards';
 import { rollSpotlight, getSpotlightAdjustedValue, type SpotlightState } from '../src/app/lib/spotlight';
@@ -1549,85 +1550,23 @@ function activateMagoNumeralSpell(state: GameState): GameState {
  * exato e a ação exata, em vez de exigir uma investigação ao vivo no
  * navegador inteira de novo.
  */
-export interface RejectedAiAction {
-  step: number;
-  player: PlayerNumber;
-  action: GameAction;
-}
+export type { RejectedAiAction } from '../src/app/lib/simulateGame';
 
+/**
+ * Wrapper fino sobre `simulateSteps` (src/app/lib/simulateGame.ts, item 3 do
+ * plano de melhoria do debug mode) - o laço de simulação em si vive lá agora,
+ * compartilhado com `window.__debug.fastForward` (GameBoard.tsx), pra uma
+ * correção nele valer pros dois lugares automaticamente. Esta função só
+ * monta o estado inicial (`createInitialState`) antes de delegar.
+ */
 function simulateAiVsAiGame(
   player1Character: CharacterId,
   player2Character: CharacterId,
   config: GameConfig,
   maxSteps: number
 ): { state: GameState; steps: number; stuck: boolean; rejectedActions: RejectedAiAction[] } {
-  let state = createInitialState(player1Character, player2Character, config);
-  let steps = 0;
-  let stuck = false;
-  const rejectedActions: RejectedAiAction[] = [];
-
-  while (!state.gameOver && steps < maxSteps) {
-    steps++;
-
-    if (state.numeralSpellPending) {
-      state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
-      continue;
-    }
-    // Modo Reações: a simulação não tem timer real de 3s - decide agora
-    // mesmo (decideReactionToMagic) se reage ou avança direto pra
-    // RESOLVE_PENDING_REACTION, mesmo padrão de auto-avanço já usado acima
-    // pra numeralSpellPending/combatResolution.
-    if (state.pendingReaction) {
-      const reactor = opponentOf(state.pendingReaction.casterPlayer);
-      const reaction = decideReactionToMagic(state, reactor);
-      state = gameReducer(state, reaction ?? { type: 'RESOLVE_PENDING_REACTION' });
-      continue;
-    }
-    if (state.combatResolution) {
-      state = gameReducer(state, { type: 'FINALIZE_COMBAT' });
-      continue;
-    }
-    if (state.combatSelection.player1 !== undefined && state.combatSelection.player2 !== undefined) {
-      state = gameReducer(state, { type: 'RESOLVE_COMBAT' });
-      continue;
-    }
-
-    // Alterna quem "age primeiro" a cada passo, para não enviesar o teste
-    // sempre a favor do mesmo lado.
-    const order: PlayerNumber[] = steps % 2 === 0 ? [1, 2] : [2, 1];
-    let actedThisStep = false;
-
-    for (const p of order) {
-      const decision = decideAiAction(state, p);
-      if (decision.type === 'action') {
-        const prevState = state;
-        state = gameReducer(state, decision.action);
-        if (state === prevState) {
-          rejectedActions.push({ step: steps, player: p, action: decision.action });
-        }
-        actedThisStep = true;
-        break;
-      } else if (decision.type === 'ready') {
-        if (!state[playerKeyOf(p)].readyForNextPhase) {
-          const prevState = state;
-          state = gameReducer(state, { type: 'TOGGLE_READY', player: p });
-          if (state === prevState) {
-            rejectedActions.push({ step: steps, player: p, action: { type: 'TOGGLE_READY', player: p } });
-          }
-          actedThisStep = true;
-          break;
-        }
-      }
-      // 'wait' -> tenta o outro jogador neste mesmo passo
-    }
-
-    if (!actedThisStep) {
-      stuck = true;
-      break;
-    }
-  }
-
-  return { state, steps, stuck, rejectedActions };
+  const state = createInitialState(player1Character, player2Character, config);
+  return simulateSteps(state, { maxSteps });
 }
 
 (function testAiVsAiFullGames() {

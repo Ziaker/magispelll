@@ -87,6 +87,7 @@ import {
   type PlayerNumber,
 } from '../lib/gameEngine';
 import { decideAiAction, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
+import { simulateSteps } from '../lib/simulateGame';
 import { decideHandCardSelection } from '../lib/handSelection';
 
 /**
@@ -240,58 +241,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     const fastForward = (maxSteps = 200, options?: { stayRunning?: boolean }) => {
-      const cappedMaxSteps = Math.min(Math.max(1, maxSteps), 5000);
-      let state = gameState;
-      let steps = 0;
-      let stuck = false;
-      const rejectedActions: Array<{ step: number; player: PlayerNumber; action: GameAction }> = [];
-
-      while (!state.gameOver && steps < cappedMaxSteps) {
-        steps++;
-        if (state.numeralSpellPending) {
-          state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
-          continue;
-        }
-        if (state.pendingReaction) {
-          const reactor = opponentOf(state.pendingReaction.casterPlayer);
-          const reaction = decideReactionToMagic(state, reactor);
-          state = gameReducer(state, reaction ?? { type: 'RESOLVE_PENDING_REACTION' });
-          continue;
-        }
-        if (state.combatResolution) {
-          state = gameReducer(state, { type: 'FINALIZE_COMBAT' });
-          continue;
-        }
-        if (state.combatSelection.player1 !== undefined && state.combatSelection.player2 !== undefined) {
-          state = gameReducer(state, { type: 'RESOLVE_COMBAT' });
-          continue;
-        }
-
-        const order: PlayerNumber[] = steps % 2 === 0 ? [1, 2] : [2, 1];
-        let actedThisStep = false;
-        for (const p of order) {
-          const decision = decideAiAction(state, p);
-          if (decision.type === 'action') {
-            const prevState = state;
-            state = gameReducer(state, decision.action);
-            if (state === prevState) rejectedActions.push({ step: steps, player: p, action: decision.action });
-            actedThisStep = true;
-            break;
-          } else if (decision.type === 'ready') {
-            if (!state[playerKeyOf(p)].readyForNextPhase) {
-              const prevState = state;
-              state = gameReducer(state, { type: 'TOGGLE_READY', player: p });
-              if (state === prevState) rejectedActions.push({ step: steps, player: p, action: { type: 'TOGGLE_READY', player: p } });
-              actedThisStep = true;
-              break;
-            }
-          }
-        }
-        if (!actedThisStep) {
-          stuck = true;
-          break;
-        }
-      }
+      // Laço de simulação em si vive em simulateGame.ts agora (item 3 do
+      // plano de melhoria do debug mode) - compartilhado com
+      // scripts/sanity-test.ts, pra uma correção nele valer pros dois
+      // lugares automaticamente. Esta função só aplica o resultado (via
+      // forceState + pausa), que é específico desta UI.
+      const { state, steps, stuck, rejectedActions } = simulateSteps(gameState, { maxSteps });
 
       // FIX (corrida real encontrada testando isto ao vivo): o Modo
       // Espectador despacha ações de IA em TEMPO REAL (timers de "pensando",
