@@ -1,64 +1,72 @@
+import type { ComponentType } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { ArrowLeft, Wand2, Crosshair, Flame } from 'lucide-react';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { getCharacterIconBackground } from '../lib/characterThemes';
+import type { CharacterId } from '../lib/gameEngine';
 
 interface CharactersListProps {
   onBack: () => void;
-  onSelectCharacter: (character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante') => void;
+  onSelectCharacter: (character: CharacterId) => void;
 }
 
+/**
+ * FIX (endurecimento pedido pelo usuário: "está pronto para mais um
+ * personagem?") - antes um array solto (`const characters = [...]`), sem
+ * nenhum vínculo com `CharacterId` - esquecer uma entrada aqui só fazia o
+ * personagem sumir desta tela, sem nenhum aviso. Agora é um `Record
+ * <CharacterId, ...>` (mesmo padrão de CHARACTER_ICONS/CHARACTER_TAGLINE em
+ * CharacterSelection.tsx e de `characterThemes.ts`) - esquecer uma entrada
+ * vira erro de compilação. `Object.entries` preserva a ordem de inserção
+ * (chaves string, nunca numéricas) - a ordem de exibição continua a mesma.
+ */
+const CHARACTERS: Record<CharacterId, { name: string; icon: ComponentType<{ className?: string; style?: React.CSSProperties }>; color: string; description: string }> = {
+  mago: {
+    name: 'MAGO',
+    // FIX (pedido do usuário: "mude o icone do mago pra algo que seja
+    // referente a um mago tipo um cajado ou sparkles" / "besta... mais
+    // ameaçador" / "anjo... aureola com asas") - mesma troca de
+    // CharacterSelection.tsx/PlayerZone.tsx, pra manter a mesma
+    // identidade visual em toda a interface.
+    icon: Wand2,
+    color: '#4A90E2',
+    description: 'Manipulador de informação que controla o campo de batalha através de revelação de cartas inimigas e substituição estratégica de recursos.',
+  },
+  besta: {
+    name: 'BESTA',
+    icon: BeastFaceIcon,
+    color: '#E24A4A',
+    description: 'Guerreiro agressivo que recicla recursos e pressiona constantemente o oponente através de reciclagem do descarte e roubos devastadores.',
+  },
+  anjo: {
+    name: 'ANJO',
+    icon: AngelHaloIcon,
+    color: '#E2B84A',
+    description: 'Estrategista de longo prazo que acumula vantagens permanentes através de crescimento sustentado e proteção de recursos.',
+  },
+  mosqueteiro: {
+    name: 'MOSQUETEIRO',
+    icon: Crosshair,
+    color: '#8C9199',
+    description: 'Atirador focado em descarte que troca cartas próprias (ou do oponente, à força) por reforço de campo, informação e precisão de combate.',
+  },
+  coringa: {
+    name: 'CORINGA',
+    icon: JesterHatIcon,
+    color: '#3B4CCB',
+    description: 'Trapaceiro que planta armadilhas viradas para baixo no próprio campo, explodindo em fumaça, empates forçados e roubo de valor quando o oponente menos espera.',
+  },
+  piromante: {
+    name: 'PIROMANTE',
+    icon: Flame,
+    color: '#CC5500',
+    description: 'Acumula uma Bola de Fogo visível no próprio campo queimando cartas como combustível, e a lança contra o campo do oponente pra reduzir ou obliterar o que estiver lá.',
+  },
+};
+
 export function CharactersList({ onBack, onSelectCharacter }: CharactersListProps) {
-  const characters = [
-    {
-      id: 'mago' as const,
-      name: 'MAGO',
-      // FIX (pedido do usuário: "mude o icone do mago pra algo que seja
-      // referente a um mago tipo um cajado ou sparkles" / "besta... mais
-      // ameaçador" / "anjo... aureola com asas") - mesma troca de
-      // CharacterSelection.tsx/PlayerZone.tsx, pra manter a mesma
-      // identidade visual em toda a interface.
-      icon: Wand2,
-      color: '#4A90E2',
-      description: 'Manipulador de informação que controla o campo de batalha através de revelação de cartas inimigas e substituição estratégica de recursos.',
-    },
-    {
-      id: 'besta' as const,
-      name: 'BESTA',
-      icon: BeastFaceIcon,
-      color: '#E24A4A',
-      description: 'Guerreiro agressivo que recicla recursos e pressiona constantemente o oponente através de reciclagem do descarte e roubos devastadores.',
-    },
-    {
-      id: 'anjo' as const,
-      name: 'ANJO',
-      icon: AngelHaloIcon,
-      color: '#E2B84A',
-      description: 'Estrategista de longo prazo que acumula vantagens permanentes através de crescimento sustentado e proteção de recursos.',
-    },
-    {
-      id: 'mosqueteiro' as const,
-      name: 'MOSQUETEIRO',
-      icon: Crosshair,
-      color: '#8C9199',
-      description: 'Atirador focado em descarte que troca cartas próprias (ou do oponente, à força) por reforço de campo, informação e precisão de combate.',
-    },
-    {
-      id: 'coringa' as const,
-      name: 'CORINGA',
-      icon: JesterHatIcon,
-      color: '#3B4CCB',
-      description: 'Trapaceiro que planta armadilhas viradas para baixo no próprio campo, explodindo em fumaça, empates forçados e roubo de valor quando o oponente menos espera.',
-    },
-    {
-      id: 'piromante' as const,
-      name: 'PIROMANTE',
-      icon: Flame,
-      color: '#CC5500',
-      description: 'Acumula uma Bola de Fogo visível no próprio campo queimando cartas como combustível, e a lança contra o campo do oponente pra reduzir ou obliterar o que estiver lá.',
-    },
-  ];
+  const characters = Object.entries(CHARACTERS).map(([id, character]) => ({ id: id as CharacterId, ...character }));
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 parchment">

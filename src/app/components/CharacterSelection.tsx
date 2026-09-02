@@ -10,16 +10,15 @@ import { getMagicCardInfo, type MagicCardType } from '../lib/magicCards';
 import { getMonsterEffect } from '../lib/monsterCards';
 import { getNumeralSpellInfo, formatNumeralRequirement } from '../lib/numeralSpells';
 import { PHASE_DISPLAY } from './PlayingCard';
-
-type CharacterId = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
+import type { CharacterId } from '../lib/gameEngine';
 
 interface CharacterSelectionProps {
   onBack: () => void;
-  onSelect: (character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante', playerNumber: 1 | 2) => void;
+  onSelect: (character: CharacterId, playerNumber: 1 | 2) => void;
   currentPlayer: 1 | 2;
   selectedCharacters: {
-    player1?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
-    player2?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
+    player1?: CharacterId;
+    player2?: CharacterId;
   };
   /**
    * Quais jogadores (nenhum, um ou os dois) são a IA nesta partida - vazio no
@@ -248,7 +247,13 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
   // as duas etapas idênticas - em "Contra a IA" (só um lado é IA) o título
   // genérico de sempre continua bastando.
   const isSpectatorMode = aiPlayers.length >= 2;
-  const characterIds: CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante'];
+  // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
+  // personagem?") - antes um array literal solto, podendo divergir de
+  // CHARACTER_ICONS/CHARACTER_TAGLINE acima sem nenhum aviso (esquecer um
+  // personagem aqui só o tirava desta tela, em silêncio). Derivado das
+  // chaves de CHARACTER_ICONS (já `Record<CharacterId, ...>`, compilador
+  // exige as 6/7/N chaves) - as duas listas nunca podem mais divergir.
+  const characterIds = Object.keys(CHARACTER_ICONS) as CharacterId[];
   // FIX (pedido do usuário: "as informações... são repulsivas a novos
   // jogadores, resuma os efeitos e permita que a pessoa clique em um botão
   // de 'visão completa das habilidades'") - qual personagem (se algum) tem o

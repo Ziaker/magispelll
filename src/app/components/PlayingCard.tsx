@@ -6,6 +6,7 @@ import { getDisplayValue, getDisplaySuit, type Card } from '../lib/cardUtils';
 import { getMonsterEffect } from '../lib/monsterCards';
 import { getSpotlightEntry, type SpotlightState } from '../lib/spotlight';
 import { CardKeywords, type CardKeywordId } from './CardKeywords';
+import type { CharacterId } from '../lib/gameEngine';
 
 interface PlayingCardProps {
   value?: string;
@@ -23,7 +24,7 @@ interface PlayingCardProps {
   magicTooltip?: string;
   /** FIX (item 8): fase em que esta carta de magia pode ser ativada, usada para mostrar um selo colorido no tooltip. */
   magicPhase?: 'draw' | 'strategy' | 'combat';
-  playerCharacter?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
+  playerCharacter?: CharacterId;
   isInHand?: boolean;
   /**
    * FIX (item 10 da 2ª rodada): na fase de Combate, um slot vazio agora vale

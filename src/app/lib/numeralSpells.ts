@@ -25,8 +25,10 @@
 
 import type { Card } from './cardUtils';
 import { getSpotlightAdjustedValue, type SpotlightState } from './spotlight';
+import type { CharacterId } from './gameEngine';
 
-export type NumeralCharacter = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
+/** FIX (endurecimento, ver comentário completo em characterThemes.ts): alias do `CharacterId` canônico. */
+export type NumeralCharacter = CharacterId;
 
 /** Estrutura mínima de um slot de campo, para não depender do componente React */
 export interface FieldSlotLike {
