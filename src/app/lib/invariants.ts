@@ -56,9 +56,30 @@ function allRealCards(state: GameState): Card[] {
   return cards;
 }
 
-/** Quantas cartas "reais" (não-token) existem no estado inteiro - deveria ser sempre igual ao tamanho do baralho gerado no início da partida (54 com Cartas Monstro, 52 sem, mais se Modo Towers/baralho Temático estiverem ligados). */
+/**
+ * Quantas cartas "reais" (não-token) existem no estado inteiro - deveria ser
+ * SEMPRE igual ao tamanho do baralho gerado no início da partida (54 com
+ * Cartas Monstro, 52 sem, mais se Modo Towers/baralho Temático estiverem
+ * ligados), em QUALQUER momento da partida, mesmo com a variante Fusão
+ * ligada.
+ *
+ * FIX (descoberto rodando o fuzzer - scripts/fuzz.ts/fuzzSteps - pela
+ * primeira vez contra um estado com Fusão ligada): uma carta fundida
+ * (`card.fused`) é UM objeto só enquanto está viva em mão/campo, mas
+ * REPRESENTA 2+ cartas físicas reais (`card.fusionSources`) que deixaram de
+ * existir separadamente - contá-la como "1" (o que este helper fazia antes
+ * de mudar de scripts/sanity-test.ts pra cá) SUBCONTA o total real enquanto
+ * ela está viva, e quando ela é descartada, `pushToDiscard` a DECOMPÕE de
+ * volta nas cartas originais (`expandFusedCards`, gameEngine.ts) - o total
+ * "real" volta a bater, mas só nesse instante, criando um falso alarme de
+ * "surplus" de cartas exatamente no descarte. A contagem certa pesa cada
+ * carta fundida VIVA pelo tamanho de `fusionSources` (as cartas físicas que
+ * ela representa agora), não por "1" - assim o total fica constante o tempo
+ * todo, nunca varia com fusão/decomposição, exatamente como um baralho
+ * físico onde grudar/desgrudar 2 cartas nunca cria nem destrói nenhuma.
+ */
 export function countAllCards(state: GameState): number {
-  return allRealCards(state).length;
+  return allRealCards(state).reduce((sum, card) => sum + (card.fused && card.fusionSources && card.fusionSources.length > 0 ? card.fusionSources.length : 1), 0);
 }
 
 /** Ids de carta que aparecem MAIS DE UMA VEZ em qualquer zona do estado - mais forte que só contar, pega um bug de troca que conserva o total mas duplica uma carta específica. Vazio = saudável. */

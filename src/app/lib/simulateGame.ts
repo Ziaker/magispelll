@@ -23,6 +23,9 @@ import {
   type PlayerNumber,
 } from './gameEngine';
 import { decideAiAction, decideReactionToMagic } from './aiPlayer';
+import { enumerateLegalActions } from './actionSpace';
+import { checkInvariants } from './invariants';
+import { random } from './rng';
 
 export interface RejectedAiAction {
   step: number;
@@ -106,4 +109,119 @@ export function simulateSteps(state: GameState, opts: { maxSteps?: number } = {}
   }
 
   return { state: current, steps, stuck, rejectedActions };
+}
+
+export interface FuzzViolation {
+  step: number;
+  action: GameAction;
+  violations: string[];
+}
+
+export interface FuzzStepsResult {
+  state: GameState;
+  steps: number;
+  stuck: boolean;
+  rejectedActions: RejectedAiAction[];
+  /** `null` = nenhuma violação encontrada nos passos rodados. */
+  violation: FuzzViolation | null;
+}
+
+/**
+ * `fuzzSteps` - mesmo formato de `simulateSteps`, mas em cada decisão da IA
+ * (nunca nas transições automáticas - FINALIZE_NUMERAL_SPELL, FINALIZE_COMBAT,
+ * RESOLVE_COMBAT etc., essas continuam determinísticas) tem `substituteProbability` de chance de trocar a escolha
+ * da IA heurística por uma ação ALEATÓRIA de `enumerateLegalActions` (modo
+ * "legal", rápido - ver actionSpace.ts) - explora estado que a IA heurística
+ * sozinha nunca visitaria. Roda `checkInvariants` depois de CADA ação
+ * despachada e para na primeira violação, devolvendo o passo/ação exatos.
+ *
+ * ARMADILHA EVITADA (documentada em rng.ts): a MOEDA de decisão "substituo
+ * ou não" também vem de `random()` (item 2, com seed) - se fosse
+ * `Math.random()` cru aqui, `setSeed` sozinho não bastaria pra reproduzir
+ * uma corrida de fuzzing específica, porque sobraria uma fonte de
+ * aleatoriedade fora do seed. `enumerateLegalActions` também às vezes
+ * escolhe entre múltiplos candidatos - isso usa `random()` também.
+ */
+export function fuzzSteps(
+  state: GameState,
+  opts: { maxSteps?: number; substituteProbability?: number; expectedCardTotal?: number } = {}
+): FuzzStepsResult {
+  const maxSteps = Math.min(Math.max(1, opts.maxSteps ?? 200), 5000);
+  const substituteProbability = Math.min(1, Math.max(0, opts.substituteProbability ?? 0.15));
+  let current = state;
+  let steps = 0;
+  let stuck = false;
+  const rejectedActions: RejectedAiAction[] = [];
+  let violation: FuzzViolation | null = null;
+
+  const dispatchAndCheck = (action: GameAction): boolean => {
+    const prevState = current;
+    current = gameReducer(current, action);
+    if (current === prevState) return false;
+    // `countAllCards` (invariants.ts) já pesa cartas fundidas vivas pelo
+    // número de cartas físicas que elas representam - `expectedCardTotal`
+    // fica CONSTANTE a partida inteira, mesmo com Fusão ligada (ver o
+    // comentário de `countAllCards` pra como isso foi descoberto).
+    const found = checkInvariants(current, opts.expectedCardTotal);
+    if (found.length > 0) {
+      violation = { step: steps, action, violations: found };
+      return true;
+    }
+    return false;
+  };
+
+  while (!current.gameOver && steps < maxSteps && !violation) {
+    steps++;
+
+    if (current.numeralSpellPending) {
+      if (dispatchAndCheck({ type: 'FINALIZE_NUMERAL_SPELL' })) break;
+      continue;
+    }
+    if (current.pendingReaction) {
+      const reactor = opponentOf(current.pendingReaction.casterPlayer);
+      const reaction = decideReactionToMagic(current, reactor);
+      if (dispatchAndCheck(reaction ?? { type: 'RESOLVE_PENDING_REACTION' })) break;
+      continue;
+    }
+    if (current.combatResolution) {
+      if (dispatchAndCheck({ type: 'FINALIZE_COMBAT' })) break;
+      continue;
+    }
+    if (current.combatSelection.player1 !== undefined && current.combatSelection.player2 !== undefined) {
+      if (dispatchAndCheck({ type: 'RESOLVE_COMBAT' })) break;
+      continue;
+    }
+
+    const order: PlayerNumber[] = steps % 2 === 0 ? [1, 2] : [2, 1];
+    let actedThisStep = false;
+
+    for (const p of order) {
+      const decision = decideAiAction(current, p);
+      if (decision.type === 'action') {
+        let action = decision.action;
+        if (random() < substituteProbability) {
+          const legal = enumerateLegalActions(current, p);
+          if (legal.length > 0) action = legal[Math.floor(random() * legal.length)];
+        }
+        const prevState = current;
+        if (dispatchAndCheck(action)) { actedThisStep = true; break; }
+        if (current === prevState) rejectedActions.push({ step: steps, player: p, action });
+        actedThisStep = true;
+        break;
+      } else if (decision.type === 'ready') {
+        if (!current[playerKeyOf(p)].readyForNextPhase) {
+          if (dispatchAndCheck({ type: 'TOGGLE_READY', player: p })) { actedThisStep = true; break; }
+          actedThisStep = true;
+          break;
+        }
+      }
+    }
+
+    if (!actedThisStep) {
+      stuck = true;
+      break;
+    }
+  }
+
+  return { state: current, steps, stuck, rejectedActions, violation };
 }
