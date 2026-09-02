@@ -426,11 +426,31 @@ export function canActivateMagic(
 
   // Coringa (redesenho completo, "armadilhas"): J/Q/K nunca ativam efeito
   // "na mão" - são posicionadas no campo (ver isCoringaTrapCard em
-  // gameEngine.ts) e nunca chegam a esta função na prática (interceptadas
-  // antes, em PlayerZone.tsx). O único caso em que uma delas ainda conta
-  // como magia de verdade é depois de transformada pela Mão de Ferro (Magia
-  // Numeral 7,7,7) - aí ela já nem passa mais no filtro de "é uma carta de
-  // magia" (ver `isMagic`/`coringaTransformedToNumeral`, PlayerZone.tsx).
+  // gameEngine.ts). O único caso em que uma delas ainda conta como magia de
+  // verdade é depois de transformada pela Mão de Ferro (Magia Numeral
+  // 7,7,7) - aí ela já nem passa mais no filtro de "é uma carta de magia"
+  // (ver `isMagic`/`coringaTransformedToNumeral`, PlayerZone.tsx).
+  //
+  // FIX (bug real encontrado validando actionSpace.ts, o enumerador de
+  // espaço de ações do debug mode): o comentário acima sempre disse "nunca
+  // chega a esta função na prática, interceptada antes em PlayerZone.tsx" -
+  // mas nada AQUI garantia isso; sem nenhum `if` pro Coringa, a execução
+  // caía direto no `return true` genérico do final (linha "Sem condições
+  // especiais além da fase"), já que MAGIC_CARDS.coringa existe (só pra
+  // texto descritivo da Ficha de Personagem) e sua `phase` bate com a fase
+  // atual como qualquer outro personagem. `checkActionDivergence`
+  // (actionSpace.ts) despachou EXECUTE_MAGIC pra uma carta do Coringa direto
+  // contra o motor (contornando a UI de propósito, é o que o modo exaustivo
+  // faz) e confirmou: `canActivateMagic` dizia "sim, pode ativar" pra uma
+  // carta que `handleExecuteMagic` não tem NENHUM branch pra tratar (nenhum
+  // `if (character === 'coringa' && ...)` existe lá, só nos outros 4+1
+  // personagens) - ou seja, a única coisa que impedia isso de virar uma
+  // ativação "aceita pelo motor" que não faz NADA era a UI nunca oferecer
+  // esse caminho pro Coringa. Exatamente a classe de bug (confiar só na UI,
+  // nunca validar de novo no motor) que este projeto já corrigiu várias
+  // vezes pra outros personagens - agora corrigida aqui também, com um
+  // guard de verdade em vez de só um comentário.
+  if (character === 'coringa') return false;
 
   // Piromante J (Combustão): tem cartas <5 na mão pra virar combustível, OU
   // já tem Bola de Fogo suficiente pra lançar contra algum alvo.
