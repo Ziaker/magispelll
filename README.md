@@ -19,6 +19,7 @@ Cada jogador escolhe um personagem com um baralho e um estilo de jogo próprios.
 | **Anjo** | Crescimento e suporte — acumula vantagens permanentes e protege seus recursos |
 | **Mosqueteiro** | Descarte e precisão — troca cartas por reforço de campo e informação |
 | **Coringa** | Armadilhas e sabotagem — planta cartas viradas para baixo que explodem quando o oponente menos espera |
+| **Piromante** | Combustão e dano em área — acumula uma Bola de Fogo queimando cartas como combustível e a lança contra o campo do oponente |
 
 ### Modos e variantes
 
