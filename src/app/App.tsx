@@ -85,6 +85,15 @@ export default function App() {
    * Usado apenas no fluxo: characters -> character-sheet
    */
   const [selectedCharacter, setSelectedCharacter] = useState<CharacterId | null>(null);
+  /**
+   * FIX (pedido do usuário: "link direto Regras -> Ficha do personagem") -
+   * de onde a Ficha foi aberta - `character-sheet`'s onBack precisa saber
+   * pra voltar pro lugar CERTO (Regras.tsx, se foi de lá; Lista de
+   * Personagens, se foi do fluxo normal) em vez de sempre assumir a Lista,
+   * que perderia o contexto (posição de rolagem, busca) de quem estava lendo
+   * as Regras e só queria espiar a ficha de um personagem específico.
+   */
+  const [characterSheetOrigin, setCharacterSheetOrigin] = useState<'characters' | 'rules'>('characters');
   
   /**
    * Armazena os personagens escolhidos por cada jogador
@@ -279,7 +288,16 @@ export default function App() {
 
       // REGRAS COMPLETAS
       case 'rules':
-        return <Rules onBack={() => setCurrentScreen('home')} />;
+        return (
+          <Rules
+            onBack={() => setCurrentScreen('home')}
+            onViewCharacter={(character) => {
+              setSelectedCharacter(character);
+              setCharacterSheetOrigin('rules');
+              setCurrentScreen('character-sheet');
+            }}
+          />
+        );
 
       // LISTA DE PERSONAGENS
       case 'characters':
@@ -288,6 +306,7 @@ export default function App() {
             onBack={() => setCurrentScreen('home')}
             onSelectCharacter={(character) => {
               setSelectedCharacter(character);
+              setCharacterSheetOrigin('characters');
               setCurrentScreen('character-sheet');
             }}
           />
@@ -303,7 +322,7 @@ export default function App() {
         return (
           <CharacterSheet
             character={selectedCharacter}
-            onBack={() => setCurrentScreen('characters')}
+            onBack={() => setCurrentScreen(characterSheetOrigin)}
           />
         );
 
