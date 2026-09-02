@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { Wand2, Heart as HeartIcon, Flame, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair } from 'lucide-react';
+import { Wand2, Heart as HeartIcon, Flame, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Hand, MousePointerClick } from 'lucide-react';
+import { useSettings } from '../context/SettingsContext';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -287,6 +288,15 @@ export function PlayerZone({
   // estado próprio); no manual, `customOrderIds` guarda a ordem escolhida
   // pelo jogador (movida com os botões ◀▶ que aparecem nesse modo).
   const [handSortMode, setHandSortMode] = useState<'auto' | 'manual'>('auto');
+  // FIX (pedido do usuário: "adicione uma opção para só usar drag & drop e
+  // uma para só usar cliques... um botão alternador presente ao lado da
+  // interface da mão") - preferência persistida (ver settings.ts), lida
+  // aqui direto do contexto global em vez de vir por prop, porque o botão
+  // alternador (perto de "Mão", mais abaixo) precisa poder MUDAR o valor
+  // também - `useSettings()` já expõe `updateSetting` pronto pra isso, sem
+  // precisar subir/descer um novo par de props por GameBoard.tsx.
+  const { settings, updateSetting } = useSettings();
+  const handInteractionMode = settings.handInteractionMode;
   const [customOrderIds, setCustomOrderIds] = useState<string[]>(() => playerState.hand.map((c) => c.id));
   // Ideia "linha de fusão ao passar o mouse": qual carta está sob o mouse
   // agora, pra calcular o resultado de fundir com CADA outra carta da mão.
@@ -444,6 +454,14 @@ export function PlayerZone({
       const coringaWindowOpenHere = character === 'coringa' && playerState.coringaTransformWindowUntilTurn !== undefined;
       const coringaSelectableHere = character === 'coringa' && isMagic && (!isCoringaTrapCardHere || !coringaWindowOpenHere);
       if (isMagic && !coringaSelectableHere) return;
+      // FIX (pedido do usuário: "adicione uma opção para só usar drag &
+      // drop") - com o modo "Só arrastar" ativo, clicar na carta não a
+      // seleciona mais para posicionamento (o único jeito passa a ser
+      // arrastar até o slot) - não afeta o `return` acima (magia não-
+      // Coringa) nem os outros usos de clique na mão (descarte, Fusão),
+      // só este caminho específico de "selecionar para posicionar no
+      // campo".
+      if (handInteractionMode === 'dragOnly') return;
       // FIX (Modo Towers, pedido do usuário: "era pra ser possível selecionar
       // duas cartas apenas clicando nelas, caso tenha mais do que uma carta
       // igual a ela na mão") - o Ctrl/Shift+clique original nunca funcionava
@@ -1091,6 +1109,42 @@ export function PlayerZone({
                   <span className="text-[9px]">{handSortMode === 'auto' ? 'Auto' : 'Manual'}</span>
                 </button>
               )}
+              {/* FIX (pedido do usuário: "um botão alternador presente ao
+                  lado da interface da mão") - cicla entre os 3 modos de
+                  HandInteractionMode direto na partida, sem precisar ir até
+                  Configurações (que também tem o mesmo controle, ver
+                  Settings.tsx - os dois escrevem no mesmo
+                  `settings.handInteractionMode`, então mudar aqui reflete
+                  lá e vice-versa). Só faz sentido pro jogador HUMANO desta
+                  zona - a mão da IA nunca é controlada manualmente. */}
+              {!isAiControlled && (
+                <button
+                  onClick={() =>
+                    updateSetting(
+                      'handInteractionMode',
+                      handInteractionMode === 'both' ? 'dragOnly' : handInteractionMode === 'dragOnly' ? 'clickOnly' : 'both'
+                    )
+                  }
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 border transition-colors"
+                  style={{ borderColor: `${theme.primary}50`, color: theme.primary }}
+                  title={
+                    handInteractionMode === 'both'
+                      ? 'Posicionar carta: arrastar ou clicar (clique para alternar)'
+                      : handInteractionMode === 'dragOnly'
+                      ? 'Posicionar carta: só arrastar (clique para alternar)'
+                      : 'Posicionar carta: só clicar (clique para alternar)'
+                  }
+                >
+                  {handInteractionMode === 'clickOnly' ? (
+                    <MousePointerClick className="w-2.5 h-2.5" />
+                  ) : (
+                    <Hand className="w-2.5 h-2.5" />
+                  )}
+                  <span className="text-[9px]">
+                    {handInteractionMode === 'both' ? 'Arrastar+Clique' : handInteractionMode === 'dragOnly' ? 'Só Arrastar' : 'Só Clique'}
+                  </span>
+                </button>
+              )}
             </div>
             {!isAiControlled && selectedCardId && phase === 'strategy' && (
               <p className="text-[10px]" style={{ color: theme.primary }}>
@@ -1310,9 +1364,16 @@ export function PlayerZone({
                   // de fogo do Piromante), não só Estratégia, por isso é um
                   // `||` a parte, não uma extensão da condição de fase acima.
                   const isMagicDragEligible = isMagic && Boolean(isMagicCardDraggable?.(card));
-                  const isDraggable =
-                    !isAiControlled &&
-                    ((phase === 'strategy' && (!isMagic || coringaFieldPlaceable)) || canDragToFuse || isMagicDragEligible);
+                  // FIX (pedido do usuário: "opção para só usar cliques") -
+                  // com o modo "Só clicar" ativo, uma carta elegível pra
+                  // posicionamento no campo (numeral comum ou armadilha do
+                  // Coringa) deixa de ser arrastável por esse motivo - só
+                  // não mexe em `canDragToFuse`/`isMagicDragEligible`
+                  // (Fusão e o atalho de magia por arraste continuam
+                  // funcionando do mesmo jeito, ver settings.ts).
+                  const canDragToPlaceOnField =
+                    handInteractionMode !== 'clickOnly' && phase === 'strategy' && (!isMagic || coringaFieldPlaceable);
+                  const isDraggable = !isAiControlled && (canDragToPlaceOnField || canDragToFuse || isMagicDragEligible);
                   // FIX (pedido do usuário, variante "Fusão"): esta carta
                   // pode RECEBER outra arrastada em cima agora? Mesma
                   // elegibilidade de quem está sendo arrastada (isso é só

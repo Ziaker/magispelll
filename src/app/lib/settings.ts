@@ -19,6 +19,25 @@
  *   efeitos sonoros pontuais) - a preferência é salva fielmente, mas
  *   SoundManager não tem nenhum playMusic() implementado ainda.
  */
+/**
+ * FIX (pedido do usuário: "quero que adicione uma opção para só usar drag &
+ * drop e uma para só usar cliques... deixe a cargo do jogador nas opções já
+ * dentro do jogo") - controla APENAS o posicionamento de carta no campo
+ * (principal ou horizontal) - o único par de interações "mesma ação, dois
+ * jeitos de fazer" que o usuário reportou como tendo problema. Não afeta
+ * fusão por arraste, transformar Ás por arraste, nem o atalho de arrastar
+ * uma magia até o alvo (dragActivation.ts) - são recursos independentes,
+ * cada um sem um equivalente por clique concorrente pra escolher entre si.
+ * - 'both' (padrão): os dois jeitos funcionam, como sempre foi.
+ * - 'dragOnly': só arrastar a carta até o slot funciona; clicar na carta
+ *   não a seleciona mais para posicionamento (outros usos do clique -
+ *   descarte, Fusão, Torres - continuam intactos).
+ * - 'clickOnly': a carta para de ficar arrastável para posicionamento
+ *   (cursor deixa de virar "mão fechada"); só o fluxo clique-na-carta →
+ *   clique-no-slot → Posicionar/Horizontal funciona.
+ */
+export type HandInteractionMode = 'both' | 'dragOnly' | 'clickOnly';
+
 export interface Settings {
   soundEffects: boolean;
   backgroundMusic: boolean;
@@ -28,6 +47,7 @@ export interface Settings {
   animationSpeed: number; // 50-200, percentual da velocidade padrão
   highContrast: boolean;
   screenReader: boolean;
+  handInteractionMode: HandInteractionMode;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -39,6 +59,7 @@ export const DEFAULT_SETTINGS: Settings = {
   animationSpeed: 100,
   highContrast: false,
   screenReader: false,
+  handInteractionMode: 'both',
 };
 
 const STORAGE_KEY = 'magispelll:settings';

@@ -2,10 +2,12 @@ import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
 import { Slider } from './ui/slider';
+import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { ArrowLeft, Check } from 'lucide-react';
 import { Card, CardContent } from './ui/card';
 import { useState } from 'react';
 import { useSettings } from '../context/SettingsContext';
+import type { HandInteractionMode } from '../lib/settings';
 
 interface SettingsProps {
   onBack: () => void;
@@ -138,6 +140,47 @@ export function Settings({ onBack }: SettingsProps) {
                     disabled={!settings.animations}
                   />
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Jogabilidade (pedido do usuário: "opção para só usar drag & drop
+              e uma para só usar cliques... deixe a cargo do jogador") -
+              controla só o posicionamento de carta no campo (ver
+              HandInteractionMode em lib/settings.ts para o que exatamente
+              cada modo afeta) - também disponível como botão alternador
+              direto ao lado da mão durante a partida (ver PlayerZone.tsx),
+              pra não precisar sair do jogo pra trocar. */}
+          <Card className="bg-[#1E1A16] border border-[#C59E4F]/30">
+            <CardContent className="p-8 space-y-6">
+              <h3 className="font-display text-[24px] text-[#EFE7D6]">Jogabilidade</h3>
+              <div className="h-px bg-gradient-to-r from-[#8F6A30] via-[#C59E4F] to-[#8F6A30]" />
+
+              <div className="space-y-3">
+                <Label className="text-[#BFB6A6]">Posicionar carta no campo</Label>
+                <RadioGroup
+                  value={settings.handInteractionMode}
+                  onValueChange={(value) => updateSetting('handInteractionMode', value as HandInteractionMode)}
+                >
+                  <div className="flex items-center space-x-3">
+                    <RadioGroupItem value="both" id="handInteractionBoth" />
+                    <Label htmlFor="handInteractionBoth" className="text-[#BFB6A6]">
+                      Arrastar e clicar (padrão)
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <RadioGroupItem value="dragOnly" id="handInteractionDrag" />
+                    <Label htmlFor="handInteractionDrag" className="text-[#BFB6A6]">
+                      Só arrastar (drag &amp; drop)
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <RadioGroupItem value="clickOnly" id="handInteractionClick" />
+                    <Label htmlFor="handInteractionClick" className="text-[#BFB6A6]">
+                      Só clicar
+                    </Label>
+                  </div>
+                </RadioGroup>
               </div>
             </CardContent>
           </Card>
