@@ -302,7 +302,25 @@ function trueSlotValue(
     (sum, c) => sum + (doubleId === c.id ? getSpotlightAdjustedValue(c, spotlight) * 2 : getSpotlightAdjustedValue(c, spotlight)),
     0
   );
-  return base + horizontal;
+  // FIX (pedido do usuário: "no modo towers, a IA não seleciona a torre
+  // quando a própria tem valores altos durante as disputas" + "a IA escolhe
+  // um valor mais baixo quando o oponente escolhe uma carta revelada") -
+  // faltava somar a reserva da torre (Modo Towers) aqui. Diferente de uma
+  // horizontal comum (só pública depois de `revealed`, por isso o filtro
+  // `opts.opponentView` acima), o valor de uma torre é público por REGRA,
+  // sempre - o selo "🗼 NxTotal" (FieldSlotView.tsx, `hasTower` badge) é
+  // mostrado incondicionalmente, nunca atrás de `slot.revealed`, mesmo no
+  // campo do oponente. Sem contar a reserva, esta função (usada tanto pra
+  // avaliar o PRÓPRIO campo quanto, via `knownSelectedSlotValue`, o slot já
+  // selecionado do oponente) subestimava sistematicamente qualquer slot com
+  // torre nos dois lados: a IA nunca "via" a força real da própria torre pra
+  // escolhê-la, e também subestimava a força de uma torre do oponente ao
+  // decidir se já sabia o suficiente pra vencer "economicamente" (ver a
+  // heurística de vitória econômica em decideCombatPhase) - por isso parecia
+  // escolher um valor baixo demais mesmo sabendo o valor do oponente: ela
+  // sabia um valor ERRADO (sem a torre), não o valor real.
+  const towerValue = (slot.towerReserve ?? []).reduce((sum, c) => sum + getSpotlightAdjustedValue(c, spotlight), 0);
+  return base + horizontal + towerValue;
 }
 
 function pickHighestBy<T>(items: T[], score: (item: T) => number): T {
@@ -2132,11 +2150,46 @@ function decidePiromanteK(state: GameState, ai: PlayerNumber): GameAction | null
   return null;
 }
 
+/**
+ * Piromante - lança a Bola de Fogo em Combate usando QUALQUER carta de magia
+ * disponível (J/Q/K), não só o Rei. FIX (pedido do usuário: "a IA do
+ * piromante não utiliza as magias na fase de combate para atirar as bolas de
+ * fogo") - `decidePiromanteK` só cobre o caso "ainda tenho um Rei na mão";
+ * como toda magia se consome ao ativar, é comum o Rei já ter sido jogado ou
+ * descartado em turnos anteriores enquanto Valete/Rainha continuam na mão -
+ * essas duas ganharam a mesma janela extra de Combate (só pra lançar, ver
+ * `canActivateMagic` em magicCards.ts), mas nada na IA tentava usá-la; sem
+ * Rei na mão, a IA simplesmente nunca cogitava lançar, mesmo com a Bola
+ * cheia e um alvo obliterável na mesa. Chamada como fallback depois de
+ * `decidePiromanteK` (que já cobre o caso "tenho Rei" - queimar reforço OU
+ * lançar com ele - então só entra em ação quando ele devolve null).
+ */
+function decidePiromanteCombatFireball(state: GameState, ai: PlayerNumber): GameAction | null {
+  if (!shouldLaunchFireball(state, ai)) return null;
+  const target = pickFireballTarget(state, ai);
+  if (target === null) return null;
+  const me = state[playerKeyOf(ai)];
+  for (const value of ['K', 'Q', 'J'] as const) {
+    const card = me.hand.find((c) => c.value === value);
+    if (!card) continue;
+    if (!canActivateMagic('combat', 'piromante', value, getMagicActivationContext(state, ai))) continue;
+    return {
+      type: 'EXECUTE_MAGIC',
+      player: ai,
+      cardId: card.id,
+      character: 'piromante',
+      magicType: value,
+      selection: { fireballLaunch: true, selectedTargetSlot: target },
+    };
+  }
+  return null;
+}
+
 function decideCombatMagic(state: GameState, ai: PlayerNumber, character: CharacterId): GameAction | null {
   if (character === 'mago') return decideMagoK(state, ai);
   if (character === 'besta') return decideBestaK(state, ai);
   if (character === 'mosqueteiro') return decideMosqueteiroK(state, ai);
-  if (character === 'piromante') return decidePiromanteK(state, ai);
+  if (character === 'piromante') return decidePiromanteK(state, ai) ?? decidePiromanteCombatFireball(state, ai);
   return null;
 }
 
