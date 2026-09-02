@@ -87,7 +87,10 @@ import {
   type PlayerNumber,
 } from '../lib/gameEngine';
 import { decideAiAction, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
-import { simulateSteps } from '../lib/simulateGame';
+import { simulateSteps, fuzzSteps } from '../lib/simulateGame';
+import { enumerateLegalActions, checkActionDivergence } from '../lib/actionSpace';
+import { checkInvariants, countAllCards } from '../lib/invariants';
+import { setSeed, getSeed, clearSeed } from '../lib/rng';
 import { decideHandCardSelection } from '../lib/handSelection';
 
 /**
@@ -137,6 +140,18 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     gameReducer,
     undefined,
     () => createInitialState(player1Character, player2Character, gameConfig)
+  );
+  // Item 5 do plano de melhoria do debug mode (window.__debug.checkInvariants/
+  // fuzz) - quantas cartas "reais" esta partida específica começou com
+  // (varia com a config: Modo Towers soma cartas extras ao baralho, ver
+  // generateDeck em cardUtils.ts). Calculado UMA VEZ (nunca muda durante o
+  // jogo - conservação de cartas é sempre contra esse mesmo número do início
+  // ao fim, mesmo com Fusão ligada, ver o comentário de countAllCards em
+  // invariants.ts) a partir de um estado inicial PRÓPRIO, não do `gameState`
+  // ao vivo (senão mudaria a cada render).
+  const initialCardTotal = useMemo(
+    () => countAllCards(createInitialState(player1Character, player2Character, gameConfig)),
+    [player1Character, player2Character, gameConfig]
   );
 
   const { settings, updateSetting } = useSettings();
@@ -237,6 +252,38 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    *     o que também acelera bastante o "pensando..." de cada ação real da
    *     IA (não só o fastForward acima, que já ignora isso by design).
    *   window.__debug.characters -> { player1, player2 } desta partida
+   *
+   * Itens 1/2/6 do plano de melhoria do debug mode ("prever qualquer ação
+   * possível" + reprodutibilidade + fuzzing) - ver src/app/lib/actionSpace.ts,
+   * rng.ts, simulateGame.ts pro núcleo de cada um:
+   *   window.__debug.enumerateActions(player?) -> lista TODA ação legal
+   *     agora pro `player` (padrão 1) - reaproveita os predicados `canX` já
+   *     existentes no motor (actionSpace.ts, modo "legal"). Não despacha
+   *     nada, só lista.
+   *   window.__debug.tryEveryAction(player?) -> roda o modo EXAUSTIVO
+   *     (actionSpace.ts) contra uma cópia local do estado ATUAL - despacha
+   *     toda ação sintaticamente plausível direto contra `gameReducer`
+   *     (NUNCA via rawDispatch/dispatch, então NUNCA muda a partida ao
+   *     vivo) e reporta só onde um predicado `canX` discorda do resultado
+   *     real. Pode ser lento (potencialmente dezenas de milhares de
+   *     chamadas a `gameReducer`) - comando manual de console, nunca chame
+   *     isso num loop/useEffect.
+   *   window.__debug.checkInvariants() -> roda a checagem de saúde
+   *     (conservação de cartas + ids duplicados, invariants.ts) contra o
+   *     estado atual. Lista de violações; vazio = saudável.
+   *   window.__debug.fuzz(steps?, opts?) -> versão interativa do fuzzer
+   *     (fuzzSteps, simulateGame.ts) - substitui a escolha da IA heurística
+   *     por uma ação aleatória `opts.substituteProbability` (padrão 0.15)
+   *     das vezes, verificando invariantes a cada passo. Para na primeira
+   *     violação encontrada (devolve `violation` preenchido) ou depois de
+   *     `steps` passos (padrão 200). Aplica o resultado e PAUSA, mesmo
+   *     padrão de `fastForward`. Pra reproduzir uma falha achada aqui,
+   *     anote `getSeed()` ANTES de chamar e use `setSeed` de novo com o
+   *     mesmo número.
+   *   window.__debug.setSeed(n) / getSeed() -> troca/lê a semente do RNG
+   *     (rng.ts) - a MESMA semente reproduz a MESMA sequência de decisões
+   *     aleatórias (incluindo a moeda de substituição do fuzz acima) daqui
+   *     em diante. `clearSeed()` volta pro `Math.random()` cru normal.
    */
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -266,6 +313,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       return { steps, stuck, rejectedActions, gameOver: state.gameOver };
     };
 
+    const fuzz = (steps = 200, options?: { substituteProbability?: number; stayRunning?: boolean }) => {
+      const result = fuzzSteps(gameState, {
+        maxSteps: steps,
+        substituteProbability: options?.substituteProbability,
+        expectedCardTotal: initialCardTotal,
+      });
+      rawDispatch({ type: 'DEBUG_FORCE_STATE', state: options?.stayRunning ? result.state : { ...result.state, paused: true } });
+      return { steps: result.steps, stuck: result.stuck, rejectedActions: result.rejectedActions, violation: result.violation, gameOver: result.state.gameOver };
+    };
+
     (window as unknown as { __debug: unknown }).__debug = {
       state: gameState,
       dispatch,
@@ -277,6 +334,15 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       resume: () => rawDispatch({ type: 'DEBUG_FORCE_STATE', state: { ...gameState, paused: false } }),
       restart: () => rawDispatch({ type: 'DEBUG_FORCE_STATE', state: createInitialState(player1Character, player2Character, gameConfig) }),
       setAnimationsEnabled: (enabled: boolean) => updateSetting('animations', enabled),
+      // Itens 1/2/6 do plano de melhoria do debug mode - ver o comentário
+      // completo acima desta função pra cada um.
+      enumerateActions: (player: PlayerNumber = 1) => enumerateLegalActions(gameState, player),
+      tryEveryAction: (player: PlayerNumber = 1) => checkActionDivergence(gameState, player),
+      checkInvariants: () => checkInvariants(gameState, initialCardTotal),
+      fuzz,
+      setSeed,
+      getSeed,
+      clearSeed,
       characters: { player1: player1Character, player2: player2Character },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
