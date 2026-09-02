@@ -19,11 +19,23 @@
  * EXTENSÃO: Para adicionar novo personagem, escolha uma paleta única e adicione aqui
  */
 
+import type { CharacterId } from './gameEngine';
+
 /**
  * Personagens jogáveis
- * EXTENSÃO: Sincronize com outros arquivos ao adicionar novos
+ * FIX (endurecimento pedido pelo usuário: "está pronto para mais um
+ * personagem?" - checagem de prontidão) - antes esta union era um literal
+ * PRÓPRIO, redeclarado igual em ~9 arquivos além deste, em vez de importado
+ * de `gameEngine.ts:CharacterId` (a fonte canônica) - esquecer de atualizar
+ * um desses ao adicionar um personagem novo só dava erro de compilação
+ * aqui por acaso (`characterThemes` é um Record estrito), não por design.
+ * Agora é um alias do tipo canônico - importar de `gameEngine.ts` é seguro
+ * mesmo com o import inverso existente (gameEngine.ts importa
+ * getCharacterTheme deste arquivo) porque `import type` é apagado pelo
+ * bundler antes do runtime - vira só um ciclo de TIPOS, que o TypeScript
+ * resolve sem problema, nunca um ciclo de valores de verdade.
  */
-export type Character = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
+export type Character = CharacterId;
 
 /**
  * Estrutura de tema de cores de um personagem

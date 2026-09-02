@@ -3516,8 +3516,16 @@ function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumbe
     };
   }
 
-  // Besta a partir daqui - precisa de um slot válido (0-2) e de uma carta
-  // específica dentro dele.
+  // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
+  // personagem?") - este trecho ("Besta a partir daqui") rodava
+  // incondicionalmente pra qualquer personagem que chegasse até aqui sem
+  // ter sido interceptado acima (mago/anjo/mosqueteiro/piromante retornam
+  // cedo; coringa nunca chega aqui - ver comentário no início da função) -
+  // hoje só sobra a Besta de verdade, mas um personagem NOVO esquecido
+  // aqui executaria a Fúria Selvagem por engano em vez de simplesmente não
+  // fazer nada. Guard explícito: precisa de um slot válido (0-2) e de uma
+  // carta específica dentro dele.
+  if (character !== 'besta') return state;
   if (targetSlotIndex === undefined || targetSlotIndex < 0 || targetSlotIndex > 2) return state;
   const slot = playerState.field[targetSlotIndex];
   // FIX (checagem extensa por bugs - interação Piromante x Besta): exclui
@@ -3900,7 +3908,16 @@ function handleFinalizeNumeralSpell(state: GameState): GameState {
       piromanteSpreadArmed: true,
     };
     log = appendLog(state, log, 'numeral-spell', `Chama Repartida: o próximo lançamento da Bola de Fogo de Jogador ${player} vai atingir os 3 slots do oponente`, { player });
-  } else {
+  } else if (character === 'mago') {
+    // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
+    // personagem?") - este bloco era o `else` final implícito da cadeia
+    // (anjo/besta/mosqueteiro/coringa/piromante já são `else if` acima) -
+    // um personagem NOVO esquecido aqui revelaria a mão inteira do
+    // oponente por engano, em vez de simplesmente não ganhar o bônus.
+    // Explicitado como `else if (character === 'mago')`; sem `else` final -
+    // um personagem não reconhecido só perde o efeito bônus (o descarte
+    // genérico do campo, linhas antes deste bloco, já roda incondicional).
+    //
     // FIX (pedido do usuário): a Visão Arcana do Mago documenta "todas as
     // cartas do oponente estarão reveladas" (inclui as que ele comprar) - mas
     // só a parte "vai comprar" estava implementada (ver o check de

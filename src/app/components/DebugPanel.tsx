@@ -8,7 +8,6 @@ import { ArrowLeft } from 'lucide-react';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../lib/gameConfig';
 import type { CharacterId } from '../lib/gameEngine';
 
-const CHARACTER_IDS: CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante'];
 const CHARACTER_LABELS: Record<CharacterId, string> = {
   mago: 'Mago',
   besta: 'Besta',
@@ -17,6 +16,10 @@ const CHARACTER_LABELS: Record<CharacterId, string> = {
   coringa: 'Coringa',
   piromante: 'Piromante',
 };
+// FIX (endurecimento pedido pelo usuário: "está pronto para mais um
+// personagem?") - derivado de CHARACTER_LABELS (Record compile-enforced) em
+// vez de um array solto paralelo, que podia divergir dele em silêncio.
+const CHARACTER_IDS = Object.keys(CHARACTER_LABELS) as CharacterId[];
 
 interface DebugPanelProps {
   onBack: () => void;

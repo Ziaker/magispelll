@@ -1743,11 +1743,48 @@ function simulateAiVsAiGame(
 //      só nos cenários pontuais já testados manualmente acima.
 // ---------------------------------------------------------------------------
 (function testAiVsAiFullGamesTowersMode() {
+  // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
+  // personagem?") - antes só tinha 2 entradas do Piromante (sem
+  // Mosqueteiro/Coringa) - matriz completada pra espelhar EXATAMENTE
+  // testAiVsAiFullGames() acima (um confronto contra cada personagem
+  // existente + espelho, pra cada personagem novo desde que foi
+  // adicionado), fechando a lacuna de cobertura pros modos especiais.
   const matchups: Array<[CharacterId, CharacterId]> = [
     ['mago', 'besta'],
+    ['besta', 'mago'],
     ['besta', 'anjo'],
+    ['anjo', 'besta'],
     ['anjo', 'mago'],
+    ['mago', 'anjo'],
+    ['mago', 'mago'],
+    ['besta', 'besta'],
+    ['anjo', 'anjo'],
+    ['mosqueteiro', 'mago'],
+    ['mago', 'mosqueteiro'],
+    ['mosqueteiro', 'besta'],
+    ['besta', 'mosqueteiro'],
+    ['mosqueteiro', 'anjo'],
+    ['anjo', 'mosqueteiro'],
+    ['mosqueteiro', 'mosqueteiro'],
+    ['coringa', 'mago'],
+    ['mago', 'coringa'],
+    ['coringa', 'besta'],
+    ['besta', 'coringa'],
+    ['coringa', 'anjo'],
+    ['anjo', 'coringa'],
+    ['coringa', 'mosqueteiro'],
+    ['mosqueteiro', 'coringa'],
+    ['coringa', 'coringa'],
     ['piromante', 'mago'],
+    ['mago', 'piromante'],
+    ['piromante', 'besta'],
+    ['besta', 'piromante'],
+    ['piromante', 'anjo'],
+    ['anjo', 'piromante'],
+    ['piromante', 'mosqueteiro'],
+    ['mosqueteiro', 'piromante'],
+    ['piromante', 'coringa'],
+    ['coringa', 'piromante'],
     ['piromante', 'piromante'],
   ];
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, monsterCards: true, towersMode: true };
@@ -2411,10 +2448,48 @@ function simulateAiVsAiGame(
 //      decisões) não trava, não lança exceção, e a IA nunca propõe uma ação
 //      que o motor rejeita em silêncio.
 (function testAiVsAiFullGamesSpotlightMode() {
+  // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
+  // personagem?") - antes só cobria mago/besta/anjo, nunca ganhou
+  // Mosqueteiro/Coringa/Piromante - matriz completada espelhando
+  // testAiVsAiFullGames() acima (mesmo motivo do comentário em
+  // testAiVsAiFullGamesTowersMode()).
   const matchups: Array<[CharacterId, CharacterId]> = [
     ['mago', 'besta'],
+    ['besta', 'mago'],
     ['besta', 'anjo'],
+    ['anjo', 'besta'],
     ['anjo', 'mago'],
+    ['mago', 'anjo'],
+    ['mago', 'mago'],
+    ['besta', 'besta'],
+    ['anjo', 'anjo'],
+    ['mosqueteiro', 'mago'],
+    ['mago', 'mosqueteiro'],
+    ['mosqueteiro', 'besta'],
+    ['besta', 'mosqueteiro'],
+    ['mosqueteiro', 'anjo'],
+    ['anjo', 'mosqueteiro'],
+    ['mosqueteiro', 'mosqueteiro'],
+    ['coringa', 'mago'],
+    ['mago', 'coringa'],
+    ['coringa', 'besta'],
+    ['besta', 'coringa'],
+    ['coringa', 'anjo'],
+    ['anjo', 'coringa'],
+    ['coringa', 'mosqueteiro'],
+    ['mosqueteiro', 'coringa'],
+    ['coringa', 'coringa'],
+    ['piromante', 'mago'],
+    ['mago', 'piromante'],
+    ['piromante', 'besta'],
+    ['besta', 'piromante'],
+    ['piromante', 'anjo'],
+    ['anjo', 'piromante'],
+    ['piromante', 'mosqueteiro'],
+    ['mosqueteiro', 'piromante'],
+    ['piromante', 'coringa'],
+    ['coringa', 'piromante'],
+    ['piromante', 'piromante'],
   ];
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, spotlightMode: true, spotlightCount: 3, spotlightPositive: true, spotlightNegative: true };
   const expectedTotalCards = 54;
@@ -2583,10 +2658,46 @@ function makeReactionsBaseState(config: GameConfig): GameState {
 //    (decideReactionToMagic decidindo aleatoriamente) não trava, não lança
 //    exceção, e a IA nunca propõe uma ação que o motor rejeita em silêncio.
 (function testAiVsAiFullGamesReactionsMode() {
+  // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
+  // personagem?") - mesma lacuna e mesmo fix de
+  // testAiVsAiFullGamesSpotlightMode() acima.
   const matchups: Array<[CharacterId, CharacterId]> = [
     ['mago', 'besta'],
+    ['besta', 'mago'],
     ['besta', 'anjo'],
+    ['anjo', 'besta'],
     ['anjo', 'mago'],
+    ['mago', 'anjo'],
+    ['mago', 'mago'],
+    ['besta', 'besta'],
+    ['anjo', 'anjo'],
+    ['mosqueteiro', 'mago'],
+    ['mago', 'mosqueteiro'],
+    ['mosqueteiro', 'besta'],
+    ['besta', 'mosqueteiro'],
+    ['mosqueteiro', 'anjo'],
+    ['anjo', 'mosqueteiro'],
+    ['mosqueteiro', 'mosqueteiro'],
+    ['coringa', 'mago'],
+    ['mago', 'coringa'],
+    ['coringa', 'besta'],
+    ['besta', 'coringa'],
+    ['coringa', 'anjo'],
+    ['anjo', 'coringa'],
+    ['coringa', 'mosqueteiro'],
+    ['mosqueteiro', 'coringa'],
+    ['coringa', 'coringa'],
+    ['piromante', 'mago'],
+    ['mago', 'piromante'],
+    ['piromante', 'besta'],
+    ['besta', 'piromante'],
+    ['piromante', 'anjo'],
+    ['anjo', 'piromante'],
+    ['piromante', 'mosqueteiro'],
+    ['mosqueteiro', 'piromante'],
+    ['piromante', 'coringa'],
+    ['coringa', 'piromante'],
+    ['piromante', 'piromante'],
   ];
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, reactionsMode: true, reactionsLimit: 3 };
   const expectedTotalCards = 54;

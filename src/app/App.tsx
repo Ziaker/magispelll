@@ -27,6 +27,7 @@ import { Splash } from './components/Splash';
 import { Home } from './components/Home';
 import { GameConfig } from './components/GameConfig';
 import type { GameConfig as GameConfigType } from './lib/gameConfig';
+import type { CharacterId } from './lib/gameEngine';
 import { CharacterSelection } from './components/CharacterSelection';
 import { Rules } from './components/Rules';
 import { CharactersList } from './components/CharactersList';
@@ -80,7 +81,7 @@ export default function App() {
    * Personagem selecionado para visualizar a ficha detalhada
    * Usado apenas no fluxo: characters -> character-sheet
    */
-  const [selectedCharacter, setSelectedCharacter] = useState<'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante' | null>(null);
+  const [selectedCharacter, setSelectedCharacter] = useState<CharacterId | null>(null);
   
   /**
    * Controla em qual etapa da seleção de personagem estamos
@@ -95,8 +96,8 @@ export default function App() {
    * EXTENSÃO: Para suportar mais jogadores, expandir esta estrutura
    */
   const [selectedCharacters, setSelectedCharacters] = useState<{
-    player1?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
-    player2?: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
+    player1?: CharacterId;
+    player2?: CharacterId;
   }>({});
 
   // ===== HANDLERS =====
@@ -117,7 +118,7 @@ export default function App() {
    * da IA em si vive em lib/aiPlayer.ts e é acionada de dentro de
    * GameBoard.tsx, não aqui.
    */
-  const handleCharacterSelect = (character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante', playerNumber: 1 | 2) => {
+  const handleCharacterSelect = (character: CharacterId, playerNumber: 1 | 2) => {
     if (playerNumber === 1) {
       // Jogador 1 escolheu - salva escolha e avança para próxima etapa
       setSelectedCharacters({ ...selectedCharacters, player1: character });
@@ -158,8 +159,8 @@ export default function App() {
    * character-selection.
    */
   const handleDebugStart = (
-    player1: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante',
-    player2: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante',
+    player1: CharacterId,
+    player2: CharacterId,
     config: GameConfigType
   ) => {
     setGameConfig(config);

@@ -22,11 +22,18 @@
  * EXTENSÃO: Para adicionar novo personagem, adicione entrada em MAGIC_CARDS
  */
 
+import type { CharacterId } from './gameEngine';
+
 /** Tipos de Cartas Mágicas disponíveis (J = Valete, Q = Rainha, K = Rei) */
 export type MagicCardType = 'J' | 'Q' | 'K';
 
-/** Personagens jogáveis. EXTENSÃO: adicione novos personagens aqui */
-export type Character = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
+/**
+ * Personagens jogáveis. FIX (endurecimento, ver comentário completo em
+ * characterThemes.ts): alias do `CharacterId` canônico (gameEngine.ts), não
+ * mais uma union redeclarada - `import type` não cria ciclo de runtime
+ * mesmo com gameEngine.ts importando `canActivateMagic` deste arquivo.
+ */
+export type Character = CharacterId;
 
 /** Fases do turno. IMPORTANTE: a ordem é fixa: draw → strategy → combat */
 export type Phase = 'draw' | 'strategy' | 'combat';

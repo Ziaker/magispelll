@@ -9,6 +9,7 @@
  */
 import { Howl } from 'howler';
 import type { Settings } from './settings';
+import type { CharacterId } from './gameEngine';
 import cardPlaySrc from '../../assets/sfx/card-play.ogg';
 import cardFlipSrc from '../../assets/sfx/card-flip.ogg';
 import combatWinSrc from '../../assets/sfx/combat-win.ogg';
@@ -185,7 +186,7 @@ const SOUND_SOURCES: Record<SoundEffectName, string> = {
  * própria lógica (som 'card-shatter', ver applyMagicEffectPresentation em
  * GameBoard.tsx), não passa por este mapeamento genérico.
  */
-export function magicSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante', magicType: 'J' | 'Q' | 'K'): SoundEffectName {
+export function magicSoundFor(character: CharacterId, magicType: 'J' | 'Q' | 'K'): SoundEffectName {
   if (character === 'mago' && magicType === 'J') return 'magic-mago-j';
   if (character === 'mago' && magicType === 'Q') return 'magic-mago-q';
   if (character === 'besta' && magicType === 'J') return 'magic-besta-j';
@@ -203,26 +204,44 @@ export function magicSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosqueteir
   if (character === 'piromante' && magicType === 'J') return 'magic-piromante-j';
   if (character === 'piromante' && magicType === 'Q') return 'magic-piromante-q';
   if (character === 'piromante' && magicType === 'K') return 'magic-piromante-k';
-  return 'magic-activate'; // Mago K (Destruição de Reforço) - ver comentário acima.
+  // FIX (endurecimento, pedido do usuário: "está pronto para mais um
+  // personagem?") - o único fallback LEGÍTIMO aqui é Mago K (Destruição de
+  // Reforço, comentário acima) - qualquer outra combinação chegando até
+  // aqui é um personagem/magia esquecido neste mapeamento, tocando o som
+  // genérico errado em silêncio. Avisa no console (dev only, nunca muda o
+  // som tocado) só nesse caso.
+  if (!(character === 'mago' && magicType === 'K') && import.meta.env.DEV) {
+    console.warn(`magicSoundFor: combinação não mapeada (${character}, ${magicType}) - tocando som genérico`);
+  }
+  return 'magic-activate';
 }
 
 /** Mesma ideia de magicSoundFor, para o efeito do Monstro (🃏) de cada personagem. */
-export function monsterSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante'): SoundEffectName {
+export function monsterSoundFor(character: CharacterId): SoundEffectName {
   if (character === 'mago') return 'monster-mago';
   if (character === 'besta') return 'monster-besta';
   if (character === 'mosqueteiro') return 'monster-mosqueteiro';
   if (character === 'coringa') return 'monster-coringa';
   if (character === 'piromante') return 'monster-piromante';
+  // FIX (endurecimento): Anjo é o único fallback legítimo - avisa pra
+  // qualquer outro personagem não reconhecido (ver magicSoundFor acima).
+  if (character !== 'anjo' && import.meta.env.DEV) {
+    console.warn(`monsterSoundFor: personagem não mapeado (${character}) - tocando som do Anjo`);
+  }
   return 'monster-anjo';
 }
 
 /** Mesma ideia de magicSoundFor, para a Magia Numeral de cada personagem. */
-export function numeralSoundFor(character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante'): SoundEffectName {
+export function numeralSoundFor(character: CharacterId): SoundEffectName {
   if (character === 'mago') return 'numeral-mago';
   if (character === 'besta') return 'numeral-besta';
   if (character === 'mosqueteiro') return 'numeral-mosqueteiro';
   if (character === 'coringa') return 'numeral-coringa';
   if (character === 'piromante') return 'numeral-piromante';
+  // FIX (endurecimento): mesma ideia de monsterSoundFor acima.
+  if (character !== 'anjo' && import.meta.env.DEV) {
+    console.warn(`numeralSoundFor: personagem não mapeado (${character}) - tocando som do Anjo`);
+  }
   return 'numeral-anjo';
 }
 

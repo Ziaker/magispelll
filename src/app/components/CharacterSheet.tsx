@@ -5,9 +5,10 @@ import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIco
 import { CharacterDivider } from './CharacterDivider';
 import { ScrollArea } from './ui/scroll-area';
 import { getCharacterIconBackground } from '../lib/characterThemes';
+import type { CharacterId } from '../lib/gameEngine';
 
 interface CharacterSheetProps {
-  character: 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
+  character: CharacterId;
   onBack: () => void;
 }
 
