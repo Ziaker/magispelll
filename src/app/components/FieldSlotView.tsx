@@ -835,7 +835,7 @@ export function FieldSlotView({
                             spotlight={spotlight}
                           />
                         }
-                        back={<PlayingCard faceDown />}
+                        back={<PlayingCard faceDown backTheme={theme} />}
                       />
                     </motion.div>
                   </motion.div>
@@ -1044,7 +1044,7 @@ export function FieldSlotView({
                       className="w-16 h-10"
                       faceUp={cardFaceUp}
                       front={<PlayingCard horizontal value={hCard.value} suit={hCard.suit} card={hCard} />}
-                      back={<PlayingCard horizontal faceDown />}
+                      back={<PlayingCard horizontal faceDown backTheme={theme} />}
                     />
                   </motion.div>
                   {/* Piromante (pedido do usuário: "as magias do piromante

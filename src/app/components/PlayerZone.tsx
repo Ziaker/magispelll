@@ -1282,7 +1282,7 @@ export function PlayerZone({
                       {card.revealed ? (
                         <PlayingCard value={card.value} suit={card.suit} card={card} />
                       ) : (
-                        <PlayingCard faceDown />
+                        <PlayingCard faceDown backTheme={theme} />
                       )}
                       <CharacterMagicBurst
                         active={Boolean(effectFlashCardIds?.includes(card.id))}

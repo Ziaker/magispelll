@@ -51,7 +51,26 @@ interface PlayingCardProps {
    * componente só exibe, nunca calcula regra). Ver spotlight.ts.
    */
   spotlight?: SpotlightState | null;
+  /**
+   * FIX (pedido do usuário: "consegue fazer com que a cor da face para baixo
+   * de cada personagem pode ser de outra cor?" + "um equivalente mais
+   * escuro da cor de cada personagem? a cor normal de hoje em dia use para
+   * o anjo") - cor das costas da carta (virada pra baixo), derivada do tema
+   * do personagem DONO da carta (`theme.primary`/`theme.secondary` de
+   * characterThemes.ts - o mesmo par já usado nas bordas/painéis desse
+   * jogador em toda a UI). `undefined` cai no dourado genérico de sempre
+   * (mesmos valores hardcoded que já existiam) - nenhum call site quebra
+   * por não passar isso. Deliberadamente um objeto de cores já resolvido
+   * (não `playerCharacter`/`CharacterId`, que já existe pra outro fim -
+   * ver `card?.isMonster` abaixo): quem chama de dentro do campo
+   * (FieldSlotView.tsx) só tem o `CharacterTheme` já resolvido à mão, nunca
+   * o `CharacterId` cru.
+   */
+  backTheme?: { primary: string; secondary: string };
 }
+
+/** Gradiente dourado genérico de sempre - usado quando `backTheme` não é passado (ver comentário acima). */
+const DEFAULT_BACK_THEME = { primary: '#C59E4F', secondary: '#8F6A30' };
 
 /**
  * Cor e nome de exibição de cada fase - usados no selo do tooltip de magia
@@ -110,6 +129,7 @@ export function PlayingCard({
   hasHorizontalOverlay,
   emptySlotCombatHint,
   spotlight,
+  backTheme = DEFAULT_BACK_THEME,
 }: PlayingCardProps) {
   const [hovering, setHovering] = useState(false);
   const suit = card ? getDisplaySuit(card) : suitProp;
@@ -132,11 +152,13 @@ export function PlayingCard({
   if (horizontal) {
     if (faceDown) {
       return (
-        <div className={cn(
-          "w-16 h-10 bg-gradient-to-br from-[#C59E4F] to-[#8F6A30] rounded-md",
-          "border border-[#8F6A30] shadow-md flex items-center justify-center",
-          className
-        )}>
+        <div
+          className={cn("w-16 h-10 rounded-md border shadow-md flex items-center justify-center", className)}
+          style={{
+            background: `linear-gradient(135deg, ${backTheme.primary}, ${backTheme.secondary})`,
+            borderColor: backTheme.secondary,
+          }}
+        >
           <span className="text-[#0F1113] text-[16px] font-display opacity-40">✦</span>
         </div>
       );
@@ -172,11 +194,16 @@ export function PlayingCard({
 
   if (faceDown) {
     return (
-      <div className={cn(
-        "w-28 h-40 bg-gradient-to-br from-[#C59E4F] to-[#8F6A30] rounded-lg flex items-center justify-center",
-        "border-2 border-[#8F6A30] shadow-lg relative overflow-hidden",
-        className
-      )}>
+      <div
+        className={cn(
+          "w-28 h-40 rounded-lg flex items-center justify-center border-2 shadow-lg relative overflow-hidden",
+          className
+        )}
+        style={{
+          background: `linear-gradient(135deg, ${backTheme.primary}, ${backTheme.secondary})`,
+          borderColor: backTheme.secondary,
+        }}
+      >
         <div className="absolute inset-0 opacity-20">
           <div className="absolute top-3 left-3 text-[#0F1113] text-[18px] font-display">ᚱ</div>
           <div className="absolute top-3 right-3 text-[#0F1113] text-[18px] font-display">ᛟ</div>
