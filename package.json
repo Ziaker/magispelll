@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "tsx scripts/sanity-test.ts",
+    "fuzz": "tsx scripts/fuzz.ts",
     "build:exe": "vite build && node scripts/build-exe.mjs"
   },
   "dependencies": {

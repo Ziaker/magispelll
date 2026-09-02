@@ -31,6 +31,18 @@ export interface RejectedAiAction {
   step: number;
   player: PlayerNumber;
   action: GameAction;
+  /**
+   * `'ai'` (padrão implícito em `simulateSteps`, que nunca substitui nada) =
+   * a IA heurística (`decideAiAction`) propôs isto e o motor recusou - SEMPRE
+   * um sinal de bug real (a IA nunca deveria propor algo inválido). `'substitute'`
+   * (só em `fuzzSteps`) = a ação veio de `enumerateLegalActions` no lugar da
+   * escolha da IA - rejeição aqui é ESPERADA às vezes (o modo "legal" do
+   * enumerador não é 100% preciso por design, ver actionSpace.ts), nunca por
+   * si só um sinal de bug. Quem consome esta lista (ex.: scripts/fuzz.ts)
+   * precisa filtrar por isso antes de tratar `rejectedActions.length > 0`
+   * como falha.
+   */
+  source?: 'ai' | 'substitute';
 }
 
 export interface SimulateStepsResult {
@@ -199,13 +211,17 @@ export function fuzzSteps(
       const decision = decideAiAction(current, p);
       if (decision.type === 'action') {
         let action = decision.action;
+        let source: 'ai' | 'substitute' = 'ai';
         if (random() < substituteProbability) {
           const legal = enumerateLegalActions(current, p);
-          if (legal.length > 0) action = legal[Math.floor(random() * legal.length)];
+          if (legal.length > 0) {
+            action = legal[Math.floor(random() * legal.length)];
+            source = 'substitute';
+          }
         }
         const prevState = current;
         if (dispatchAndCheck(action)) { actedThisStep = true; break; }
-        if (current === prevState) rejectedActions.push({ step: steps, player: p, action });
+        if (current === prevState) rejectedActions.push({ step: steps, player: p, action, source });
         actedThisStep = true;
         break;
       } else if (decision.type === 'ready') {
