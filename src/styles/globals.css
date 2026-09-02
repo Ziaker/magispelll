@@ -171,6 +171,40 @@ html {
   font-size: var(--font-size);
 }
 
+/* FIX (bug real reportado pelo usuário: "quando arrasta uma carta o
+   navegador faz o sublinhado/destaque de seleção de texto em cima das
+   coisas") - o arraste de carta (HandCardView.tsx/CardDragLayer.tsx) usa
+   `react-dnd-touch-backend` simulando o arraste via mousedown+mousemove
+   comuns, NUNCA o drag-and-drop nativo do HTML5 (ver o comentário completo
+   em App.tsx, DndProvider) - do ponto de vista do navegador, isso é
+   indistinguível de "o usuário está selecionando texto arrastando o
+   mouse", então ele desenha a faixa de seleção nativa (o "sublinhado")
+   sobre qualquer texto que o cursor passe por cima durante o arraste. O
+   jogo não depende de nenhum texto selecionável pelo jogador (sem campos
+   de copiar/colar fora da busca em Rules.tsx, que continua funcionando -
+   navegadores sempre respeitam seleção DENTRO de <input>/<textarea>,
+   mesmo com `user-select: none` num ancestral), então desliga a seleção de
+   texto no documento inteiro em vez de tentar caçar elemento por elemento.
+   `-webkit-user-drag: none` some com o "fantasma" de arraste nativo que o
+   Chrome/WebView2 (usado no executável de desktop) mostra para qualquer
+   <img>, um problema relacionado mas separado do de seleção de texto. */
+* {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+html,
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Magical animations */
 @keyframes float {
   0%, 100% { transform: translateY(0px); }
