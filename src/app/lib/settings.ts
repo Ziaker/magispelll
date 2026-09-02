@@ -48,6 +48,18 @@ export interface Settings {
   highContrast: boolean;
   screenReader: boolean;
   handInteractionMode: HandInteractionMode;
+  /**
+   * FIX (pedido do usuário: "remover shaking", no menu de pausa) - controle
+   * dedicado pro tremor de tela (golpe decisivo de combate, Magia Numeral -
+   * ver `.animate-screen-shake`/`screenShake` em GameBoard.tsx), separado
+   * de `animations`. Antes o tremor só respeitava `animations` (desligá-lo
+   * já cortava o tremor, mas junto com TODA a transição/animação do jogo -
+   * um martelo grande demais pra quem só quer parar de sacodir a tela).
+   * Continua exigindo `animations` true pra disparar (nunca sacode com
+   * animações totalmente desligadas) - este switch só afeta quem já tem
+   * animações ligadas mas quer especificamente sem o tremor.
+   */
+  screenShakeEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -60,6 +72,7 @@ export const DEFAULT_SETTINGS: Settings = {
   highContrast: false,
   screenReader: false,
   handInteractionMode: 'both',
+  screenShakeEnabled: true,
 };
 
 const STORAGE_KEY = 'magispelll:settings';

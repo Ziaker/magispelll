@@ -26,6 +26,9 @@ import { FlyingDiscardCard, type FlyingDiscardSpec } from './FlyingDiscardCard';
 import confetti from 'canvas-confetti';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { Switch } from './ui/switch';
+import { Slider } from './ui/slider';
+import { Label } from './ui/label';
 import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box } from 'lucide-react';
 import { PlayerZone } from './PlayerZone';
 import { BattleField } from './BattleField';
@@ -1060,7 +1063,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // perdedor (`disputeWinner` preenchido), não em toda vitória de combate
       // comum (a 1ª de 2 necessárias), para o abalo ficar reservado ao
       // momento que de fato pesa na partida.
-      if (resolution.disputeWinner && settings.animations) {
+      if (resolution.disputeWinner && settings.animations && settings.screenShakeEnabled) {
         setScreenShake(true);
         setTimeout(() => setScreenShake(false), delay(650));
       }
@@ -1198,7 +1201,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // Numerais (Visão Arcana/Fúria Sanguinária/Benção Eterna), sem distinção
     // por personagem, diferente das magias J/Q/K normais - ver numeralSoundFor.
     soundManager.play(numeralSoundFor(gameState.numeralSpellPending.character));
-    if (settings.animations) {
+    if (settings.animations && settings.screenShakeEnabled) {
       setScreenShake(true);
       setTimeout(() => setScreenShake(false), delay(650));
     }
@@ -4244,16 +4247,96 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         </DialogContent>
       </Dialog>
 
-      {/* Diálogo de Pausa */}
+      {/* Diálogo de Pausa - FIX (pedido do usuário: "criar mais
+          configurações durante o jogo no menu de pause... reduzir
+          efeitos, mutar sons ou reduzir/aumentar som, remover shaking") -
+          antes só tinha "Retomar"/"Sair do Jogo"; agora também os ajustes
+          rápidos mais relevantes NO MEIO de uma partida, sem precisar sair
+          (o que destruiria o estado da partida - ver comentário em
+          App.tsx sobre GameBoard não ficar montado fora da tela 'game').
+          Reaproveita o MESMO `settings`/`updateSetting` de Settings.tsx
+          (useSettings() já estava importado aqui) - mudar aqui reflete lá
+          e vice-versa, é a mesma preferência persistida. */}
       <Dialog open={gameState.paused} onOpenChange={() => dispatch({ type: 'TOGGLE_PAUSE' })}>
-        <DialogContent className="bg-[#1E1A16] border-[#C59E4F]">
+        <DialogContent className="bg-[#1E1A16] border-[#C59E4F] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-[#EFE7D6] font-display text-[24px]">Jogo Pausado</DialogTitle>
             <DialogDescription className="text-[#BFB6A6]">
               O jogo está pausado. Clique em retomar para continuar.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex gap-4">
+
+          <div className="space-y-5 border-t border-[#C59E4F]/20 pt-4">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pauseSoundEffects" className="text-[#BFB6A6]">
+                Efeitos Sonoros
+              </Label>
+              <Switch
+                id="pauseSoundEffects"
+                checked={settings.soundEffects}
+                onCheckedChange={(checked) => updateSetting('soundEffects', checked)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pauseVolume" className="text-[#BFB6A6]">
+                Volume: {settings.volume}%
+              </Label>
+              <Slider
+                id="pauseVolume"
+                value={[settings.volume]}
+                onValueChange={([value]) => updateSetting('volume', value)}
+                max={100}
+                step={1}
+                disabled={!settings.soundEffects}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pauseParticleEffects" className="text-[#BFB6A6]">
+                Efeitos de Partículas
+              </Label>
+              <Switch
+                id="pauseParticleEffects"
+                checked={settings.particleEffects}
+                onCheckedChange={(checked) => updateSetting('particleEffects', checked)}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pauseAnimations" className="text-[#BFB6A6]">
+                Animações
+              </Label>
+              <Switch
+                id="pauseAnimations"
+                checked={settings.animations}
+                onCheckedChange={(checked) => updateSetting('animations', checked)}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="pauseScreenShake" className="text-[#BFB6A6]">
+                  Tremor de Tela
+                </Label>
+                <p className="text-[11px] text-[#BFB6A6]/70">Golpe decisivo de combate e Magia Numeral</p>
+              </div>
+              <Switch
+                id="pauseScreenShake"
+                checked={settings.screenShakeEnabled}
+                onCheckedChange={(checked) => updateSetting('screenShakeEnabled', checked)}
+                disabled={!settings.animations}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pauseHighContrast" className="text-[#BFB6A6]">
+                Alto Contraste
+              </Label>
+              <Switch
+                id="pauseHighContrast"
+                checked={settings.highContrast}
+                onCheckedChange={(checked) => updateSetting('highContrast', checked)}
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-4 pt-2">
             <Button
               onClick={() => dispatch({ type: 'TOGGLE_PAUSE' })}
               className="flex-1 bg-[#C59E4F] hover:bg-[#8F6A30] text-[#0F1113]"

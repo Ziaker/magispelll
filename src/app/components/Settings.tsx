@@ -140,6 +140,27 @@ export function Settings({ onBack }: SettingsProps) {
                     disabled={!settings.animations}
                   />
                 </div>
+
+                {/* FIX (pedido do usuário: "remover shaking") - controle
+                    dedicado, separado de "Animações" (ver settings.ts para
+                    o porquê) - também disponível direto no menu de Pausa
+                    durante a partida (GameBoard.tsx), a mesma preferência. */}
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label htmlFor="screenShakeEnabled" className="text-[#BFB6A6]">
+                      Tremor de Tela
+                    </Label>
+                    <p className="text-[12px] text-[#BFB6A6]/70">
+                      Sacode a tela num golpe decisivo de combate ou ao ativar uma Magia Numeral
+                    </p>
+                  </div>
+                  <Switch
+                    id="screenShakeEnabled"
+                    checked={settings.screenShakeEnabled}
+                    onCheckedChange={(checked) => updateSetting('screenShakeEnabled', checked)}
+                    disabled={!settings.animations}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
