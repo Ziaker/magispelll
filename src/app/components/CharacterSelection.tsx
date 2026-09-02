@@ -15,7 +15,17 @@ import type { CharacterId } from '../lib/gameEngine';
 interface CharacterSelectionProps {
   onBack: () => void;
   onSelect: (character: CharacterId, playerNumber: 1 | 2) => void;
-  currentPlayer: 1 | 2;
+  /**
+   * FIX (pedido do usuário: "escolher os 2 personagens na mesma tela") -
+   * antes esta tela tinha 2 ETAPAS (App.tsx trocava `currentPlayer` de 1
+   * pra 2 e re-renderizava a tela inteira do zero); agora os dois jogadores
+   * são escolhidos na MESMA tela (um grid só, um "slot ativo" decide pra
+   * quem o próximo clique vale) - `onContinue` é chamado quando os dois já
+   * têm personagem, substituindo o antigo avanço automático pra 'game' ao
+   * escolher o 2º personagem (App.tsx decide pra onde ir - 'summary' no
+   * fluxo normal, 'game' direto no atalho de Partida Rápida).
+   */
+  onContinue: () => void;
   selectedCharacters: {
     player1?: CharacterId;
     player2?: CharacterId;
@@ -240,12 +250,13 @@ function DetailsDialog({
   );
 }
 
-export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCharacters, aiPlayers = [] }: CharacterSelectionProps) {
-  const isAiStep = aiPlayers.includes(currentPlayer);
-  // Modo Espectador (os 2 jogadores são IA): distingue "IA 1"/"IA 2" no
-  // título, já que "Escolha o Personagem da IA" sozinho ficaria ambíguo com
-  // as duas etapas idênticas - em "Contra a IA" (só um lado é IA) o título
-  // genérico de sempre continua bastando.
+export function CharacterSelection({ onBack, onSelect, onContinue, selectedCharacters, aiPlayers = [] }: CharacterSelectionProps) {
+  // FIX (pedido do usuário: "escolher os 2 personagens na mesma tela") -
+  // substitui o antigo `currentPlayer` (prop controlada por App.tsx,
+  // trocando de tela inteira entre as 2 etapas) por um "slot ativo" local -
+  // decide só pra QUEM o próximo clique num personagem do grid vale. Não
+  // precisa vir de fora porque nada além desta tela precisa saber disso.
+  const [activeSlot, setActiveSlot] = useState<1 | 2>(1);
   const isSpectatorMode = aiPlayers.length >= 2;
   // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
   // personagem?") - antes um array literal solto, podendo divergir de
@@ -260,10 +271,27 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
   // diálogo de detalhes aberto agora.
   const [detailsOpenFor, setDetailsOpenFor] = useState<CharacterId | null>(null);
 
-  const isDisabled = (charId: string) => {
-    if (currentPlayer === 1) return false;
-    return selectedCharacters.player1 === charId;
+  const slotKey = (slot: 1 | 2): 'player1' | 'player2' => (slot === 1 ? 'player1' : 'player2');
+  const slotCharacter = (slot: 1 | 2) => selectedCharacters[slotKey(slot)];
+  const isAiSlot = (slot: 1 | 2) => aiPlayers.includes(slot);
+  const slotLabel = (slot: 1 | 2) => (isAiSlot(slot) ? (isSpectatorMode ? `IA ${slot}` : 'IA') : `Jogador ${slot}`);
+
+  // Um personagem já escolhido pelo OUTRO slot fica bloqueado no slot ativo
+  // (ninguém joga contra si mesmo) - o próprio slot ativo pode "reselecionar"
+  // a própria escolha à vontade, sem problema.
+  const isTakenByOther = (charId: CharacterId) => slotCharacter(activeSlot === 1 ? 2 : 1) === charId;
+
+  const handlePick = (charId: CharacterId) => {
+    onSelect(charId, activeSlot);
+    // QoL: depois de escolher pro slot ativo, pula automaticamente pro
+    // outro slot SE ele ainda não tiver personagem - deixa escolher os 2
+    // seguidos sem precisar clicar na aba manualmente. Se os 2 já estão
+    // preenchidos (trocando uma escolha já feita), fica onde está.
+    const otherSlot: 1 | 2 = activeSlot === 1 ? 2 : 1;
+    if (!slotCharacter(otherSlot)) setActiveSlot(otherSlot);
   };
+
+  const bothPicked = Boolean(selectedCharacters.player1 && selectedCharacters.player2);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 parchment">
@@ -277,28 +305,73 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <h2 className="font-display text-[40px] text-[#C59E4F] flex items-center gap-3">
-            {isAiStep ? (
-              <>
-                <Bot className="w-8 h-8" />
-                Escolha o Personagem da IA{isSpectatorMode ? ` ${currentPlayer}` : ''}
-              </>
-            ) : (
-              `Seleção de Personagem - Jogador ${currentPlayer}`
-            )}
-          </h2>
+          <h2 className="font-display text-[40px] text-[#C59E4F]">Escolha os Personagens</h2>
         </div>
 
-        {isAiStep && (
+        {/* FIX (pedido do usuário: "escolher os 2 personagens na mesma
+            tela") - as 2 abas de slot substituem as antigas 2 telas
+            sequenciais: cada uma mostra quem já foi escolhido (ícone +
+            nome, na cor do personagem) ou um placeholder vazio, e clicar
+            numa aba troca pra quem os próximos cliques no grid abaixo vão
+            valer. A aba ativa ganha o anel dourado - o mesmo destaque que
+            já indicava seleção em outras telas do jogo. */}
+        <div className="grid grid-cols-2 gap-4">
+          {([1, 2] as const).map((slot) => {
+            const charId = slotCharacter(slot);
+            const theme = charId ? getCharacterTheme(charId) : null;
+            const Icon = charId ? CHARACTER_ICONS[charId] : null;
+            const isActive = activeSlot === slot;
+            return (
+              <button
+                key={slot}
+                onClick={() => setActiveSlot(slot)}
+                className={`flex items-center gap-4 rounded-lg border-2 px-6 py-4 text-left transition-all ${
+                  isActive ? 'ring-4 ring-[#C59E4F]/60' : ''
+                }`}
+                style={{
+                  borderColor: isActive ? '#C59E4F' : theme ? `${theme.primary}50` : '#8F6A30',
+                  backgroundColor: '#1E1A16',
+                }}
+              >
+                <div
+                  className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{
+                    backgroundColor: theme ? `${theme.primary}20` : 'rgba(197,158,79,0.1)',
+                    color: theme?.primary,
+                  }}
+                >
+                  {isAiSlot(slot) && !Icon ? (
+                    <Bot className="w-6 h-6 text-[#C59E4F]" />
+                  ) : Icon ? (
+                    <Icon className="w-6 h-6" />
+                  ) : (
+                    <span className="text-[#8F6A30] text-[18px] font-display">?</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] uppercase tracking-wide text-[#8F6A30] font-semibold flex items-center gap-1.5">
+                    {isAiSlot(slot) && <Bot className="w-3 h-3" />}
+                    {slotLabel(slot)}
+                  </p>
+                  <p className="text-[18px] font-display truncate" style={{ color: theme?.primary ?? '#BFB6A6' }}>
+                    {theme?.name ?? 'Escolha um personagem'}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {isAiSlot(activeSlot) && (
           <div className="flex items-center justify-between gap-4 bg-[#1E1A16] border border-[#C59E4F]/30 rounded-lg px-6 py-4">
             <p className="text-[#BFB6A6] text-[14px]">
-              A IA vai jogar com o personagem escolhido aqui. Prefere não decidir? Deixe o destino escolher.
+              A IA vai jogar com o personagem escolhido aqui ({slotLabel(activeSlot)}). Prefere não decidir? Deixe o destino escolher.
             </p>
             <Button
               onClick={() => {
-                const available = characterIds.filter((id) => !isDisabled(id));
+                const available = characterIds.filter((id) => !isTakenByOther(id));
                 const pick = available[Math.floor(Math.random() * available.length)];
-                onSelect(pick, currentPlayer);
+                handlePick(pick);
               }}
               variant="outline"
               className="border-[#C59E4F] text-[#C59E4F] hover:bg-[#C59E4F]/10 flex-shrink-0"
@@ -320,7 +393,9 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
           {characterIds.map((charId) => {
             const Icon = CHARACTER_ICONS[charId];
             const theme = getCharacterTheme(charId);
-            const disabled = isDisabled(charId);
+            const disabled = isTakenByOther(charId);
+            const assignedSlot = ([1, 2] as const).find((s) => slotCharacter(s) === charId);
+            const isActiveSlotPick = assignedSlot === activeSlot;
             const monsterEffect = getMonsterEffect(charId);
             const numeralSpell = getNumeralSpellInfo(charId);
 
@@ -334,7 +409,7 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
                 // globals.css) - `theme.glow` já é uma string rgba pronta
                 // (definida por personagem em characterThemes.ts), então o
                 // brilho no hover também fica na cor certa, não só a borda.
-                className={`bg-[#1E1A16] border-2 rounded-lg p-8 space-y-6 transition-all character-card ${
+                className={`relative bg-[#1E1A16] border-2 rounded-lg p-8 space-y-6 transition-all character-card ${
                   disabled ? 'opacity-50' : ''
                 }`}
                 style={
@@ -345,6 +420,21 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
                   } as CSSProperties
                 }
               >
+                {/* FIX (pedido do usuário: "escolher os 2 personagens na
+                    mesma tela") - selo indicando QUAL slot já escolheu este
+                    personagem (no máximo um, já que a mesma pessoa nunca
+                    pode ir pros 2 lados ao mesmo tempo - ver isTakenByOther)
+                    - substitui o antigo texto "Já Selecionado" do botão,
+                    que só fazia sentido quando só existia 1 outro slot fixo
+                    (sempre o Jogador 1). */}
+                {assignedSlot && (
+                  <span
+                    className="absolute top-3 right-3 text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full"
+                    style={{ backgroundColor: `${theme.primary}25`, color: theme.primary, border: `1px solid ${theme.primary}60` }}
+                  >
+                    {slotLabel(assignedSlot)}
+                  </span>
+                )}
                 <div className="text-center space-y-3">
                   <div className="flex justify-center">
                     <div className="w-24 h-24 rounded-full bg-[#C59E4F]/20 flex items-center justify-center">
@@ -406,11 +496,15 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
                   </Button>
 
                   <Button
-                    onClick={() => onSelect(charId, currentPlayer)}
+                    onClick={() => handlePick(charId)}
                     disabled={disabled}
                     className="w-full bg-[#C59E4F] hover:bg-[#8F6A30] text-[#0F1113] h-12 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {disabled ? 'Já Selecionado' : isAiStep ? 'Selecionar para a IA' : 'Selecionar'}
+                    {disabled
+                      ? `Já escolhido por ${slotLabel(assignedSlot ?? (activeSlot === 1 ? 2 : 1))}`
+                      : isActiveSlotPick
+                      ? 'Selecionado'
+                      : `Selecionar para ${slotLabel(activeSlot)}`}
                   </Button>
                 </div>
 
@@ -422,6 +516,21 @@ export function CharacterSelection({ onBack, onSelect, currentPlayer, selectedCh
               </div>
             );
           })}
+        </div>
+
+        {/* FIX (pedido do usuário: "escolher os 2 personagens na mesma
+            tela") - "Continuar" substitui o antigo avanço automático pra
+            'game' assim que o Jogador 2/IA era escolhido - agora só
+            habilita quando os 2 slots têm personagem, dando tempo de trocar
+            de ideia em qualquer um dos dois antes de seguir. */}
+        <div className="flex justify-end">
+          <Button
+            onClick={onContinue}
+            disabled={!bothPicked}
+            className="bg-[#C59E4F] hover:bg-[#8F6A30] text-[#0F1113] h-14 px-12 text-[18px] rune-glow disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Continuar
+          </Button>
         </div>
       </div>
     </div>

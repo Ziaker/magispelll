@@ -26,9 +26,11 @@ import { TouchBackend } from 'react-dnd-touch-backend';
 import { Splash } from './components/Splash';
 import { Home } from './components/Home';
 import { GameConfig } from './components/GameConfig';
-import type { GameConfig as GameConfigType } from './lib/gameConfig';
+import { DEFAULT_GAME_CONFIG, type GameConfig as GameConfigType } from './lib/gameConfig';
+import { loadLastGameConfig } from './lib/gamePreferences';
 import type { CharacterId } from './lib/gameEngine';
 import { CharacterSelection } from './components/CharacterSelection';
+import { GameSummary } from './components/GameSummary';
 import { Rules } from './components/Rules';
 import { CharactersList } from './components/CharactersList';
 import { CharacterSheet } from './components/CharacterSheet';
@@ -54,7 +56,8 @@ type Screen =
   | 'splash'              // Tela inicial com logo e animação
   | 'home'                // Menu principal
   | 'config'              // Configuração de partida (vidas, modo)
-  | 'character-selection' // Seleção de personagens (2 etapas)
+  | 'character-selection' // Seleção dos 2 personagens (mesma tela, ver CharacterSelection.tsx)
+  | 'summary'             // Resumo da partida antes de "Iniciar" (ver GameSummary.tsx)
   | 'game'                // Tabuleiro de jogo principal
   | 'rules'               // Regras completas do jogo
   | 'characters'          // Lista de personagens disponíveis
@@ -84,13 +87,6 @@ export default function App() {
   const [selectedCharacter, setSelectedCharacter] = useState<CharacterId | null>(null);
   
   /**
-   * Controla em qual etapa da seleção de personagem estamos
-   * Etapa 1: Jogador 1 escolhe
-   * Etapa 2: Jogador 2 escolhe
-   */
-  const [characterSelectionStep, setCharacterSelectionStep] = useState<1 | 2>(1);
-  
-  /**
    * Armazena os personagens escolhidos por cada jogador
    * Usado para iniciar a partida quando ambos tiverem escolhido
    * EXTENSÃO: Para suportar mais jogadores, expandir esta estrutura
@@ -100,50 +96,74 @@ export default function App() {
     player2?: CharacterId;
   }>({});
 
+  /**
+   * FIX (pedido do usuário: "atalho de Partida Rápida") - `true` só durante
+   * o atalho de Partida Rápida (ver handleQuickStart): faz o "Continuar" de
+   * CharacterSelection pular direto pra 'game', sem passar pela tela de
+   * Resumo - o ponto inteiro do atalho é ter o MÍNIMO de telas entre "Novo
+   * Jogo" e jogar de fato. O fluxo normal (via GameConfig) sempre passa
+   * pelo Resumo.
+   */
+  const [quickStart, setQuickStart] = useState(false);
+
   // ===== HANDLERS =====
 
   /**
-   * Processa a seleção de personagem por um jogador
-   * 
-   * FLUXO:
-   * - Jogador 1 seleciona -> avança para etapa 2
-   * - Jogador 2 seleciona -> inicia o jogo
-   * 
-   * @param character - Personagem escolhido (MAGO, BESTA ou ANJO)
-   * @param playerNumber - Qual jogador está escolhendo (1 ou 2)
+   * Processa a seleção de personagem por um jogador - CharacterSelection.tsx
+   * agora escolhe os 2 jogadores na MESMA tela (ver comentário completo lá),
+   * então isto só grava a escolha; navegar pra frente é responsabilidade de
+   * `handleCharacterSelectionContinue` (botão "Continuar" da própria tela,
+   * só habilitado quando os 2 slots já têm personagem).
    *
-   * MODO IA: quando gameConfig.mode === 'vsAI', esta mesma tela ainda é usada
-   * para a etapa 2 (agora rotulada "Escolha o Personagem da IA" via a prop
-   * aiOpponent) - o Jogador 2 é sempre a IA nesse modo. A lógica de decisão
-   * da IA em si vive em lib/aiPlayer.ts e é acionada de dentro de
+   * MODO IA: quando gameConfig.mode === 'vsAI', o slot 2 é sempre a IA
+   * (rotulado "IA" na própria tela via a prop `aiPlayers`) - a lógica de
+   * decisão da IA em si vive em lib/aiPlayer.ts e é acionada de dentro de
    * GameBoard.tsx, não aqui.
    */
   const handleCharacterSelect = (character: CharacterId, playerNumber: 1 | 2) => {
-    if (playerNumber === 1) {
-      // Jogador 1 escolheu - salva escolha e avança para próxima etapa
-      setSelectedCharacters({ ...selectedCharacters, player1: character });
-      setCharacterSelectionStep(2);
-    } else {
-      // Jogador 2 escolheu - salva e inicia o jogo imediatamente
-      setSelectedCharacters({ ...selectedCharacters, player2: character });
-      setCurrentScreen('game');
-    }
+    setSelectedCharacters((prev) => ({ ...prev, [playerNumber === 1 ? 'player1' : 'player2']: character }));
+  };
+
+  /**
+   * "Continuar" de CharacterSelection.tsx (só chamável quando os 2 slots já
+   * têm personagem) - vai pro Resumo no fluxo normal, ou direto pro jogo no
+   * atalho de Partida Rápida (ver `quickStart` acima).
+   */
+  const handleCharacterSelectionContinue = () => {
+    setCurrentScreen(quickStart ? 'game' : 'summary');
   };
 
   /**
    * Inicia o processo de novo jogo após configuração
-   * 
+   *
    * @param config - Configuração da partida (vidas, modo)
-   * 
+   *
    * FLUXO:
    * 1. Salva configuração
    * 2. Reseta seleção de personagens
-   * 3. Vai para tela de seleção de personagens (etapa 1)
+   * 3. Vai para tela de seleção de personagens
    */
   const handleStartGame = (config: GameConfigType) => {
     setGameConfig(config);
-    setCharacterSelectionStep(1);
+    setQuickStart(false);
     setSelectedCharacters({}); // Limpa seleções anteriores
+    setCurrentScreen('character-selection');
+  };
+
+  /**
+   * FIX (pedido do usuário: "atalho de Partida Rápida... pula direto pra
+   * escolha de personagem") - pula a tela de Configuração inteira, usando a
+   * última config salva (ver gamePreferences.ts) ou o padrão de sempre se
+   * não houver nenhuma - vai direto pra CharacterSelection, e de lá direto
+   * pro jogo (`quickStart: true`, ver handleCharacterSelectionContinue),
+   * sem passar pelo Resumo. O jogador ainda escolhe os 2 personagens - só
+   * as telas de CONFIGURAÇÃO (variantes, modo, baralho) e RESUMO são
+   * puladas, não a escolha de quem vai jogar.
+   */
+  const handleQuickStart = () => {
+    setGameConfig(loadLastGameConfig() ?? DEFAULT_GAME_CONFIG);
+    setQuickStart(true);
+    setSelectedCharacters({});
     setCurrentScreen('character-selection');
   };
 
@@ -193,6 +213,7 @@ export default function App() {
         return (
           <Home
             onNewGame={() => setCurrentScreen('config')}
+            onQuickStart={handleQuickStart}
             onRules={() => setCurrentScreen('rules')}
             onCharacters={() => setCurrentScreen('characters')}
             onSettings={() => setCurrentScreen('settings')}
@@ -209,25 +230,34 @@ export default function App() {
           />
         );
 
-      // SELEÇÃO DE PERSONAGENS (2 ETAPAS)
+      // SELEÇÃO DOS 2 PERSONAGENS (mesma tela, ver CharacterSelection.tsx)
       case 'character-selection':
         return (
           <CharacterSelection
-            onBack={() => {
-              // Lógica de voltar depende da etapa atual
-              if (characterSelectionStep === 1) {
-                // Etapa 1 -> volta para configuração
-                setCurrentScreen('config');
-              } else {
-                // Etapa 2 -> volta para etapa 1 (mantém escolha do jogador 1)
-                setCharacterSelectionStep(1);
-                setSelectedCharacters({ player1: selectedCharacters.player1 });
-              }
-            }}
+            onBack={() => setCurrentScreen(quickStart ? 'home' : 'config')}
             onSelect={handleCharacterSelect}
-            currentPlayer={characterSelectionStep}
+            onContinue={handleCharacterSelectionContinue}
             selectedCharacters={selectedCharacters}
             aiPlayers={gameConfig?.mode === 'vsAI' ? [2] : gameConfig?.mode === 'spectator' ? [1, 2] : []}
+          />
+        );
+
+      // RESUMO DA PARTIDA (pedido do usuário: "tela de resumo final antes
+      // de começar") - pulado no atalho de Partida Rápida (ver quickStart).
+      case 'summary':
+        if (!selectedCharacters.player1 || !selectedCharacters.player2 || !gameConfig) {
+          setCurrentScreen('home');
+          return null;
+        }
+        return (
+          <GameSummary
+            config={gameConfig}
+            selectedCharacters={{ player1: selectedCharacters.player1, player2: selectedCharacters.player2 }}
+            aiPlayers={gameConfig.mode === 'vsAI' ? [2] : gameConfig.mode === 'spectator' ? [1, 2] : []}
+            onEditConfig={() => setCurrentScreen('config')}
+            onEditCharacters={() => setCurrentScreen('character-selection')}
+            onBack={() => setCurrentScreen('character-selection')}
+            onStart={() => setCurrentScreen('game')}
           />
         );
 

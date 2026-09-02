@@ -1,10 +1,17 @@
 import { Button } from './ui/button';
 import { RuneParticles } from './RuneParticles';
 import { GameTitle } from './GameTitle';
-import { Play, BookOpen, Users, Settings } from 'lucide-react';
+import { Play, BookOpen, Users, Settings, Zap } from 'lucide-react';
 
 interface HomeProps {
   onNewGame: () => void;
+  /**
+   * FIX (pedido do usuário: "atalho de Partida Rápida") - pula a tela de
+   * Configuração inteira (usa a última config salva ou o padrão) e vai
+   * direto pra escolha de personagem, sem passar pelo Resumo depois - ver
+   * handleQuickStart em App.tsx.
+   */
+  onQuickStart: () => void;
   onRules: () => void;
   onCharacters: () => void;
   onSettings: () => void;
@@ -12,7 +19,7 @@ interface HomeProps {
   onDebugStart?: () => void;
 }
 
-export function Home({ onNewGame, onRules, onCharacters, onSettings, onDebugStart }: HomeProps) {
+export function Home({ onNewGame, onQuickStart, onRules, onCharacters, onSettings, onDebugStart }: HomeProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden parchment">
       <RuneParticles />
@@ -20,6 +27,19 @@ export function Home({ onNewGame, onRules, onCharacters, onSettings, onDebugStar
       <div className="relative z-10 w-full max-w-2xl px-4 space-y-12">
         <div className="text-center space-y-4">
           <GameTitle className="font-display text-[64px] md:text-[80px] tracking-wider drop-shadow-[0_0_20px_rgba(197,158,79,0.4)]" />
+          {/* FIX (pedido do usuário: "atalho de Partida Rápida") - pula
+              Configuração (usa a última usada ou o padrão) e Resumo, indo
+              direto pra escolha de personagem - ver handleQuickStart em
+              App.tsx. Fica junto do título, discreto (texto, não um botão
+              cheio como "Novo Jogo" abaixo) - é um atalho pra quem já
+              conhece o jogo, não a porta de entrada principal. */}
+          <button
+            onClick={onQuickStart}
+            className="inline-flex items-center gap-1.5 text-[13px] text-[#8F6A30] hover:text-[#C59E4F] transition-colors"
+          >
+            <Zap className="w-3.5 h-3.5" />
+            Partida Rápida
+          </button>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

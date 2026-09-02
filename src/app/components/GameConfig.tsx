@@ -1,20 +1,45 @@
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
+import { Badge } from './ui/badge';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { ArrowLeft, HelpCircle } from 'lucide-react';
 import { useState } from 'react';
 import { DEFAULT_GAME_CONFIG, MIN_DISCARD_LIMIT, type GameConfig as GameConfigType } from '../lib/gameConfig';
+import { loadLastGameConfig, saveLastGameConfig } from '../lib/gamePreferences';
 
 interface GameConfigProps {
   onBack: () => void;
   onStartGame: (config: GameConfigType) => void;
 }
 
+/** Selo compacto "Básico"/"Avançado" ao lado do nome de uma variante (pedido do usuário: "badge de complexidade nas variantes") - só orienta o jogador novo sobre qual variante mexe mais na regra do jogo; não afeta nada funcional. */
+function ComplexityBadge({ level }: { level: 'basico' | 'avancado' }) {
+  return (
+    <Badge
+      variant="outline"
+      className={
+        level === 'basico'
+          ? 'text-[9px] uppercase tracking-wide border-[#6CC47A]/50 text-[#6CC47A] px-1.5 py-0'
+          : 'text-[9px] uppercase tracking-wide border-[#C59E4F]/50 text-[#C59E4F] px-1.5 py-0'
+      }
+    >
+      {level === 'basico' ? 'Básico' : 'Avançado'}
+    </Badge>
+  );
+}
+
 export function GameConfig({ onBack, onStartGame }: GameConfigProps) {
-  const [config, setConfig] = useState<GameConfigType>({ ...DEFAULT_GAME_CONFIG });
+  // FIX (pedido do usuário: "lembrar a última configuração") - pré-preenche
+  // com a última config salva (ver gamePreferences.ts), caindo pro padrão
+  // de sempre (`DEFAULT_GAME_CONFIG`) só na primeira vez que o jogador abre
+  // esta tela neste dispositivo (ou se o localStorage não tiver nada
+  // válido salvo). O `() =>` (inicializador preguiçoso do useState) evita
+  // reler o localStorage a cada re-render, só na primeira montagem.
+  const [config, setConfig] = useState<GameConfigType>(() => loadLastGameConfig() ?? DEFAULT_GAME_CONFIG);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 parchment">
@@ -33,7 +58,23 @@ export function GameConfig({ onBack, onStartGame }: GameConfigProps) {
           </h2>
         </div>
 
-        <div className="bg-[#1E1A16] border border-[#C59E4F]/30 rounded-lg p-8 space-y-8">
+        <div className="bg-[#1E1A16] border border-[#C59E4F]/30 rounded-lg p-8">
+        {/* FIX (pedido do usuário: "agrupar as variantes em seções
+            colapsáveis") - a tela cresceu, feature após feature, numa
+            lista vertical única sem hierarquia nenhuma entre "isto muda a
+            partida inteira" (modo, baralho) e "isto é uma variante
+            opcional a mais" (Cartas Monstro, Fusão, Torres...). Duas
+            seções de Accordion (`type="multiple"`, as DUAS abertas por
+            padrão - não muda o comportamento de quem já usa a tela hoje,
+            só dá a opção de recolher o que já está decidido) em vez de uma
+            reorganização mais drástica, que exigiria redesenhar toda a
+            tela à toa. */}
+        <Accordion type="multiple" defaultValue={['basic', 'variants']} className="space-y-2">
+        <AccordionItem value="basic" className="border-none">
+        <AccordionTrigger className="text-[18px] text-[#EFE7D6] hover:no-underline hover:text-[#C59E4F] py-2">
+          Modo &amp; Baralho
+        </AccordionTrigger>
+        <AccordionContent className="space-y-8 pb-2">
           {/* Modo */}
           <div className="space-y-4">
             <Label className="text-[18px] text-[#EFE7D6]">Modo de Jogo</Label>
@@ -111,16 +152,23 @@ export function GameConfig({ onBack, onStartGame }: GameConfigProps) {
               </div>
             </RadioGroup>
           </div>
+        </AccordionContent>
+        </AccordionItem>
 
+        <AccordionItem value="variants" className="border-none">
+        <AccordionTrigger className="text-[18px] text-[#EFE7D6] hover:no-underline hover:text-[#C59E4F] py-2">
+          Variantes
+        </AccordionTrigger>
+        <AccordionContent className="pb-2">
           {/* Variantes */}
           <div className="space-y-4">
-            <Label className="text-[18px] text-[#EFE7D6]">Variantes</Label>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Label htmlFor="monster" className="text-[#BFB6A6]">
                     Cartas Monstro
                   </Label>
+                  <ComplexityBadge level="basico" />
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -150,6 +198,7 @@ export function GameConfig({ onBack, onStartGame }: GameConfigProps) {
                   <Label htmlFor="fusion" className="text-[#BFB6A6]">
                     Fusão
                   </Label>
+                  <ComplexityBadge level="basico" />
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -222,6 +271,7 @@ export function GameConfig({ onBack, onStartGame }: GameConfigProps) {
                   <Label htmlFor="towersMode" className="text-[#BFB6A6]">
                     Towers
                   </Label>
+                  <ComplexityBadge level="avancado" />
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -254,6 +304,7 @@ export function GameConfig({ onBack, onStartGame }: GameConfigProps) {
                   <Label htmlFor="spotlightMode" className="text-[#BFB6A6]">
                     Spotlight
                   </Label>
+                  <ComplexityBadge level="avancado" />
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -345,6 +396,7 @@ export function GameConfig({ onBack, onStartGame }: GameConfigProps) {
                   <Label htmlFor="reactionsMode" className="text-[#BFB6A6]">
                     Reações
                   </Label>
+                  <ComplexityBadge level="avancado" />
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -522,10 +574,19 @@ export function GameConfig({ onBack, onStartGame }: GameConfigProps) {
               </div>
             </div>
           </div>
+        </AccordionContent>
+        </AccordionItem>
+        </Accordion>
 
-          <div className="flex gap-4 pt-4">
+          <div className="flex gap-4 pt-6">
             <Button
-              onClick={() => onStartGame(config)}
+              onClick={() => {
+                // FIX (pedido do usuário: "lembrar a última configuração") -
+                // salva no exato momento de começar a partida, não a cada
+                // troca de campo (ver saveLastGameConfig, gamePreferences.ts).
+                saveLastGameConfig(config);
+                onStartGame(config);
+              }}
               className="flex-1 bg-[#C59E4F] hover:bg-[#8F6A30] text-[#0F1113] h-14 text-[18px] rune-glow"
             >
               Iniciar Partida
