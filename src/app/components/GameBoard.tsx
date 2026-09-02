@@ -17,7 +17,7 @@
  * de cartas que ela resolve.
  */
 
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { MagicToast } from './MagicToast';
 import { LogPanel } from './LogPanel';
@@ -29,7 +29,7 @@ import { Badge } from './ui/badge';
 import { Switch } from './ui/switch';
 import { Slider } from './ui/slider';
 import { Label } from './ui/label';
-import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box } from 'lucide-react';
+import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box, Settings as SettingsIcon, Sparkles } from 'lucide-react';
 import { PlayerZone } from './PlayerZone';
 import { BattleField } from './BattleField';
 import { CharacterMagicReference } from './CharacterMagicReference';
@@ -49,6 +49,8 @@ import { FireballProjectile, type FireballProjectileSpec } from './FireballProje
 import { ChromaticFlash } from './ChromaticFlash';
 import { ROULETTE_DURATION_MS } from './AceTransformBurst';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { PhaseProgress } from './PhaseProgress';
 import { Toaster } from './ui/sonner';
 import { ScrollArea } from './ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
@@ -366,6 +368,17 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [screenShake, setScreenShake] = useState(false);
   /** FIX (pedido do usuário: "desligar flashes de tela cheia" separado do Tremor de Tela) - antes ChromaticFlash usava o MESMO `screenShake` acima; agora tem seu próprio estado/gatilho, controlado por `settings.screenFlashEnabled` independente de `settings.screenShakeEnabled`. */
   const [screenFlash, setScreenFlash] = useState(false);
+  /**
+   * FIX (pedido do usuário: "atalho de Configurações direto no topo... um
+   * ícone de engrenagem ao lado do pause abriria direto, sem passar pelo
+   * 'Jogo Pausado'") - o mesmo Dialog de Pausa (mais abaixo) agora abre por
+   * DOIS motivos independentes: `gameState.paused` (pausa de verdade,
+   * bloqueia a partida) OU este estado local (só mostra os ajustes
+   * rápidos, com a partida continuando rodando por trás). O conteúdo dos
+   * ajustes é idêntico nos dois casos - só o cabeçalho/rodapé do Dialog
+   * mudam (ver `open`/JSX do Dialog de Pausa).
+   */
+  const [showQuickSettings, setShowQuickSettings] = useState(false);
   /** FIX (pedido do usuário, item 10): jogador (1 ou 2) que acabou de fechar uma disputa (vencer 2 combates seguidos) - dispara um brilho extra na zona dele por alguns segundos (ver PlayerZone.tsx). */
   const [victoryGlowPlayer, setVictoryGlowPlayer] = useState<1 | 2 | null>(null);
   const [showVictory, setShowVictory] = useState(false);
@@ -2338,6 +2351,64 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     ? (gameState.gameOver.winner === 1 ? p1Theme.primary : p2Theme.primary)
     : '#C59E4F';
 
+  // FIX (pedido do usuário: "separar sempre visível de condicional" na
+  // barra superior) - junta Vira Primeiro/Spotlight/Magia Numeral Ativa
+  // (cada um só existe às vezes) numa lista só, consumida pelo Popover
+  // "N efeitos ativos" logo abaixo - o CONTEÚDO de cada item é o mesmo
+  // de antes (só sem o hover-tooltip, que fazia menos sentido dentro de
+  // um Popover já aberto por clique).
+  const activeHeaderEffects: { key: string; node: ReactNode }[] = [];
+  if (gameState.phase === 'combat') {
+    activeHeaderEffects.push({
+      key: 'first-to-flip',
+      node: (
+        <p key="first-to-flip" className="text-[11px] text-[#EFE7D6]">
+          <span className="text-[#C59E4F] font-semibold">Vira primeiro:</span>{' '}
+          {gameState.firstToFlip === 1 ? p1Theme.name : p2Theme.name}
+        </p>
+      ),
+    });
+  }
+  if (gameState.spotlight) {
+    activeHeaderEffects.push({
+      key: 'spotlight',
+      node: (
+        <div key="spotlight" className="space-y-1">
+          <p className="text-[11px] font-semibold flex items-center gap-1.5" style={{ color: '#C59E4F' }}>
+            <Box className="w-3 h-3" /> Spotlight deste turno
+          </p>
+          <ul className="text-[11px] text-[#EFE7D6] space-y-0.5 pl-1">
+            {gameState.spotlight.numbers.map((n) => (
+              <li key={n.value}>
+                <span style={{ color: n.polarity === 'positive' ? '#F2C94C' : '#8A5A5A' }}>
+                  {n.value}
+                  {n.polarity === 'positive' ? '↑' : '↓'}
+                </span>{' '}
+                — {n.polarity === 'positive' ? 'vale 3x mais' : 'valor fixo em 1'} (combate, Magia Numeral, Torres)
+              </li>
+            ))}
+          </ul>
+        </div>
+      ),
+    });
+  }
+  ([1, 2] as const).forEach((p) => {
+    const entry = gameState.activeNumeralSpells[p];
+    if (!entry) return;
+    const info = getNumeralSpellInfo(entry.character);
+    activeHeaderEffects.push({
+      key: `numeral-${p}`,
+      node: (
+        <div key={`numeral-${p}`} className="space-y-0.5">
+          <p className="text-[11px] font-semibold" style={{ color: '#C59E4F' }}>
+            🌟 {info.name} (P{p})
+          </p>
+          <p className="text-[11px] text-[#BFB6A6]">{info.description}</p>
+        </div>
+      ),
+    });
+  });
+
   return (
     <>
     <div
@@ -2437,10 +2508,20 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         }
       />
 
-      {/* Barra Superior */}
+      {/* Barra Superior - FIX (pedido do usuário: "overhaul da interface
+          superior") - antes era uma fileira única `flex` sem hierarquia,
+          crescendo sem controle: Turno/Fase (sempre visíveis) tinham o
+          MESMO peso que até 4 badges condicionais (Vira Primeiro, Spotlight,
+          2x Magia Numeral) - quando várias coincidiam, a barra apertava ou
+          cortava em telas mais estreitas (sem `flex-wrap`). Reorganizada em
+          3 blocos: sempre-visível (Turno + PhaseProgress + placar de vidas)
+          à esquerda/centro, condicionais agrupados num Popover só quando há
+          algo pra mostrar, e ações (Pronto x2, Configurações, Pausa) à
+          direita - `flex-wrap` no container garante que nunca corta, só
+          quebra linha se precisar. */}
       <div className="bg-[#1E1A16] border-b border-[#C59E4F]/30 p-4 flex-shrink-0">
-        <div className="flex items-center justify-between max-w-[1800px] mx-auto">
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap max-w-[1800px] mx-auto">
+          <div className="flex items-center gap-4 flex-wrap">
             <Button
               variant="ghost"
               size="sm"
@@ -2449,83 +2530,61 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
             >
               <ArrowLeft className="w-4 h-4" />
             </Button>
-            <div className="flex items-center gap-3">
-              <Badge className="bg-[#C59E4F] text-[#0F1113]">
-                Turno {gameState.turn}
-              </Badge>
-              <Badge variant="outline" className="border-[#C59E4F] text-[#C59E4F]">
-                Fase: {phaseNames[gameState.phase]}
-              </Badge>
-              {gameState.phase === 'combat' && (
-                <Badge variant="outline" className="border-[#C59E4F] text-[#C59E4F]">
-                  Vira primeiro: {gameState.firstToFlip === 1 ? p1Theme.name : p2Theme.name}
-                </Badge>
-              )}
-              {/* Modo Spotlight (pedido do usuário) - indicador PERSISTENTE
-                  (o turno inteiro, não só um instante) dos números em
-                  destaque agora - complementa o anúncio único na transição
-                  de fase (ver PhaseTransition.tsx), já que os jogadores
-                  precisam lembrar disso durante todo o turno, não só no
-                  instante em que é sorteado. Ver spotlight.ts. */}
-              {gameState.spotlight && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="outline" className="border-[#C59E4F] text-[#C59E4F] cursor-help flex items-center gap-1.5">
-                        <Box className="w-3 h-3" />
-                        {gameState.spotlight.numbers.map((n) => (
-                          <span key={n.value} style={{ color: n.polarity === 'positive' ? '#F2C94C' : '#8A5A5A' }}>
-                            {n.value}{n.polarity === 'positive' ? '↑' : '↓'}
-                          </span>
-                        ))}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[240px]">
-                      <p className="text-[11px] font-semibold mb-1" style={{ color: '#C59E4F' }}>
-                        Spotlight deste turno
-                      </p>
-                      <ul className="text-[11px] text-[#EFE7D6] space-y-0.5">
-                        {gameState.spotlight.numbers.map((n) => (
-                          <li key={n.value}>
-                            {n.value}: {n.polarity === 'positive' ? 'vale 3x mais' : 'valor fixo em 1'} (combate, Magia
-                            Numeral, Torres)
-                          </li>
-                        ))}
-                      </ul>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-              {/* FIX (item 15, e item 12 da 5ª rodada): a badge que mostra
-                  quem está com a magia numeral ativa agora itera sobre os
-                  DOIS jogadores (mapa `activeNumeralSpells` por jogador) em
-                  vez de um único slot global - antes, no caso Mago vs Mago
-                  com os dois efeitos ativos ao mesmo tempo, só dava pra
-                  mostrar UM badge (o outro tinha sido silenciosamente
-                  sobrescrito no próprio estado - ver FIX no gameEngine.ts).
-                  Um tooltip ao passar o mouse mostra o nome e a descrição
-                  completa do efeito. */}
-              {([1, 2] as const).map((p) => {
-                const entry = gameState.activeNumeralSpells[p];
-                if (!entry) return null;
-                const info = getNumeralSpellInfo(entry.character);
-                return (
-                  <TooltipProvider key={`numeral-badge-${p}`}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Badge className="bg-gradient-to-r from-[#C59E4F] to-[#8F6A30] text-[#0F1113] animate-pulse cursor-help">
-                          🌟 Magia Numeral Ativa (P{p})
-                        </Badge>
-                      </TooltipTrigger>
-                      <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[260px]">
-                        <p className="text-[#EFE7D6] text-[12px] font-semibold">{info.name}</p>
-                        <p className="text-[#BFB6A6] text-[11px] mt-1">{info.description}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                );
-              })}
+            <Badge className="bg-[#C59E4F] text-[#0F1113]">
+              Turno {gameState.turn}
+            </Badge>
+            <PhaseProgress phase={gameState.phase} />
+            {/* FIX (pedido do usuário: "placar de vidas no topo") - antes só
+                dava pra ver quantos corações cada um tem olhando pro painel
+                de cada jogador lá embaixo (PlayerZone.tsx); resumo rápido
+                aqui, na cor de cada personagem, sem precisar procurar. Não
+                SUBSTITUI os corações de PlayerZone.tsx (que têm a animação
+                de quebrar ao perder 1 vida) - só complementa com uma visão
+                de placar sempre visível. */}
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span style={{ color: p1Theme.primary }} className="font-semibold">{p1Theme.name}</span>
+              <div className="flex items-center gap-0.5">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Heart key={i} className={`w-3 h-3 ${i < gameState.player1.lives ? 'fill-current' : 'opacity-20'}`} style={{ color: p1Theme.primary }} />
+                ))}
+              </div>
+              <span className="text-[#8F6A30]">×</span>
+              <div className="flex items-center gap-0.5">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Heart key={i} className={`w-3 h-3 ${i < gameState.player2.lives ? 'fill-current' : 'opacity-20'}`} style={{ color: p2Theme.primary }} />
+                ))}
+              </div>
+              <span style={{ color: p2Theme.primary }} className="font-semibold">{p2Theme.name}</span>
             </div>
+            {/* FIX (pedido do usuário: "separar sempre visível de
+                condicional") - Vira Primeiro/Spotlight/Magia Numeral Ativa
+                saíram da fileira principal pra dentro deste Popover, que só
+                existe quando `activeHeaderEffects` tem pelo menos 1 item -
+                a barra nunca mais cresce à toa quando nada disso está
+                acontecendo (a maior parte do jogo). */}
+            {activeHeaderEffects.length > 0 && (
+              <Popover>
+                {/* FIX (bug real encontrado testando ao vivo): `PopoverTrigger
+                    asChild` envolvendo um `<Badge>` quebrava o clique
+                    inteiro - Badge é um function component comum, sem
+                    `forwardRef` (ver ui/badge.tsx), e o mecanismo `asChild`
+                    do Radix (Slot/SlotClone) PRECISA anexar um ref no
+                    elemento filho pra posicionar o popover; sem conseguir,
+                    o React só avisava no console ("Function components
+                    cannot be given refs") e o popover nunca abria - nenhum
+                    erro visível pro jogador, só um botão morto. Estiliza o
+                    PRÓPRIO PopoverTrigger (que já é um `<button>` nativo,
+                    aceita ref igual qualquer elemento DOM) parecido com um
+                    Badge, em vez de aninhar os dois. */}
+                <PopoverTrigger className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium border-[#C59E4F] text-[#C59E4F] cursor-pointer animate-pulse">
+                  <Sparkles className="w-3 h-3" />
+                  {activeHeaderEffects.length} efeito{activeHeaderEffects.length > 1 ? 's' : ''} ativo{activeHeaderEffects.length > 1 ? 's' : ''}
+                </PopoverTrigger>
+                <PopoverContent className="bg-[#1E1A16] border-[#C59E4F] w-72 space-y-3">
+                  {activeHeaderEffects.map((effect) => effect.node)}
+                </PopoverContent>
+              </Popover>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
@@ -2548,6 +2607,21 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 <span className="text-[10px]">{isAi(2) ? 'IA 🤖' : 'P2'}</span>
               </div>
             </div>
+
+            {/* FIX (pedido do usuário: "atalho de Configurações direto no
+                topo... sem passar pelo 'Jogo Pausado'") - abre o MESMO
+                Dialog do botão de pausa ao lado, mas sem pausar a partida
+                (ver `showQuickSettings` acima e o `open`/JSX do Dialog mais
+                abaixo). */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowQuickSettings(true)}
+              className="text-[#C59E4F]"
+              title="Configurações rápidas"
+            >
+              <SettingsIcon className="w-4 h-4" />
+            </Button>
 
             <Button
               variant="ghost"
@@ -4292,12 +4366,28 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           Reaproveita o MESMO `settings`/`updateSetting` de Settings.tsx
           (useSettings() já estava importado aqui) - mudar aqui reflete lá
           e vice-versa, é a mesma preferência persistida. */}
-      <Dialog open={gameState.paused} onOpenChange={() => dispatch({ type: 'TOGGLE_PAUSE' })}>
+      {/* FIX (pedido do usuário: "atalho de Configurações direto no topo...
+          sem passar pelo 'Jogo Pausado'") - `open` agora reage aos DOIS
+          motivos independentes (ver `showQuickSettings` acima); fechar por
+          QUALQUER via (Esc, clique fora, botão) limpa os dois - se estava
+          pausado de verdade, despausa também, nunca deixa a partida presa
+          pausada por causa do atalho de configurações. */}
+      <Dialog
+        open={gameState.paused || showQuickSettings}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowQuickSettings(false);
+            if (gameState.paused) dispatch({ type: 'TOGGLE_PAUSE' });
+          }
+        }}
+      >
         <DialogContent className="bg-[#1E1A16] border-[#C59E4F] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-[#EFE7D6] font-display text-[24px]">Jogo Pausado</DialogTitle>
+            <DialogTitle className="text-[#EFE7D6] font-display text-[24px]">
+              {gameState.paused ? 'Jogo Pausado' : 'Configurações Rápidas'}
+            </DialogTitle>
             <DialogDescription className="text-[#BFB6A6]">
-              O jogo está pausado. Clique em retomar para continuar.
+              {gameState.paused ? 'O jogo está pausado. Clique em retomar para continuar.' : 'A partida continua rodando por trás.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -4449,10 +4539,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
 
           <div className="flex gap-4 pt-2">
             <Button
-              onClick={() => dispatch({ type: 'TOGGLE_PAUSE' })}
+              onClick={() => {
+                setShowQuickSettings(false);
+                if (gameState.paused) dispatch({ type: 'TOGGLE_PAUSE' });
+              }}
               className="flex-1 bg-[#C59E4F] hover:bg-[#8F6A30] text-[#0F1113]"
             >
-              Retomar
+              {gameState.paused ? 'Retomar' : 'Fechar'}
             </Button>
             <Button
               onClick={onBack}
