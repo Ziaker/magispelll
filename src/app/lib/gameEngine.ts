@@ -25,7 +25,7 @@
 
 import {
   drawCards,
-  expandFusedCards,
+  expandSyntheticCard,
   generateDeck,
   getDisplaySuit,
   getDisplayValue,
@@ -75,6 +75,30 @@ export type FieldSlot = {
    */
   towerReserve?: Card[];
 };
+
+/**
+ * Um modificador de valor de combate preso a UMA carta específica por id -
+ * ver o comentário completo em `PlayerState.combatModifiers` pra por que
+ * isto existe (unifica a Fúria Selvagem da Besta e o Tiro Certeiro do
+ * Mosqueteiro, que eram dois campos ad hoc quase idênticos antes disso).
+ */
+export interface CombatModifier {
+  cardId: string;
+  kind: 'multiply' | 'add';
+  amount: number;
+  source: CharacterId;
+  label: string;
+}
+
+/** Aplica todo `CombatModifier` da lista que aponta pra `cardId` sobre `baseValue`, na ordem em que aparecem na lista. */
+export function applyCombatModifiers(baseValue: number, cardId: string, modifiers: CombatModifier[]): number {
+  let value = baseValue;
+  for (const m of modifiers) {
+    if (m.cardId !== cardId) continue;
+    value = m.kind === 'multiply' ? value * m.amount : value + m.amount;
+  }
+  return value;
+}
 
 export interface PlayerState {
   hand: Card[];
@@ -135,7 +159,7 @@ export interface PlayerState {
   /**
    * Slot do PRÓPRIO campo de combate (0-2) escolhido como alvo da última
    * ativação do efeito de Monstro: para a Besta, o slot da carta escolhida
-   * para dobrar (ver monsterTargetCardId abaixo - a carta pode ser a
+   * para dobrar (ver `combatModifiers` abaixo - a carta pode ser a
    * principal do slot OU uma horizontal); para o Anjo, o slot protegido
    * contra magias; para o Mago, o slot cuja carta recebeu o valor copiado.
    * undefined enquanto o efeito não foi ativado neste turno (ver
@@ -143,15 +167,30 @@ export interface PlayerState {
    */
   monsterTargetSlot?: number;
   /**
-   * FIX (pedido do usuário): a Fúria Selvagem da Besta dobrava a SOMA de
-   * todas as cartas horizontais do slot escolhido (e não fazia nada se o
-   * slot não tivesse nenhuma) - o pedido era poder escolher QUALQUER carta
-   * do slot (a principal ou uma horizontal específica) para dobrar. Este
-   * campo guarda o id dessa carta específica (só relevante para a Besta -
-   * Mago e Anjo nunca usam isto). undefined enquanto o efeito não foi
-   * ativado neste turno.
+   * Modificadores de valor de combate ativos, cada um preso a UMA carta por
+   * id - substitui os campos ad hoc que existiam antes (`monsterTargetCardId`
+   * da Besta, `mosqueteiroBoostedCardId`+`mosqueteiroBoostAmount` do
+   * Mosqueteiro), que eram duas reinvenções quase idênticas da mesma ideia
+   * ("modificar o valor de combate de uma carta específica por id"), cada
+   * uma lida separadamente em `handleResolveCombat` E, se algum consumidor
+   * esquecesse de espelhar a outra, ficava fora de sincronia - foi
+   * exatamente isso que aconteceu com `trueSlotValue` (aiPlayer.ts), que
+   * conhecia a dobra da Besta mas nunca soube do reforço do Mosqueteiro,
+   * deixando a IA cega pro próprio Tiro Certeiro. Agora `handleResolveCombat`
+   * e `trueSlotValue` chamam a MESMA função (`applyCombatModifiers`) sobre a
+   * MESMA lista - a divergência fica estruturalmente impossível de repetir.
+   *
+   * FIX (pedido da Besta): Fúria Selvagem dobrava a SOMA de todas as cartas
+   * horizontais do slot escolhido - o pedido era poder escolher QUALQUER
+   * carta do slot (principal ou uma horizontal específica) pra dobrar -
+   * fica registrado aqui como `{ kind: 'multiply', amount: 2, source:
+   * 'besta' }`.
+   *
+   * Mosqueteiro - Tiro Certeiro fica registrado como `{ kind: 'add', amount:
+   * <congelado no instante da ativação>, source: 'mosqueteiro' }`. Zerado a
+   * cada turno junto com o resto do estado por-turno (ver `resetForNewTurn`).
    */
-  monsterTargetCardId?: string;
+  combatModifiers: CombatModifier[];
   /**
    * Modo Towers: qual slot (0-2) do PRÓPRIO campo este jogador já escolheu
    * como sua torre NESTE turno - só um slot pode virar torre por turno
@@ -207,10 +246,6 @@ export interface PlayerState {
   mosqueteiroHandLimitBonusUntilTurn?: number;
   /** Valor do bônus temporário de limite de mão concedido pela Munição Infinita, válido enquanto `mosqueteiroHandLimitBonusUntilTurn` ainda não expirou - ver comentário completo acima. */
   mosqueteiroHandLimitBonusAmount: number;
-  /** Mosqueteiro - id da carta do PRÓPRIO campo escolhida pelo Rei (Tiro Certeiro) para receber `mosqueteiroBoostAmount` de valor extra no combate deste turno. undefined = nenhuma ativação ainda neste turno. */
-  mosqueteiroBoostedCardId?: string;
-  /** Valor extra (fixo, calculado no instante da ativação do Rei) aplicado à carta `mosqueteiroBoostedCardId` durante a resolução de combate. */
-  mosqueteiroBoostAmount: number;
   /**
    * Coringa (redesenho completo, pedido do usuário) - Magia Numeral "Mão de
    * Ferro" (7,7,7): turno até o qual (inclusive) o botão de transformar uma
@@ -618,7 +653,7 @@ function createPlayerState(hand: Card[], handLimit: number): PlayerState {
     fusesThisTurn: 0,
     monsterCard: undefined,
     monsterTargetSlot: undefined,
-    monsterTargetCardId: undefined,
+    combatModifiers: [],
     towerSlotThisTurn: undefined,
     mosqueteiroDiscardsThisTurn: 0,
     mosqueteiroDiscardsTurnMinus1: 0,
@@ -626,8 +661,6 @@ function createPlayerState(hand: Card[], handLimit: number): PlayerState {
     mosqueteiroRedirectNextDiscard: false,
     mosqueteiroHandLimitBonusUntilTurn: undefined,
     mosqueteiroHandLimitBonusAmount: 0,
-    mosqueteiroBoostedCardId: undefined,
-    mosqueteiroBoostAmount: 0,
     coringaTransformWindowUntilTurn: undefined,
     fireballValue: 0,
     piromanteSpreadArmed: false,
@@ -753,26 +786,22 @@ function appendLog(state: GameState, log: LogEntry[], type: LogEventType, messag
  * configurável: quando o descarte atinge 20+ cartas, metade delas volta
  * aleatoriamente para o baralho.
  *
- * FIX (pedido do usuário: "quando uma carta fusionada é descartada... vai
- * pro discarte as duas... que foram utilizadas para a fusão") - toda carta
- * que passa por aqui é primeiro "desfundida" (expandFusedCards): uma carta
- * fundida nunca vai para o descarte como ela mesma, e sim como as 2+ cartas
- * originais que a compuseram - senão cada fusão bem-sucedida criava 1 carta
- * nova permanente fora da composição original do baralho (ex.: 2 numerais
- * virando 1 magia extra), inflando a proporção de magias/Áses a cada fusão
- * feita na partida.
+ * Toda carta que passa por aqui primeiro é expandida via `expandSyntheticCard`
+ * (cardUtils.ts) - uma carta-token de Bola de Fogo do Piromante (`vanish`)
+ * some sem nunca entrar na pilha, e uma carta fundida (`decompose`, ver
+ * fusion.ts) "desfaz" a fusão e devolve as cartas físicas originais que a
+ * compuseram, em vez de entrar ela mesma - sem isso, a conservação total de
+ * cartas do jogo (invariante fixo que todo o resto do motor assume)
+ * quebraria a cada Bola de Fogo sem obliterar, ou cada fusão criaria uma
+ * carta nova "do nada" fora da composição original do baralho. Ver
+ * `SyntheticCardLifecycle` em cardUtils.ts - um personagem novo com uma
+ * carta sintética própria só precisa marcar `synthetic` corretamente na
+ * criação da carta pra herdar essa conservação de graça.
  */
 function pushToDiscard(state: Pick<GameState, 'deck' | 'discardPile' | 'gameConfig'>, cards: Card[]): { deck: Card[]; discardPile: Card[] } {
   if (cards.length === 0) return { deck: state.deck, discardPile: state.discardPile };
 
-  // Piromante (personagem novo) - uma carta-token (`isFireToken`, ver
-  // cardUtils.ts) nunca existiu no baralho original de 54 cartas - ela
-  // simplesmente DESAPARECE ao sair de campo, em vez de entrar na pilha de
-  // descarte (senão a conservação total de cartas do jogo, que todo o
-  // resto do motor assume como invariante fixo, quebraria pra sempre a
-  // cada Bola de Fogo lançada sem obliterar o alvo).
-  const realCards = cards.filter((c) => !c.isFireToken);
-  let discardPile = [...state.discardPile, ...resetCardsForDiscard(expandFusedCards(realCards))];
+  let discardPile = [...state.discardPile, ...resetCardsForDiscard(cards.flatMap(expandSyntheticCard))];
   let deck = state.deck;
 
   if (state.gameConfig.autoShuffle && discardPile.length >= 20) {
@@ -1621,7 +1650,7 @@ function handleFuseCards(state: GameState, player: PlayerNumber, cardId1: string
   // já achatadas: se card1/card2 já forem, elas mesmas, resultado de uma
   // fusão anterior, usa as folhas originais delas (fusionSources), nunca a
   // carta intermediária - assim uma refusão em cadeia sempre aponta direto
-  // para as cartas físicas reais do baralho (ver expandFusedCard em
+  // para as cartas físicas reais do baralho (ver expandSyntheticCard em
   // cardUtils.ts, usado no descarte).
   const fusionSources = [
     ...(card1!.fusionSources && card1!.fusionSources.length > 0 ? card1!.fusionSources : [card1!]),
@@ -1642,6 +1671,7 @@ function handleFuseCards(state: GameState, player: PlayerNumber, cardId1: string
         revealed: true,
         fused: true,
         fusionSources,
+        synthetic: { onDiscard: 'decompose', sourceCards: fusionSources },
       }
     : {
         id: `fused-${cardId1}-${cardId2}`,
@@ -1650,6 +1680,7 @@ function handleFuseCards(state: GameState, player: PlayerNumber, cardId1: string
         revealed: true,
         fused: true,
         fusionSources,
+        synthetic: { onDiscard: 'decompose', sourceCards: fusionSources },
       };
 
   const consumedIds = new Set([cardId1, cardId2]);
@@ -2309,6 +2340,7 @@ function executeFireballLaunch(state: GameState, player: PlayerNumber, targetSlo
         suit: '🔥',
         transformedValue: remaining,
         isFireToken: true,
+        synthetic: { onDiscard: 'vanish' },
         revealed: true,
       };
       newField[slotIndex] = { faceDownCard: tokenCard, revealed: true, horizontalCards: [] };
@@ -2958,8 +2990,8 @@ function handleExecuteMagic(
   // da ativação (quantas cartas as magias do Mosqueteiro descartaram NESTE
   // turno E no ANTERIOR - FIX pedido do usuário: "o valor extra também conta
   // o turno anterior" - antes só contava este turno) - lido e congelado
-  // aqui em `mosqueteiroBoostAmount`, aplicado de verdade na resolução de
-  // combate (ver handleResolveCombat). Só os 2 turnos mais recentes contam
+  // aqui num `CombatModifier` (`combatModifiers`, ver PlayerState), aplicado
+  // de verdade na resolução de combate (ver handleResolveCombat). Só os 2 turnos mais recentes contam
   // aqui - a janela de 3 turnos (T-2 incluso) é só da Magia Numeral, ver
   // handleFinalizeNumeralSpell.
   if (character === 'mosqueteiro' && magicType === 'K') {
@@ -2993,8 +3025,10 @@ function handleExecuteMagic(
       [playerKey]: {
         ...playerState,
         hand: handWithoutMagic,
-        mosqueteiroBoostedCardId: targetId,
-        mosqueteiroBoostAmount: boostAmount,
+        combatModifiers: [
+          ...playerState.combatModifiers.filter((m) => m.source !== 'mosqueteiro'),
+          { cardId: targetId, kind: 'add', amount: boostAmount, source: 'mosqueteiro', label: 'Tiro Certeiro' },
+        ],
       },
     };
   }
@@ -3475,7 +3509,7 @@ function handlePlaceMonsterCard(state: GameState, player: PlayerNumber, cardId: 
   return {
     ...state,
     log,
-    [playerKey]: { ...playerState, hand: newHand, monsterCard: card, monsterTargetSlot: undefined, monsterTargetCardId: undefined },
+    [playerKey]: { ...playerState, hand: newHand, monsterCard: card, monsterTargetSlot: undefined },
   };
 }
 
@@ -3522,7 +3556,6 @@ function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumbe
         ...playerState,
         monsterCard: { ...monster, monsterUsed: true, monsterUseCount: (monster.monsterUseCount ?? 0) + 1 },
         monsterTargetSlot: undefined,
-        monsterTargetCardId: undefined,
       },
     };
   }
@@ -3539,7 +3572,6 @@ function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumbe
         ...playerState,
         monsterCard: { ...monster, monsterUsed: true, monsterUseCount: (monster.monsterUseCount ?? 0) + 1 },
         monsterTargetSlot: undefined,
-        monsterTargetCardId: undefined,
         mosqueteiroRedirectNextDiscard: true,
       },
     };
@@ -3558,7 +3590,6 @@ function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumbe
         ...playerState,
         monsterCard: { ...monster, monsterUsed: true, monsterUseCount: (monster.monsterUseCount ?? 0) + 1 },
         monsterTargetSlot: undefined,
-        monsterTargetCardId: undefined,
         fireballValue: newFireball,
       },
     };
@@ -3587,7 +3618,10 @@ function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumbe
       ...playerState,
       monsterCard: { ...monster, monsterUsed: true, monsterUseCount: (monster.monsterUseCount ?? 0) + 1 },
       monsterTargetSlot: targetSlotIndex,
-      monsterTargetCardId: targetCardId,
+      combatModifiers: [
+        ...playerState.combatModifiers.filter((m) => m.source !== 'besta'),
+        { cardId: targetCardId, kind: 'multiply', amount: 2, source: 'besta', label: 'Fúria Selvagem' },
+      ],
     },
   };
 }
@@ -4047,6 +4081,50 @@ function handleSelectCombatSlot(state: GameState, player: PlayerNumber, slotInde
 }
 
 /**
+ * Calcula o valor de combate TOTAL de um slot (carta principal + horizontais
+ * + reserva de torre) para UM jogador, aplicando `modifiers` (ver
+ * `CombatModifier`) e registrando no log qualquer modificador que de fato
+ * bateu numa carta presente no slot. Extraído daqui pra ser chamado uma vez
+ * por jogador em `handleResolveCombat`, no lugar de ~25 linhas repetidas
+ * P1/P2 (a mesma lógica, uma cópia por jogador) que existiam antes desta
+ * função - `resolveWholeField` (handleFinalizeCombat, mais abaixo) já usava
+ * esse mesmo padrão de helper compartilhado, este ponto era a exceção.
+ *
+ * Torre NUNCA recebe modificador (só o topo do slot ou uma horizontal - ver
+ * design do Modo Towers) - por isso `slot.towerReserve` é somado por fora,
+ * sem passar por `applyCombatModifiers`.
+ */
+function slotCombatTotal(
+  state: GameState,
+  log: GameState['log'],
+  player: PlayerNumber,
+  slot: FieldSlot,
+  horizontalCards: Card[],
+  modifiers: CombatModifier[],
+  spotlight: GameState['spotlight']
+): { total: number; log: GameState['log'] } {
+  let nextLog = log;
+  const allCards = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...horizontalCards];
+  for (const modifier of modifiers) {
+    const card = allCards.find((c) => c.id === modifier.cardId);
+    if (!card) continue;
+    const base = getSpotlightAdjustedValue(card, spotlight);
+    nextLog =
+      modifier.kind === 'multiply'
+        ? appendLog(state, nextLog, 'monster', `${modifier.label} dobrou a carta ${card.value}${card.suit} de Jogador ${player} (${base} → ${base * modifier.amount})`, { player })
+        : appendLog(state, nextLog, 'magic', `${modifier.label} reforçou a carta ${card.value}${card.suit} de Jogador ${player} em +${modifier.amount}`, { player });
+  }
+  const mainValue = slot.faceDownCard ? applyCombatModifiers(getSpotlightAdjustedValue(slot.faceDownCard, spotlight), slot.faceDownCard.id, modifiers) : 1;
+  const horizontalValue = horizontalCards.reduce((sum, c) => sum + applyCombatModifiers(getSpotlightAdjustedValue(c, spotlight), c.id, modifiers), 0);
+  // FIX (Modo Towers, pedido do usuário): a reserva da torre (cartas
+  // empilhadas ABAIXO do topo) soma ao valor de combate do slot - o topo
+  // (mainValue acima) já é contado normalmente, então isso nunca soma em
+  // dobro.
+  const towerValue = (slot.towerReserve ?? []).reduce((sum, c) => sum + getSpotlightAdjustedValue(c, spotlight), 0);
+  return { total: mainValue + horizontalValue + towerValue, log: nextLog };
+}
+
+/**
  * Resolve o combate assim que os dois jogadores selecionaram um slot: revela
  * as cartas, calcula valores, aplica vitórias/disputa/vidas/fim-de-jogo
  * IMEDIATAMENTE (o placar já reflete o resultado assim que o popup aparece).
@@ -4135,92 +4213,29 @@ function handleResolveCombat(state: GameState, coringaQCopyTargetId?: string): G
     log = appendLog(state, log, 'magic', `A Rainha armadilha de Jogador 2 copiou o valor ${p2Slot.faceDownCard.transformedValue} nesta disputa`, { player: 2 });
   }
 
-  // FIX (pedido do usuário): a Fúria Selvagem da Besta dobrava a SOMA de
-  // todas as cartas horizontais do slot alvo (e não fazia nada se o slot não
-  // tivesse nenhuma horizontal). Agora ela dobra o valor de UMA carta
-  // específica escolhida pelo jogador (monsterTargetCardId) - pode ser a
-  // carta principal do slot OU uma das horizontais.
-  const p1BestaDoubleId =
-    state.player1Character === 'besta' && state.player1.monsterCard?.monsterUsed ? state.player1.monsterTargetCardId : undefined;
-  const p2BestaDoubleId =
-    state.player2Character === 'besta' && state.player2.monsterCard?.monsterUsed ? state.player2.monsterTargetCardId : undefined;
-
-  // Mosqueteiro - Rei (Tiro Certeiro): soma `mosqueteiroBoostAmount` (fixo,
-  // calculado no instante da ativação - ver handleExecuteMagic) na carta
-  // `mosqueteiroBoostedCardId`, principal ou horizontal, do PRÓPRIO campo -
-  // um bônus ADITIVO (não multiplicador, diferente da Fúria Selvagem acima),
-  // então os dois efeitos coexistem sem conflito na mesma carta se algum dia
-  // isso for possível (nunca é hoje - são personagens diferentes).
-  const p1MosqueteiroBoostId = state.player1Character === 'mosqueteiro' ? state.player1.mosqueteiroBoostedCardId : undefined;
-  const p1MosqueteiroBoostAmount = state.player1.mosqueteiroBoostAmount;
-  const p2MosqueteiroBoostId = state.player2Character === 'mosqueteiro' ? state.player2.mosqueteiroBoostedCardId : undefined;
-  const p2MosqueteiroBoostAmount = state.player2.mosqueteiroBoostAmount;
-
   // FIX (item 10 da 2ª rodada): campo vazio (jogador não posicionou carta
   // ali) vale 1 no combate, em vez de ser um caso impossível/recusado.
   // FIX (pedido do usuário, Modo Spotlight): `getSpotlightAdjustedValue` no
   // lugar de `getEffectiveCardValue` em toda esta função - já resolve o
   // valor efetivo normal quando não há Spotlight ativo (ver spotlight.ts).
-  const p1MainDoubled = Boolean(p1Slot.faceDownCard && p1BestaDoubleId === p1Slot.faceDownCard.id);
-  const p1MainBoosted = Boolean(p1Slot.faceDownCard && p1MosqueteiroBoostId === p1Slot.faceDownCard.id);
-  const p1Base = p1Slot.faceDownCard
-    ? getSpotlightAdjustedValue(p1Slot.faceDownCard, state.spotlight) * (p1MainDoubled ? 2 : 1) + (p1MainBoosted ? p1MosqueteiroBoostAmount : 0)
-    : 1;
-  let p1DoubledHorizontal: Card | undefined;
-  let p1BoostedHorizontal: Card | undefined;
-  const p1HorizontalValue = p1Horizontal.reduce((sum, c) => {
-    const doubled = p1BestaDoubleId === c.id;
-    const boosted = p1MosqueteiroBoostId === c.id;
-    if (doubled) p1DoubledHorizontal = c;
-    if (boosted) p1BoostedHorizontal = c;
-    return sum + getSpotlightAdjustedValue(c, state.spotlight) * (doubled ? 2 : 1) + (boosted ? p1MosqueteiroBoostAmount : 0);
-  }, 0);
-  if (p1MainDoubled) {
-    const base = getSpotlightAdjustedValue(p1Slot.faceDownCard!, state.spotlight);
-    log = appendLog(state, log, 'monster', `Fúria Selvagem dobrou a carta ${p1Slot.faceDownCard!.value}${p1Slot.faceDownCard!.suit} de Jogador 1 (${base} → ${base * 2})`, { player: 1 });
-  } else if (p1DoubledHorizontal) {
-    const base = getSpotlightAdjustedValue(p1DoubledHorizontal, state.spotlight);
-    log = appendLog(state, log, 'monster', `Fúria Selvagem dobrou a carta ${p1DoubledHorizontal.value}${p1DoubledHorizontal.suit} de Jogador 1 (${base} → ${base * 2})`, { player: 1 });
-  }
-  if (p1MainBoosted || p1BoostedHorizontal) {
-    const boostedCard = p1MainBoosted ? p1Slot.faceDownCard! : p1BoostedHorizontal!;
-    log = appendLog(state, log, 'magic', `Tiro Certeiro reforçou a carta ${boostedCard.value}${boostedCard.suit} de Jogador 1 em +${p1MosqueteiroBoostAmount}`, { player: 1 });
-  }
-  // FIX (Modo Towers, pedido do usuário): a reserva da torre (cartas
-  // empilhadas ABAIXO do topo) soma ao valor de combate do slot - o topo
-  // (p1Base acima) já é contado normalmente, então isso nunca soma em
-  // dobro. Fúria Selvagem nunca dobra uma carta da reserva (só o topo ou uma
-  // horizontal, e torre nunca tem horizontal - ver design do Modo Towers).
+  //
+  // Fúria Selvagem da Besta e Tiro Certeiro do Mosqueteiro (ver
+  // `PlayerState.combatModifiers`) são aplicados aqui via `slotCombatTotal`
+  // (helper compartilhado logo abaixo, chamado uma vez por jogador) em vez
+  // de lógica duplicada P1/P2 - `combatModifiers` de cada jogador só contém
+  // entradas do PRÓPRIO personagem (só Besta ativa 'besta', só Mosqueteiro
+  // ativa 'mosqueteiro'), então não precisa checar `player1Character`/
+  // `monsterCard?.monsterUsed` aqui: a presença da entrada já significa
+  // "ativado e ainda válido neste turno" (zerado em resetForNewTurn).
+  const p1Result = slotCombatTotal(state, log, 1, p1Slot, p1Horizontal, state.player1.combatModifiers, state.spotlight);
+  log = p1Result.log;
+  const p1Total = p1Result.total;
   const p1TowerValue = (p1Slot.towerReserve ?? []).reduce((sum, c) => sum + getSpotlightAdjustedValue(c, state.spotlight), 0);
-  const p1Total = p1Base + p1HorizontalValue + p1TowerValue;
 
-  const p2MainDoubled = Boolean(p2Slot.faceDownCard && p2BestaDoubleId === p2Slot.faceDownCard.id);
-  const p2MainBoosted = Boolean(p2Slot.faceDownCard && p2MosqueteiroBoostId === p2Slot.faceDownCard.id);
-  const p2Base = p2Slot.faceDownCard
-    ? getSpotlightAdjustedValue(p2Slot.faceDownCard, state.spotlight) * (p2MainDoubled ? 2 : 1) + (p2MainBoosted ? p2MosqueteiroBoostAmount : 0)
-    : 1;
-  let p2DoubledHorizontal: Card | undefined;
-  let p2BoostedHorizontal: Card | undefined;
-  const p2HorizontalValue = p2Horizontal.reduce((sum, c) => {
-    const doubled = p2BestaDoubleId === c.id;
-    const boosted = p2MosqueteiroBoostId === c.id;
-    if (doubled) p2DoubledHorizontal = c;
-    if (boosted) p2BoostedHorizontal = c;
-    return sum + getSpotlightAdjustedValue(c, state.spotlight) * (doubled ? 2 : 1) + (boosted ? p2MosqueteiroBoostAmount : 0);
-  }, 0);
-  if (p2MainDoubled) {
-    const base = getSpotlightAdjustedValue(p2Slot.faceDownCard!, state.spotlight);
-    log = appendLog(state, log, 'monster', `Fúria Selvagem dobrou a carta ${p2Slot.faceDownCard!.value}${p2Slot.faceDownCard!.suit} de Jogador 2 (${base} → ${base * 2})`, { player: 2 });
-  } else if (p2DoubledHorizontal) {
-    const base = getSpotlightAdjustedValue(p2DoubledHorizontal, state.spotlight);
-    log = appendLog(state, log, 'monster', `Fúria Selvagem dobrou a carta ${p2DoubledHorizontal.value}${p2DoubledHorizontal.suit} de Jogador 2 (${base} → ${base * 2})`, { player: 2 });
-  }
-  if (p2MainBoosted || p2BoostedHorizontal) {
-    const boostedCard = p2MainBoosted ? p2Slot.faceDownCard! : p2BoostedHorizontal!;
-    log = appendLog(state, log, 'magic', `Tiro Certeiro reforçou a carta ${boostedCard.value}${boostedCard.suit} de Jogador 2 em +${p2MosqueteiroBoostAmount}`, { player: 2 });
-  }
+  const p2Result = slotCombatTotal(state, log, 2, p2Slot, p2Horizontal, state.player2.combatModifiers, state.spotlight);
+  log = p2Result.log;
+  const p2Total = p2Result.total;
   const p2TowerValue = (p2Slot.towerReserve ?? []).reduce((sum, c) => sum + getSpotlightAdjustedValue(c, state.spotlight), 0);
-  const p2Total = p2Base + p2HorizontalValue + p2TowerValue;
 
   const p1HorizontalText = p1Horizontal.length > 0 ? ` + ${p1Horizontal.map((c) => `${c.value}${c.suit}`).join(' + ')}` : '';
   const p2HorizontalText = p2Horizontal.length > 0 ? ` + ${p2Horizontal.map((c) => `${c.value}${c.suit}`).join(' + ')}` : '';
@@ -4747,7 +4762,7 @@ function advancePhaseState(state: GameState): GameState {
     field: newPhase === 'draw' ? keepTowerSlots(p.field) : p.field,
     monsterCard: newPhase === 'draw' ? monster.kept : p.monsterCard,
     monsterTargetSlot: newPhase === 'draw' ? undefined : p.monsterTargetSlot,
-    monsterTargetCardId: newPhase === 'draw' ? undefined : p.monsterTargetCardId,
+    combatModifiers: newPhase === 'draw' ? [] : p.combatModifiers,
     discardsThisTurn: newPhase === 'draw' ? 0 : p.discardsThisTurn,
     drawsThisTurn: newPhase === 'draw' ? 0 : p.drawsThisTurn,
     fusesThisTurn: newPhase === 'draw' ? 0 : p.fusesThisTurn,
@@ -4762,8 +4777,6 @@ function advancePhaseState(state: GameState): GameState {
     mosqueteiroDiscardsTurnMinus1: newPhase === 'draw' ? p.mosqueteiroDiscardsThisTurn : p.mosqueteiroDiscardsTurnMinus1,
     mosqueteiroDiscardsThisTurn: newPhase === 'draw' ? 0 : p.mosqueteiroDiscardsThisTurn,
     mosqueteiroRedirectNextDiscard: newPhase === 'draw' ? false : p.mosqueteiroRedirectNextDiscard,
-    mosqueteiroBoostedCardId: newPhase === 'draw' ? undefined : p.mosqueteiroBoostedCardId,
-    mosqueteiroBoostAmount: newPhase === 'draw' ? 0 : p.mosqueteiroBoostAmount,
   });
 
   const player1Result = resetForNewTurn(state.player1, p1Monster);

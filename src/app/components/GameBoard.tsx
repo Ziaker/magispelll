@@ -2511,20 +2511,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     shatteringSlot={shatteringSlot}
                     smokingSlot={smokingSlot}
                     burningSlots={burningSlots}
-                    player1DoubledCardId={
-                      gameState.player1Character === 'besta' && gameState.player1.monsterCard?.monsterUsed
-                        ? gameState.player1.monsterTargetCardId
-                        : undefined
-                    }
-                    player2DoubledCardId={
-                      gameState.player2Character === 'besta' && gameState.player2.monsterCard?.monsterUsed
-                        ? gameState.player2.monsterTargetCardId
-                        : undefined
-                    }
-                    player1BoostedCardId={gameState.player1Character === 'mosqueteiro' ? gameState.player1.mosqueteiroBoostedCardId : undefined}
-                    player1BoostAmount={gameState.player1.mosqueteiroBoostAmount}
-                    player2BoostedCardId={gameState.player2Character === 'mosqueteiro' ? gameState.player2.mosqueteiroBoostedCardId : undefined}
-                    player2BoostAmount={gameState.player2.mosqueteiroBoostAmount}
+                    player1DoubledCardId={gameState.player1.combatModifiers.find((m) => m.kind === 'multiply')?.cardId}
+                    player2DoubledCardId={gameState.player2.combatModifiers.find((m) => m.kind === 'multiply')?.cardId}
+                    player1BoostedCardId={gameState.player1.combatModifiers.find((m) => m.kind === 'add')?.cardId}
+                    player1BoostAmount={gameState.player1.combatModifiers.find((m) => m.kind === 'add')?.amount ?? 0}
+                    player2BoostedCardId={gameState.player2.combatModifiers.find((m) => m.kind === 'add')?.cardId}
+                    player2BoostAmount={gameState.player2.combatModifiers.find((m) => m.kind === 'add')?.amount ?? 0}
                     combatValueSpec={combatValueReveal}
                     spotlight={gameState.spotlight}
                     towersMode={gameConfig.towersMode}

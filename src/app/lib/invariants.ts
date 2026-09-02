@@ -70,7 +70,7 @@ function allRealCards(state: GameState): Card[] {
  * existir separadamente - contá-la como "1" (o que este helper fazia antes
  * de mudar de scripts/sanity-test.ts pra cá) SUBCONTA o total real enquanto
  * ela está viva, e quando ela é descartada, `pushToDiscard` a DECOMPÕE de
- * volta nas cartas originais (`expandFusedCards`, gameEngine.ts) - o total
+ * volta nas cartas originais (`expandSyntheticCard`, cardUtils.ts) - o total
  * "real" volta a bater, mas só nesse instante, criando um falso alarme de
  * "surplus" de cartas exatamente no descarte. A contagem certa pesa cada
  * carta fundida VIVA pelo tamanho de `fusionSources` (as cartas físicas que

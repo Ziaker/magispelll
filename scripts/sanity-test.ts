@@ -958,7 +958,10 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
   let stateHorizontalDouble = gameReducer(state, { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: 1, targetSlotIndex: 0, targetCardId: horizontalCard.id });
   assert(stateHorizontalDouble.player1.monsterCard?.monsterUsed === true, 'FIX item 7: ativar o efeito marca monsterUsed na zona própria');
   assert(stateHorizontalDouble.player1.monsterTargetSlot === 0, 'FIX item 7: o slot escolhido ao ativar fica registrado em monsterTargetSlot');
-  assert(stateHorizontalDouble.player1.monsterTargetCardId === horizontalCard.id, 'FIX (pedido do usuário): a carta escolhida fica registrada em monsterTargetCardId');
+  assert(
+    stateHorizontalDouble.player1.combatModifiers.some((m) => m.cardId === horizontalCard.id && m.kind === 'multiply'),
+    'FIX (pedido do usuário): a carta escolhida fica registrada em combatModifiers'
+  );
   assert(stateHorizontalDouble.player1.monsterCard?.monsterUseCount === 1, 'FIX (pedido do usuário): o 1º uso incrementa monsterUseCount para 1');
 
   stateHorizontalDouble = {
@@ -977,7 +980,10 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
   // horizontal (5*2 + 4 = 14) - o ponto central do pedido do usuário: "dobrar
   // o valor da carta que o jogador selecionar, sendo horizontal ou não".
   let stateMainDouble = gameReducer(state, { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: 1, targetSlotIndex: 0, targetCardId: mainCard.id });
-  assert(stateMainDouble.player1.monsterTargetCardId === mainCard.id, 'FIX (pedido do usuário): também é possível escolher a carta PRINCIPAL (não só horizontal) como alvo');
+  assert(
+    stateMainDouble.player1.combatModifiers.some((m) => m.cardId === mainCard.id && m.kind === 'multiply'),
+    'FIX (pedido do usuário): também é possível escolher a carta PRINCIPAL (não só horizontal) como alvo'
+  );
 
   stateMainDouble = {
     ...stateMainDouble,
@@ -3709,7 +3715,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   // pro descarte" vale pra QUALQUER jeito dela sair de campo, não só no
   // instante em que é criada (ver pushToDiscard em gameEngine.ts).
   let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
-  const fireToken: Card = { id: 'piro-existing-token', value: 'FIRE', suit: '🔥', transformedValue: 4, isFireToken: true, revealed: true };
+  const fireToken: Card = { id: 'piro-existing-token', value: 'FIRE', suit: '🔥', transformedValue: 4, isFireToken: true, synthetic: { onDiscard: 'vanish' }, revealed: true };
   const strongerCard = makeCard('piro-token-loser-opponent', '9');
   state = {
     ...state,

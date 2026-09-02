@@ -32,9 +32,10 @@ import { random } from './rng';
  * @property monsterUseCount - Quantas vezes o efeito do Monstro já foi ativado NO TOTAL (soma entre turnos, nunca reseta) - a carta só se descarta de vez depois do 3º uso (ver MAX_MONSTER_USES em gameEngine.ts)
  * @property battled - Se a carta horizontal já batalhou neste turno
  * @property fused - Se esta carta nasceu da variante "Fusão" (soma de 2 cartas numerais - ver fusion.ts). Puramente informativo (palavra-chave visual, ver keywords.ts) - não muda nenhuma regra de combate/ativação.
- * @property fusionSources - Só presente em carta fundida (fused): as cartas ORIGINAIS (nunca fundidas) que foram consumidas para criá-la, já achatadas (uma fusão de uma carta já fundida guarda as folhas originais dela, não a carta intermediária) - usado para "desfazer" a fusão quando ela vai para o descarte (ver expandFusedCard) e manter a composição real do baralho, em vez de a carta fundida virar uma magia "fantasma" extra que nunca existiu no baralho original.
+ * @property fusionSources - Só presente em carta fundida (fused): as cartas ORIGINAIS (nunca fundidas) que foram consumidas para criá-la, já achatadas (uma fusão de uma carta já fundida guarda as folhas originais dela, não a carta intermediária) - usado para "desfazer" a fusão quando ela vai para o descarte (ver expandSyntheticCard) e manter a composição real do baralho, em vez de a carta fundida virar uma magia "fantasma" extra que nunca existiu no baralho original.
  * @property coringaTransformedToNumeral - Coringa (redesenho completo, pedido do usuário) - Magia Numeral "Mão de Ferro" (7,7,7): permanentemente `true` numa carta de magia (J/Q/K) que o jogador transformou em carta de número 11/12/13 apertando o botão liberado pela janela de 1 turno do efeito (ver `transformedValue`, reutilizado aqui: 11/12/13). Uma vez marcada, a carta LARGA de vez seu comportamento de armadilha (nunca mais dispara os efeitos de revelação na Estratégia/Combate descritos em cardUtils.ts/gameEngine.ts) e passa a se comportar como uma carta de campo comum, permanentemente - ver isCoringaRawTrapCard.
  * @property isFireToken - Piromante (personagem novo) - `true` numa carta-TOKEN criada quando a Bola de Fogo reduz (sem obliterar) o valor de um slot do oponente: uma carta sintética, `value: 'FIRE'`/`transformedValue` = valor restante depois da redução, que representa as brasas/cinzas do que sobrou. Diferente de QUALQUER outra carta do jogo, uma carta-token NUNCA existiu no baralho original de 54 cartas - ela é criada do nada no momento do lançamento e, se algum dia sair do campo (ex.: perde uma disputa de combate), simplesmente desaparece em vez de ir para a pilha de descarte (ver pushToDiscard/executeFireballLaunch em gameEngine.ts) - por isso nunca conta na conservação total de cartas do jogo.
+ * @property synthetic - Ciclo de vida no descarte de uma carta que não é "real" da forma usual (ver SyntheticCardLifecycle abaixo). `undefined` = carta comum, descarta normalmente. Aditivo a `isFireToken`/`fused`/`fusionSources` (que continuam existindo como identidade/exibição) - `synthetic` só existe pra `pushToDiscard` (gameEngine.ts) saber o que fazer sem precisar de um caso especial hardcoded por personagem: um personagem futuro com uma carta sintética nova só precisa marcar este campo corretamente pra herdar conservação de carta correta de graça.
  *
  * EXTENSÃO: Adicione novas propriedades para novos efeitos ou mecânicas
  */
@@ -52,7 +53,30 @@ export type Card = {
   fusionSources?: Card[];
   coringaTransformedToNumeral?: boolean;
   isFireToken?: boolean;
+  synthetic?: SyntheticCardLifecycle;
 };
+
+/**
+ * O que acontece com uma carta sintética quando ela sairia de campo pra ir
+ * pro descarte (ver pushToDiscard em gameEngine.ts):
+ * - `vanish`: a carta simplesmente desaparece, nunca entra na pilha de
+ *   descarte (ex.: carta-token de Bola de Fogo do Piromante - nunca existiu
+ *   no baralho original de 54 cartas).
+ * - `decompose`: a carta é substituída pelas `sourceCards` originais, que vão
+ *   pro descarte no lugar dela (ex.: carta fundida - ver fusion.ts/`fused`
+ *   acima - "desfaz" a fusão de volta nas cartas físicas reais que a
+ *   compuseram, em vez de virar uma carta nova permanente fora da composição
+ *   original do baralho).
+ *
+ * NÃO cobre um terceiro ciclo de vida que existe hoje no jogo: as cartas de
+ * armadilha Rainha/Monstro do Coringa, quando reveladas, voltam pra MÃO
+ * embaralhada em vez de ir pro descarte (ver applyCoringaTrapReaction em
+ * gameEngine.ts) - isso nunca passa por `pushToDiscard`, então não é nem
+ * `vanish` nem `decompose`. Exclusão deliberada, não esquecimento: um
+ * terceiro variante "returnToHand" só vale a pena desenhar se um futuro
+ * personagem repetir esse padrão específico.
+ */
+type SyntheticCardLifecycle = { onDiscard: 'vanish' } | { onDiscard: 'decompose'; sourceCards: Card[] };
 
 /** Naipes do baralho francês padrão */
 const SUITS = ['♠', '♥', '♦', '♣'];
@@ -336,6 +360,10 @@ export function isValidAceTransformTarget(card: Card): boolean {
  *
  * `id`, `value`, `suit` e `isMonster` são identidade permanente da carta e
  * nunca são alterados aqui.
+ *
+ * CONVENÇÃO: todo campo transitório NOVO adicionado a `Card` precisa entrar
+ * na lista de destructuring abaixo, ou ele vaza pra sempre (pro baralho, pra
+ * mão do outro jogador) depois que a carta é descartada uma única vez.
  */
 export function resetCardForDiscard(card: Card): Card {
   // Coringa (redesenho completo) - `coringaTransformedToNumeral` também é
@@ -356,26 +384,26 @@ export function resetCardsForDiscard(cards: Card[]): Card[] {
 }
 
 /**
- * Decompõe uma carta fundida (fused) nas cartas ORIGINAIS (nunca fundidas)
- * que a compuseram (ver fusionSources em Card) - uma carta comum devolve só
- * a si mesma. Usado sempre que uma carta vai para o descarte (ver
- * pushToDiscard em gameEngine.ts): sem isso, cada fusão bem-sucedida criaria
- * uma carta nova "do nada" que passa a circular no baralho pra sempre (2
- * numerais viram, por exemplo, 1 magia extra que nunca existiu na composição
- * original), inflando a proporção de magias/Áses no baralho a cada fusão. Ao
- * invés disso, ao ser descartada, a carta fundida "desfaz" a fusão e devolve
- * as 2 (ou mais, se a carta já tivesse sido refundida antes) cartas físicas
- * originais para o descarte, mantendo a composição do baralho sempre correta.
+ * Resolve o que uma carta SINTÉTICA (ver `synthetic`/`SyntheticCardLifecycle`
+ * em Card) realmente vira ao ir pro descarte - uma carta comum (`synthetic`
+ * undefined) devolve só a si mesma. Chamado sempre que uma carta vai para o
+ * descarte (ver pushToDiscard em gameEngine.ts):
+ * - `vanish` (ex.: carta-token de Bola de Fogo do Piromante) devolve `[]` -
+ *   a carta nunca existiu no baralho original de 54 cartas, então também
+ *   nunca entra na pilha de descarte.
+ * - `decompose` (ex.: carta fundida - ver fusion.ts) devolve `sourceCards` -
+ *   sem isso, cada fusão bem-sucedida criaria uma carta nova "do nada" que
+ *   passa a circular no baralho pra sempre (2 numerais viram, por exemplo, 1
+ *   magia extra que nunca existiu na composição original), inflando a
+ *   proporção de magias/Áses no baralho a cada fusão. Ao invés disso, ao ser
+ *   descartada, a carta fundida "desfaz" a fusão e devolve as 2 (ou mais, se
+ *   a carta já tivesse sido refundida antes) cartas físicas originais para o
+ *   descarte, mantendo a composição do baralho sempre correta.
  */
-export function expandFusedCard(card: Card): Card[] {
-  if (card.fused && card.fusionSources && card.fusionSources.length > 0) {
-    return card.fusionSources;
-  }
-  return [card];
-}
-
-export function expandFusedCards(cards: Card[]): Card[] {
-  return cards.flatMap(expandFusedCard);
+export function expandSyntheticCard(card: Card): Card[] {
+  if (!card.synthetic) return [card];
+  if (card.synthetic.onDiscard === 'vanish') return [];
+  return card.synthetic.sourceCards;
 }
 
 /**

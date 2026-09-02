@@ -37,6 +37,7 @@
 
 import { random } from './rng';
 import {
+  applyCombatModifiers,
   characterOf,
   getFilledFieldSlots,
   getMagicActivationContext,
@@ -289,18 +290,25 @@ function trueSlotValue(
 ): number {
   const slot = playerState.field[slotIndex];
   if (!slot.faceDownCard) return 1;
-  const doubleId =
-    character === 'besta' && playerState.monsterCard?.monsterUsed ? playerState.monsterTargetCardId : undefined;
-  // FIX (pedido do usuário, Modo Spotlight): `getSpotlightAdjustedValue` no
-  // lugar de `getEffectiveCardValue` - esta função MODELA o mesmo cálculo
-  // que handleResolveCombat faz de verdade (ver comentário da função acima),
-  // então precisa da mesma fonte de valor pra não achar que está
-  // ganhando/perdendo uma disputa que na real já foi decidida pelo Spotlight.
-  let base = getSpotlightAdjustedValue(slot.faceDownCard, spotlight);
-  if (doubleId && doubleId === slot.faceDownCard.id) base *= 2;
+  // FIX (bug real encontrado numa auditoria do sistema de estado de carta):
+  // esta função MODELA o mesmo cálculo que handleResolveCombat faz de
+  // verdade (ver comentário da função acima) - antes ela lia
+  // `monsterTargetCardId` (dobra da Besta) manualmente, mas nunca tinha
+  // nenhuma referência ao reforço do Mosqueteiro (Tiro Certeiro), então a IA
+  // jogando de Mosqueteiro subestimava sistematicamente o próprio slot
+  // reforçado. Agora chama a MESMA `applyCombatModifiers` que
+  // `handleResolveCombat` usa, sobre a MESMA lista (`playerState.
+  // combatModifiers`, já filtrada por construção só pro personagem do
+  // próprio jogador - nunca precisa checar `character` aqui) - a divergência
+  // fica estruturalmente impossível de se repetir. FIX (pedido do usuário,
+  // Modo Spotlight): `getSpotlightAdjustedValue` no lugar de
+  // `getEffectiveCardValue` - precisa da mesma fonte de valor pra não achar
+  // que está ganhando/perdendo uma disputa que na real já foi decidida pelo
+  // Spotlight.
+  const base = applyCombatModifiers(getSpotlightAdjustedValue(slot.faceDownCard, spotlight), slot.faceDownCard.id, playerState.combatModifiers);
   const visibleHorizontal = opts.opponentView ? slot.horizontalCards.filter((c) => c.revealed) : slot.horizontalCards;
   const horizontal = visibleHorizontal.reduce(
-    (sum, c) => sum + (doubleId === c.id ? getSpotlightAdjustedValue(c, spotlight) * 2 : getSpotlightAdjustedValue(c, spotlight)),
+    (sum, c) => sum + applyCombatModifiers(getSpotlightAdjustedValue(c, spotlight), c.id, playerState.combatModifiers),
     0
   );
   // FIX (pedido do usuário: "no modo towers, a IA não seleciona a torre
