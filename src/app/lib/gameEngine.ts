@@ -3201,6 +3201,36 @@ export function canMagicTriggerReactionAnnouncement(state: GameState, player: Pl
   return reactionsUsed < state.gameConfig.reactionsLimit && opponentState.hand.some((c) => c.value === card.value);
 }
 
+/**
+ * Compara dois estados IGNORANDO o campo `log` - "esta ação realmente mudou
+ * alguma coisa relevante pro jogo, ou só um aviso foi anexado?".
+ *
+ * FIX (bug real encontrado rodando `scripts/fuzz.ts` - item 6 do plano de
+ * melhoria do debug mode - contra o Modo Reações): o motor tem um padrão
+ * DELIBERADO e generalizado (13+ pontos, ex.: "Esse slot está protegido por
+ * Proteção Divina!", "Essa magia não pode ser ativada agora") de rejeição
+ * "com aviso" - devolve `{ ...state, log: appendLog(...) }`, uma referência
+ * NOVA só pra anexar um toast explicando por quê, mesmo sem mudar nada além
+ * do log (contraste com a maioria das rejeições, que devolvem a MESMA
+ * referência, `return state;`, sem nenhum aviso). `maybeDeferForReaction`
+ * (Modo Reações) comparava por referência crua (`resultState === state`)
+ * pra decidir "essa ativação teria funcionado, vale anunciar?" - mas o gate
+ * de `canActivateMagic` dentro de `handleExecuteMagic` usa o padrão "com
+ * aviso", então uma magia ativada na fase ERRADA (ilegal de verdade, nunca
+ * deveria fazer nada) ainda produzia uma referência DIFERENTE de `state` -
+ * `maybeDeferForReaction` achava que a ativação "teria funcionado" e
+ * anunciava uma reação pra um efeito que NUNCA ia acontecer de verdade
+ * (mesmo sem o oponente reagir, `handleResolvePendingReaction` só bateria
+ * no mesmo gate de novo e não faria nada - mas o anúncio, a revelação da
+ * carta, e a janela de 3s de reação já teriam acontecido à toa).
+ */
+function isSameGameplayState(a: GameState, b: GameState): boolean {
+  if (a === b) return true;
+  const { log: logA, ...restA } = a;
+  const { log: logB, ...restB } = b;
+  return JSON.stringify(restA) === JSON.stringify(restB);
+}
+
 function maybeDeferForReaction(
   state: GameState,
   originalAction: GameAction,
@@ -3210,6 +3240,24 @@ function maybeDeferForReaction(
 ): GameState {
   if (resultState === state) return state; // a ativação seria rejeitada de qualquer forma - Reações não muda isso
   if (!canMagicTriggerReactionAnnouncement(state, player, cardId)) return resultState;
+  // FIX (bug real encontrado rodando scripts/fuzz.ts - Modo Reações): a
+  // checagem ACIMA (`resultState === state`) só pega o caso "nem tentou
+  // fazer nada" - mas `handleExecuteMagic` tem seu próprio gate de
+  // `canActivateMagic` no topo que, ao rejeitar, devolve `{ ...state, log:
+  // ... }` (uma referência NOVA, só com um aviso anexado - mesmo padrão
+  // documentado em `isSameGameplayState`), não `state` puro. Chegando até
+  // aqui (`canMagicTriggerReactionAnnouncement` já confirmou Reações ligado
+  // + oponente com carta pra reagir), uma ativação de magia numa fase ERRADA
+  // (ilegal de verdade, nunca teria efeito nenhum) ainda parecia "teria
+  // funcionado" e abria uma janela de reação pra um efeito que JAMAIS ia
+  // acontecer - o oponente podia "reagir" (gastando a própria carta à toa)
+  // a algo que nunca era real pra começar. `isSameGameplayState` aqui pega
+  // exatamente esse caso (só diferem no log) sem tocar em NADA do caminho
+  // acima (`resultState === state` continua a mesma checagem de sempre, e
+  // esta função só chega até aqui quando Reações está ligado - um jogo SEM
+  // Reações nunca passa da linha anterior, então o aviso de log continua
+  // aparecendo normalmente pra ele, sem nenhuma mudança de comportamento).
+  if (isSameGameplayState(resultState, state)) return resultState;
 
   const card = state[playerKeyOf(player)].hand.find((c) => c.id === cardId);
   if (!card || (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K')) return resultState; // sempre verdadeiro aqui (já checado acima) - só pra estreitar o tipo de card.value

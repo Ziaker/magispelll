@@ -145,6 +145,17 @@ function generateMagicSelections(state: GameState, player: PlayerNumber, ownCard
     selections.push({ selectedTargetSlot: slot });
     for (const tp of PLAYERS) selections.push({ selectedTargetPlayer: tp, selectedSlot: slot });
   }
+  // Besta K (Roubo Brutal): troca um slot PRÓPRIO por um slot do OPONENTE -
+  // handleExecuteMagic (gameEngine.ts) exige `selectedSlot` E
+  // `selectedTargetSlot` setados AO MESMO TEMPO (rejeita se qualquer um
+  // faltar). O laço acima gera os dois campos separadamente, nunca juntos -
+  // sem este combo dedicado, nenhum candidato exhaustivo jamais bate com a
+  // única forma real de ativar esta magia, gerando um falso-positivo em
+  // checkActionDivergence (mesma classe de risco já documentada pra
+  // Mosqueteiro Q logo abaixo, só que descoberta depois via fuzzing real).
+  for (const ownSlot of SLOT_INDICES) {
+    for (const targetSlot of SLOT_INDICES) selections.push({ selectedSlot: ownSlot, selectedTargetSlot: targetSlot });
+  }
   // Mosqueteiro - Rajada Reveladora: descarte + revelação às cegas, juntos.
   const revealPool = [...opponentHandIds, ...opponentFieldIds];
   for (const discardSubset of boundedSubsets(ownCardIdPool, 1)) {
