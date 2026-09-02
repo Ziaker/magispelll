@@ -51,6 +51,19 @@ export function FlipCard({ faceUp, front, back, className }: FlipCardProps) {
       <motion.div
         className="absolute inset-0"
         style={{ transformStyle: 'preserve-3d' }}
+        // FIX (pedido do usuário: "quando um jogador joga uma carta, ela
+        // mostra seu número antes de ser ocultada (não revelada), isso é um
+        // erro catastrófico") - vazamento de informação real, e não só um
+        // detalhe visual. Sem `initial`, o motion.div MONTA no estado do
+        // `style` (sem rotateY, ou seja, rotateY: 0 = FRENTE visível) e só
+        // então ANIMA até 180 (costas) - meio segundo inteiro com o número da
+        // carta na tela toda vez que uma carta é posicionada virada pra
+        // baixo. `initial={false}` manda o Motion nascer já no valor de
+        // `animate` (180 = costas) sem animação de montagem; as viradas de
+        // verdade que acontecem DEPOIS (costas -> frente, na revelação ou no
+        // combate) continuam animando normalmente, porque `initial={false}`
+        // só afeta a montagem.
+        initial={false}
         animate={{ rotateY: faceUp ? 0 : 180 }}
         transition={
           settings.animations

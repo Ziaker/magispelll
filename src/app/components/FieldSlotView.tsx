@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { useDrop } from 'react-dnd';
@@ -39,8 +39,8 @@ import { getSpotlightAdjustedValue, getSpotlightEntry, type SpotlightState } fro
  * slot agora - horizontais continuam tocando o som de pouso (`triggerSoundOnly`
  * abaixo), só sem o quadrado.
  */
-const MAIN_IMPACT_DELAY_MS = 0.3 * 750; // 225ms - times[1] * duration (em ms) de MAIN_LANDING_TRANSITION
-const HORIZONTAL_IMPACT_DELAY_MS = 0.3 * 600; // 180ms - idem para HORIZONTAL_LANDING_TRANSITION
+const MAIN_IMPACT_DELAY_MS = 0.45 * 420; // 189ms - times[1] * duration (em ms) de MAIN_LANDING_TRANSITION (instante do pouso)
+const HORIZONTAL_IMPACT_DELAY_MS = 0.45 * 340; // 153ms - idem para HORIZONTAL_LANDING_TRANSITION
 const IMPACT_VISUAL_MS = 450; // cobre a duração do quadrado (CardImpactBurst.tsx, 0.45s) com folga mínima
 
 // FIX (bug reproduzido pelo usuário: "o squash & stretch está fazendo a
@@ -67,21 +67,31 @@ const IMPACT_VISUAL_MS = 450; // cobre a duração do quadrado (CardImpactBurst.
 // com `opacity: 1` (nunca invisível, em nenhum momento da animação) - só a
 // FORMA (achatar/esticar) e a POSIÇÃO (caindo de cima) animam, preservando o
 // impacto/quique do squash & stretch sem nunca "apagar" a carta.
-const MAIN_LANDING_INITIAL = { opacity: 1, scaleX: 0.35, scaleY: 1.6, y: -90 };
+// FIX (pedido do usuário: "remova o squash & stretch do jogo ou arrume pra
+// que só ocorra no segundo que a carta se posicionar no campo e só faça
+// ocorrer no momento que chega. Inclusive faça com que o posicionamento da
+// carta seja mais rápido ao invés dessa descida lenta") - antes a carta
+// nascia JÁ deformada (scaleX 0.35, quase uma linha vertical) e passava a
+// descida inteira se contorcendo, num total de 0.75s. Agora a queda é curta
+// e SEM deformação nenhuma (escala 1 o tempo todo até encostar), e o squash &
+// stretch só existe DEPOIS do impacto: achata no toque, dá um repique menor e
+// assenta. `times` marca o instante do pouso (0.45) - é o mesmo ponto usado
+// por MAIN_IMPACT_DELAY_MS abaixo pra sincronizar som e CardImpactBurst.
+const MAIN_LANDING_INITIAL = { opacity: 1, scaleX: 1, scaleY: 1, y: -90 };
 const MAIN_LANDING_ANIMATE = {
-  y: 0,
-  scaleX: [0.35, 1.45, 0.72, 1.18, 0.9, 1.06, 1],
-  scaleY: [1.6, 0.55, 1.3, 0.85, 1.1, 0.96, 1],
+  y: [-90, 0, 0, 0, 0],
+  scaleX: [1, 1, 1.22, 0.95, 1],
+  scaleY: [1, 1, 0.78, 1.04, 1],
 };
-const MAIN_LANDING_TRANSITION = { duration: 0.75, ease: 'easeOut' as const, times: [0, 0.3, 0.45, 0.6, 0.75, 0.9, 1] };
+const MAIN_LANDING_TRANSITION = { duration: 0.42, ease: 'easeIn' as const, times: [0, 0.45, 0.62, 0.82, 1] };
 
-const HORIZONTAL_LANDING_INITIAL = { opacity: 1, scaleX: 0.4, scaleY: 1.5, y: -50 };
+const HORIZONTAL_LANDING_INITIAL = { opacity: 1, scaleX: 1, scaleY: 1, y: -50 };
 const HORIZONTAL_LANDING_ANIMATE = {
-  y: 0,
-  scaleX: [0.4, 1.4, 0.76, 1.14, 0.94, 1],
-  scaleY: [1.5, 0.58, 1.24, 0.88, 1.05, 1],
+  y: [-50, 0, 0, 0, 0],
+  scaleX: [1, 1, 1.18, 0.96, 1],
+  scaleY: [1, 1, 0.82, 1.03, 1],
 };
-const HORIZONTAL_LANDING_TRANSITION = { duration: 0.6, ease: 'easeOut' as const, times: [0, 0.3, 0.48, 0.65, 0.82, 1] };
+const HORIZONTAL_LANDING_TRANSITION = { duration: 0.34, ease: 'easeIn' as const, times: [0, 0.45, 0.64, 0.84, 1] };
 
 // Mesma razão do bug acima: mantém referência estável entre renders para a
 // flutuação em loop de combate (item 2) não reiniciar/soluçar a cada
@@ -850,57 +860,75 @@ export function FieldSlotView({
                     />
                   </div>
                 )}
-                {/* Fúria Selvagem da Besta (pedido do usuário: "mostrar um
-                    x2"): selo no canto (não no topo-centro, onde fica o
-                    selo de Torre) pra nunca competir por espaço com ele. */}
-                {isMainDoubled && (
-                  <div
-                    className="absolute -top-2 -right-2 z-20 rounded-full w-8 h-8 flex items-center justify-center"
-                    style={{
-                      backgroundColor: STATUS_COLORS.doubled.ring,
-                      border: '2px solid #0F1113',
-                      boxShadow: `0 3px 10px rgba(0,0,0,0.6), 0 0 14px ${STATUS_COLORS.doubled.soft}`,
-                      color: '#0F1113',
-                    }}
-                    title="Fúria Selvagem: esta carta vale o dobro"
-                  >
-                    <span className="text-[13px] font-black">×2</span>
-                  </div>
-                )}
-                {/* Ilusão Arcana do Mago: mesma ideia, cor/ícone arcanos
-                    próprios - mostra o valor final já reforçado. */}
-                {isMainReinforced && (
-                  <div
-                    className="absolute -top-2 -right-2 z-20 rounded-full px-2 py-1 flex items-center gap-1 whitespace-nowrap"
-                    style={{
-                      backgroundColor: STATUS_COLORS.reinforced.ring,
-                      border: '2px solid #0F1113',
-                      boxShadow: `0 3px 10px rgba(0,0,0,0.6), 0 0 14px ${STATUS_COLORS.reinforced.soft}`,
-                      color: '#0F1113',
-                    }}
-                    title={`Ilusão Arcana: valor reforçado para ${getDisplayValue(slot.faceDownCard!)}`}
-                  >
-                    <span className="text-[11px]">🔮</span>
-                    <span className="text-[12px] font-black">{getDisplayValue(slot.faceDownCard!)}</span>
-                  </div>
-                )}
-                {/* Mosqueteiro - Tiro Certeiro: mesma ideia do "x2" da Fúria
-                    Selvagem acima, com um selo "+N" (bônus aditivo, não
-                    multiplicador). */}
-                {isMainBoosted && (
-                  <div
-                    className="absolute -top-2 -right-2 z-20 rounded-full px-2 py-1 flex items-center justify-center"
-                    style={{
-                      backgroundColor: STATUS_COLORS.boosted.ring,
-                      border: '2px solid #0F1113',
-                      boxShadow: `0 3px 10px rgba(0,0,0,0.6), 0 0 14px ${STATUS_COLORS.boosted.soft}`,
-                      color: '#0F1113',
-                    }}
-                    title={`Tiro Certeiro: esta carta recebe +${boostAmount ?? 0} de valor`}
-                  >
-                    <span className="text-[12px] font-black">+{boostAmount ?? 0}</span>
-                  </div>
-                )}
+                {/* FIX (pedido do usuário: "NUNCA FAÇA marcadores estarem no
+                    mesmo lado onde fica as cartas horizontais, eles tem que
+                    ficar na esquerda e quando há mais do que um, um fica
+                    ACIMA do outro, não literalmente em cima do outro. Você
+                    tinha corrigido isso na besta e no mosqueteiro uma vez e
+                    trouxe o mesmo erro de volta") - os 3 selos de status
+                    (×2 da Fúria Selvagem, 🔮 da Ilusão Arcana, +N do Tiro
+                    Certeiro) estavam TODOS em `-top-2 -right-2`: o mesmo
+                    canto onde as cartas horizontais são ancoradas (ver o
+                    `right` delas logo abaixo) E a mesma posição entre si, ou
+                    seja, dois selos ativos ao mesmo tempo ficavam
+                    literalmente sobrepostos. Agora eles são montados como uma
+                    LISTA e renderizados numa coluna à ESQUERDA, empilhados de
+                    baixo pra cima - some a disputa de espaço com as
+                    horizontais e some a sobreposição entre selos, sem
+                    depender de cada bloco lembrar de escolher um canto
+                    diferente (a causa da regressão voltar). */}
+                {(() => {
+                  const statusBadges: { key: string; colors: { ring: string; soft: string }; title: string; content: ReactNode }[] = [];
+                  if (isMainDoubled) {
+                    statusBadges.push({
+                      key: 'doubled',
+                      colors: STATUS_COLORS.doubled,
+                      title: 'Fúria Selvagem: esta carta vale o dobro',
+                      content: <span className="text-[13px] font-black">×2</span>,
+                    });
+                  }
+                  if (isMainReinforced) {
+                    statusBadges.push({
+                      key: 'reinforced',
+                      colors: STATUS_COLORS.reinforced,
+                      title: `Ilusão Arcana: valor reforçado para ${getDisplayValue(slot.faceDownCard!)}`,
+                      content: (
+                        <>
+                          <span className="text-[11px]">🔮</span>
+                          <span className="text-[12px] font-black">{getDisplayValue(slot.faceDownCard!)}</span>
+                        </>
+                      ),
+                    });
+                  }
+                  if (isMainBoosted) {
+                    statusBadges.push({
+                      key: 'boosted',
+                      colors: STATUS_COLORS.boosted,
+                      title: `Tiro Certeiro: esta carta recebe +${boostAmount ?? 0} de valor`,
+                      content: <span className="text-[12px] font-black">+{boostAmount ?? 0}</span>,
+                    });
+                  }
+                  if (statusBadges.length === 0) return null;
+                  return (
+                    <div className="absolute -top-2 -left-3 z-20 flex flex-col-reverse items-start gap-1 pointer-events-none">
+                      {statusBadges.map((badge) => (
+                        <div
+                          key={badge.key}
+                          className="rounded-full px-2 py-1 flex items-center justify-center gap-1 whitespace-nowrap"
+                          style={{
+                            backgroundColor: badge.colors.ring,
+                            border: '2px solid #0F1113',
+                            boxShadow: `0 3px 10px rgba(0,0,0,0.6), 0 0 14px ${badge.colors.soft}`,
+                            color: '#0F1113',
+                          }}
+                          title={badge.title}
+                        >
+                          {badge.content}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -965,12 +993,29 @@ export function FieldSlotView({
                   }}
                   aria-label={canRemoveHorizontal ? 'Clique para devolver esta carta de reforço para a mão' : undefined}
                 >
-                  <FlipCard
-                    className="w-16 h-10"
-                    faceUp={cardFaceUp}
-                    front={<PlayingCard horizontal value={hCard.value} suit={hCard.suit} card={hCard} />}
-                    back={<PlayingCard horizontal faceDown />}
-                  />
+                  {/* FIX (pedido do usuário: "quando uma carta é selecionada
+                      ela começa a levitar, isso não ocorre com a carta
+                      horizontal junto dela... corrija") - a flutuação de
+                      combate só envolvia a carta PRINCIPAL do slot, então o
+                      reforço horizontal ficava parado no chão enquanto a
+                      carta que ele reforça subia, quebrando a leitura de que
+                      os dois entram na disputa JUNTOS. Mesmo par
+                      animate/transition da principal (constantes de módulo,
+                      referência estável - ver COMBAT_FLOAT_ANIMATE). A
+                      reserva da torre continua de fora de propósito (o
+                      usuário: "não precisa no caso da torre"). */}
+                  <motion.div
+                    className="w-full h-full"
+                    animate={isCombatSelected ? COMBAT_FLOAT_ANIMATE : COMBAT_FLOAT_REST_ANIMATE}
+                    transition={isCombatSelected ? COMBAT_FLOAT_TRANSITION : COMBAT_FLOAT_REST_TRANSITION}
+                  >
+                    <FlipCard
+                      className="w-16 h-10"
+                      faceUp={cardFaceUp}
+                      front={<PlayingCard horizontal value={hCard.value} suit={hCard.suit} card={hCard} />}
+                      back={<PlayingCard horizontal faceDown />}
+                    />
+                  </motion.div>
                   {/* Piromante (pedido do usuário: "as magias do piromante
                       mal tem efeitos visuais, especialmente quanto a cartas
                       queimar") - Queima do Reforço (e às vezes o Roubo

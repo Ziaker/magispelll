@@ -88,16 +88,20 @@ function SingleBulletImpact({ rect, delay = 0, from }: { rect: BulletImpactSpec[
         animate={{ x: [0, deltaX], y: [0, deltaY], opacity: [0, 1, 1, 0] }}
         transition={{ duration: travelDuration, delay, ease: 'easeIn', times: [0, 0.85, 1] }}
       >
+        {/* FIX (pedido do usuário: "deixe os projéteis do mosqueteiro
+            maiores") - a cápsula era fina demais (16x3) pra ser percebida
+            atravessando a tela; ampliada pra 34x7, com o brilho na mesma
+            proporção, pra continuar legível como "tiro" em movimento. */}
         <div
           className="absolute rounded-full"
           style={{
-            width: 16,
-            height: 3,
+            width: 34,
+            height: 7,
             left: 0,
             top: 0,
             transform: `translate(-50%, -50%) rotate(${angleDeg}deg)`,
             backgroundColor: STEEL_COLOR,
-            boxShadow: `0 0 10px ${STEEL_COLOR}, 0 0 4px #EFE7D6`,
+            boxShadow: `0 0 18px ${STEEL_COLOR}, 0 0 8px #EFE7D6`,
           }}
         />
       </motion.div>
