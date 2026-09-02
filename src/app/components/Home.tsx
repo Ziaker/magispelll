@@ -1,5 +1,6 @@
 import { Button } from './ui/button';
 import { RuneParticles } from './RuneParticles';
+import { GameTitle } from './GameTitle';
 import { Play, BookOpen, Users, Settings } from 'lucide-react';
 
 interface HomeProps {
@@ -18,12 +19,7 @@ export function Home({ onNewGame, onRules, onCharacters, onSettings, onDebugStar
       
       <div className="relative z-10 w-full max-w-2xl px-4 space-y-12">
         <div className="text-center space-y-4">
-          <h1 className="font-display text-[64px] md:text-[80px] tracking-wider drop-shadow-[0_0_20px_rgba(197,158,79,0.4)]">
-            <span className="text-[#C59E4F]">MAGISPE</span>
-            <span className="text-[#4A90E2]">L</span>
-            <span className="text-[#E24A4A]">L</span>
-            <span className="text-[#E2B84A]">L</span>
-          </h1>
+          <GameTitle className="font-display text-[64px] md:text-[80px] tracking-wider drop-shadow-[0_0_20px_rgba(197,158,79,0.4)]" />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

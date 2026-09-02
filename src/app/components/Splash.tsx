@@ -1,5 +1,6 @@
 import { Button } from './ui/button';
 import { RuneParticles } from './RuneParticles';
+import { GameTitle } from './GameTitle';
 
 interface SplashProps {
   onStart: () => void;
@@ -13,12 +14,7 @@ export function Splash({ onStart, onRules }: SplashProps) {
       
       <div className="relative z-10 text-center space-y-8 px-4">
         <div className="space-y-4">
-          <h1 className="font-display text-[80px] md:text-[120px] tracking-wider animate-float drop-shadow-[0_0_30px_rgba(197,158,79,0.5)]">
-            <span className="text-[#C59E4F]">MAGISPE</span>
-            <span className="text-[#4A90E2]">L</span>
-            <span className="text-[#E24A4A]">L</span>
-            <span className="text-[#E2B84A]">L</span>
-          </h1>
+          <GameTitle className="font-display text-[80px] md:text-[120px] tracking-wider animate-float drop-shadow-[0_0_30px_rgba(197,158,79,0.5)]" />
         </div>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center pt-8">
