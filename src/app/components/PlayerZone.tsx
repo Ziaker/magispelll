@@ -1,11 +1,12 @@
 import type { CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { Wand2, Heart as HeartIcon, Flame, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Hand, MousePointerClick } from 'lucide-react';
+import { Wand2, Heart as HeartIcon, Flame, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Hand, MousePointerClick, Eye, EyeOff } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { PlayingCard } from './PlayingCard';
 import { CharacterMagicBurst } from './CharacterMagicBurst';
 import { MagicCalloutLabel } from './MagicCalloutLabel';
@@ -162,6 +163,19 @@ interface PlayerZoneProps {
    */
   isAiControlled?: boolean;
   /**
+   * FIX (pedido do usuário: "ocultar mão do oponente automaticamente" no
+   * Hotseat) - `true` só quando `gameConfig.mode === 'hotseat'` E
+   * `settings.hotseatPrivacyMode` está ligado (calculado em GameBoard.tsx,
+   * que tem acesso aos dois). Fora do Hotseat isso nunca faz sentido: vs
+   * IA/Espectador já escondem a mão da IA por conta de `isAiControlled`
+   * acima, e mostrar a PRÓPRIA mão do único humano jogando nunca precisa
+   * de proteção. Com isto ligado, a mão nasce oculta (mesmo visual de
+   * "costas" que `isAiControlled` já usa) a cada troca de fase - um botão
+   * "Ver minha mão" (perto do cabeçalho da mão) revela sob demanda, ver
+   * `handRevealed` mais abaixo.
+   */
+  hotseatPrivacyActive?: boolean;
+  /**
    * FIX (item 5 da 4ª rodada): ids das cartas da MÃO deste jogador que
    * acabaram de ser alvo de uma magia (ex.: Revelação Forçada do Mago, ou
    * Visão Celestial do Anjo mirando uma carta da mão do oponente) - dispara
@@ -251,6 +265,7 @@ export function PlayerZone({
   hasActiveNumeralSpell,
   isMagicCardDraggable,
   isAiControlled = false,
+  hotseatPrivacyActive = false,
   effectFlashCardIds,
   rejectedCardIds,
   selfEffectFlash,
@@ -297,6 +312,24 @@ export function PlayerZone({
   // precisar subir/descer um novo par de props por GameBoard.tsx.
   const { settings, updateSetting } = useSettings();
   const handInteractionMode = settings.handInteractionMode;
+  // FIX (pedido do usuário: "confirmar antes de descartar") - só existe
+  // pra abrir/fechar o diálogo de confirmação (ver JSX mais abaixo); a
+  // ação de descarte em si continua sendo `onDiscardCards` (prop de
+  // GameBoard.tsx), chamada só depois de confirmar quando a preferência
+  // está ligada, ou direto (sem diálogo nenhum) quando está desligada -
+  // ver `handleDiscardClick` logo abaixo de `handleCardClick`.
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  // FIX (pedido do usuário: "ocultar mão do oponente automaticamente" no
+  // Hotseat) - `false` = mão oculta (padrão sempre que `hotseatPrivacyActive`
+  // está ligado). Reseta pra oculta a cada troca de FASE (não só de turno -
+  // já é o suficiente pra cobrir "passagens de turno" sem exigir que
+  // GameBoard.tsx saiba diferenciar as duas coisas) - um jogador que revelou
+  // a própria mão pra jogar não fica com ela aberta indefinidamente depois.
+  const [handRevealed, setHandRevealed] = useState(false);
+  useEffect(() => {
+    setHandRevealed(false);
+  }, [phase]);
+  const showHandHidden = isAiControlled || (hotseatPrivacyActive && !handRevealed);
   const [customOrderIds, setCustomOrderIds] = useState<string[]>(() => playerState.hand.map((c) => c.id));
   // Ideia "linha de fusão ao passar o mouse": qual carta está sob o mouse
   // agora, pra calcular o resultado de fundir com CADA outra carta da mão.
@@ -495,6 +528,19 @@ export function PlayerZone({
   // selecionadas (o reducer já filtra a revelada, ver handleDiscardCards em
   // gameEngine.ts) e deixaria a revelada "presa" selecionada sem aviso.
   const hasRevealedInSelection = fusionSelectionIds.some((id) => playerState.hand.find((c) => c.id === id)?.revealed);
+
+  // FIX (pedido do usuário: "confirmar antes de descartar") - substitui o
+  // `onClick={onDiscardCards}` direto do botão "Descartar": com a
+  // preferência desligada (padrão), chama `onDiscardCards` na hora, igual
+  // sempre foi; ligada, só abre o diálogo - `onDiscardCards` de verdade só
+  // é chamado se o jogador confirmar (ver DialogContent mais abaixo).
+  const handleDiscardClick = () => {
+    if (settings.confirmBeforeDiscard) {
+      setConfirmingDiscard(true);
+    } else {
+      onDiscardCards();
+    }
+  };
 
   const handlePlayFaceDown = () => {
     if (selectedCardId && selectedSlot && selectedSlot.player === playerNumber) {
@@ -1016,7 +1062,7 @@ export function PlayerZone({
               </div>
               <div className="flex gap-2">
                 <Button
-                  onClick={onDiscardCards}
+                  onClick={handleDiscardClick}
                   size="sm"
                   disabled={
                     selectedForDiscard.size === 0 ||
@@ -1145,6 +1191,22 @@ export function PlayerZone({
                   </span>
                 </button>
               )}
+              {/* FIX (pedido do usuário: "ocultar mão do oponente
+                  automaticamente" no Hotseat) - só aparece quando o modo de
+                  privacidade está ligado (ver hotseatPrivacyActive acima) -
+                  única forma de sair do estado oculto padrão, ver
+                  `handRevealed`. */}
+              {hotseatPrivacyActive && (
+                <button
+                  onClick={() => setHandRevealed((v) => !v)}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 border transition-colors"
+                  style={{ borderColor: `${theme.primary}50`, color: theme.primary }}
+                  title={handRevealed ? 'Ocultar minha mão de novo' : 'Passe o dispositivo? Confira que ninguém mais está vendo antes de revelar'}
+                >
+                  {handRevealed ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
+                  <span className="text-[9px]">{handRevealed ? 'Ocultar minha mão' : 'Ver minha mão'}</span>
+                </button>
+              )}
             </div>
             {!isAiControlled && selectedCardId && phase === 'strategy' && (
               <p className="text-[10px]" style={{ color: theme.primary }}>
@@ -1228,7 +1290,7 @@ export function PlayerZone({
                   saída em si (jogar/descartar) volta a ser instantânea, como
                   era antes desta rodada - um preço pequeno por não vazar um
                   nó de card por carta pelo resto da partida. */}
-              {isAiControlled ? (
+              {showHandHidden ? (
                 playerState.hand.map((card) => {
                   // Modo Reações (pedido do usuário) - a mão da IA usa este
                   // branch de renderização SEPARADO de HandCardView.tsx (mais
@@ -1566,6 +1628,41 @@ export function PlayerZone({
           </div>
         )}
       </div>
+
+      {/* FIX (pedido do usuário: "confirmar antes de descartar") - só existe
+          quando `settings.confirmBeforeDiscard` está ligado (ver
+          handleDiscardClick acima) - a lista de cartas selecionadas
+          continua visível por trás (Dialog não fecha a mão), então o
+          jogador consegue conferir de novo o que vai descartar antes de
+          confirmar. */}
+      <Dialog open={confirmingDiscard} onOpenChange={setConfirmingDiscard}>
+        <DialogContent className="bg-[#1E1A16] border-[#C59E4F]">
+          <DialogHeader>
+            <DialogTitle className="text-[#EFE7D6] font-display text-[20px]">Confirmar Descarte</DialogTitle>
+            <DialogDescription className="text-[#BFB6A6]">
+              Descartar {selectedForDiscard.size} carta(s)? Essa ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-4">
+            <Button
+              onClick={() => {
+                setConfirmingDiscard(false);
+                onDiscardCards();
+              }}
+              className="flex-1 bg-[#D45D4A] hover:bg-[#8A2E2E] text-[#EFE7D6]"
+            >
+              Descartar
+            </Button>
+            <Button
+              onClick={() => setConfirmingDiscard(false)}
+              variant="outline"
+              className="flex-1 border-[#C59E4F] text-[#C59E4F]"
+            >
+              Cancelar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

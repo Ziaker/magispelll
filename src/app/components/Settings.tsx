@@ -161,6 +161,49 @@ export function Settings({ onBack }: SettingsProps) {
                     disabled={!settings.animations}
                   />
                 </div>
+
+                {/* FIX (pedido do usuário: "desligar flashes de tela cheia",
+                    separado do Tremor de Tela - ver settings.ts). */}
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="screenFlashEnabled" className="text-[#BFB6A6]">
+                    Flash de Tela
+                  </Label>
+                  <Switch
+                    id="screenFlashEnabled"
+                    checked={settings.screenFlashEnabled}
+                    onCheckedChange={(checked) => updateSetting('screenFlashEnabled', checked)}
+                    disabled={!settings.animations}
+                  />
+                </div>
+
+                {/* FIX (pedido do usuário: "tamanho da carta / zoom da
+                    interface"). */}
+                <div className="space-y-3">
+                  <Label htmlFor="interfaceZoom" className="text-[#BFB6A6]">
+                    Tamanho da Interface: {settings.interfaceZoom}%
+                  </Label>
+                  <Slider
+                    id="interfaceZoom"
+                    value={[settings.interfaceZoom]}
+                    onValueChange={([value]) => updateSetting('interfaceZoom', value)}
+                    min={60}
+                    max={100}
+                    step={5}
+                  />
+                </div>
+
+                {/* FIX (pedido do usuário: "mostrar/ocultar o Log de Ações
+                    por padrão"). */}
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="showActionLog" className="text-[#BFB6A6]">
+                    Log de Ações
+                  </Label>
+                  <Switch
+                    id="showActionLog"
+                    checked={settings.showActionLog}
+                    onCheckedChange={(checked) => updateSetting('showActionLog', checked)}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -202,6 +245,40 @@ export function Settings({ onBack }: SettingsProps) {
                     </Label>
                   </div>
                 </RadioGroup>
+              </div>
+
+              {/* FIX (pedido do usuário: "confirmar antes de descartar"). */}
+              <div className="flex items-center justify-between">
+                <Label htmlFor="confirmBeforeDiscard" className="text-[#BFB6A6]">
+                  Confirmar Antes de Descartar
+                </Label>
+                <Switch
+                  id="confirmBeforeDiscard"
+                  checked={settings.confirmBeforeDiscard}
+                  onCheckedChange={(checked) => updateSetting('confirmBeforeDiscard', checked)}
+                />
+              </div>
+
+              {/* FIX (pedido do usuário: "ocultar mão do oponente
+                  automaticamente" no Hotseat) - sempre visível aqui (ao
+                  contrário do menu de Pausa, que só mostra durante uma
+                  partida Hotseat de verdade) porque esta tela é acessada
+                  ANTES de qualquer partida existir - não dá pra checar
+                  `gameConfig.mode` aqui. */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label htmlFor="hotseatPrivacyMode" className="text-[#BFB6A6]">
+                    Ocultar Mão ao Passar o Dispositivo (Hotseat)
+                  </Label>
+                  <p className="text-[12px] text-[#BFB6A6]/70">
+                    Cada jogador revela a própria mão com um botão, em vez dela ficar sempre visível pros dois lados
+                  </p>
+                </div>
+                <Switch
+                  id="hotseatPrivacyMode"
+                  checked={settings.hotseatPrivacyMode}
+                  onCheckedChange={(checked) => updateSetting('hotseatPrivacyMode', checked)}
+                />
               </div>
             </CardContent>
           </Card>

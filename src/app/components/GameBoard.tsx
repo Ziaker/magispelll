@@ -364,6 +364,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [combatValueReveal, setCombatValueReveal] = useState<CombatValueRevealSpec | null>(null);
   /** FIX (pedido do usuário, item 4): true por ~0.5s quando uma disputa de combate é fechada (o perdedor perde 1 vida) - sacode a tela inteira (ver .animate-screen-shake em globals.css). */
   const [screenShake, setScreenShake] = useState(false);
+  /** FIX (pedido do usuário: "desligar flashes de tela cheia" separado do Tremor de Tela) - antes ChromaticFlash usava o MESMO `screenShake` acima; agora tem seu próprio estado/gatilho, controlado por `settings.screenFlashEnabled` independente de `settings.screenShakeEnabled`. */
+  const [screenFlash, setScreenFlash] = useState(false);
   /** FIX (pedido do usuário, item 10): jogador (1 ou 2) que acabou de fechar uma disputa (vencer 2 combates seguidos) - dispara um brilho extra na zona dele por alguns segundos (ver PlayerZone.tsx). */
   const [victoryGlowPlayer, setVictoryGlowPlayer] = useState<1 | 2 | null>(null);
   const [showVictory, setShowVictory] = useState(false);
@@ -1063,9 +1065,15 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // perdedor (`disputeWinner` preenchido), não em toda vitória de combate
       // comum (a 1ª de 2 necessárias), para o abalo ficar reservado ao
       // momento que de fato pesa na partida.
-      if (resolution.disputeWinner && settings.animations && settings.screenShakeEnabled) {
-        setScreenShake(true);
-        setTimeout(() => setScreenShake(false), delay(650));
+      if (resolution.disputeWinner && settings.animations) {
+        if (settings.screenShakeEnabled) {
+          setScreenShake(true);
+          setTimeout(() => setScreenShake(false), delay(650));
+        }
+        if (settings.screenFlashEnabled) {
+          setScreenFlash(true);
+          setTimeout(() => setScreenFlash(false), delay(650));
+        }
       }
       // FIX (pedido do usuário, item 10): "brilho extra ao vencer 2 combates
       // seguidos" - mesmo gatilho (`disputeWinner`) do screen shake acima,
@@ -1201,9 +1209,15 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // Numerais (Visão Arcana/Fúria Sanguinária/Benção Eterna), sem distinção
     // por personagem, diferente das magias J/Q/K normais - ver numeralSoundFor.
     soundManager.play(numeralSoundFor(gameState.numeralSpellPending.character));
-    if (settings.animations && settings.screenShakeEnabled) {
-      setScreenShake(true);
-      setTimeout(() => setScreenShake(false), delay(650));
+    if (settings.animations) {
+      if (settings.screenShakeEnabled) {
+        setScreenShake(true);
+        setTimeout(() => setScreenShake(false), delay(650));
+      }
+      if (settings.screenFlashEnabled) {
+        setScreenFlash(true);
+        setTimeout(() => setScreenFlash(false), delay(650));
+      }
     }
     const t = setTimeout(() => {
       setShowNumeralSpellPopup(false);
@@ -2312,6 +2326,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const isSlotProtectedFor = (playerNumber: 1 | 2, slotIndex: number) => isSlotProtected(gameState, playerNumber, slotIndex);
 
   const [zoomContainerEl, setZoomContainerEl] = useState<HTMLDivElement | null>(null);
+  // FIX (pedido do usuário: "tamanho da carta / zoom da interface") - ver o
+  // comentário completo no `style` do wrapper mais abaixo.
+  const interfaceZoomFactor = settings.interfaceZoom / 100;
+  // FIX (pedido do usuário: "ocultar mão do oponente automaticamente" no
+  // Hotseat) - ver o comentário completo em `hotseatPrivacyActive`,
+  // PlayerZone.tsx.
+  const hotseatPrivacyActive = gameConfig.mode === 'hotseat' && settings.hotseatPrivacyMode;
 
   const winnerVictoryColor = gameState.gameOver
     ? (gameState.gameOver.winner === 1 ? p1Theme.primary : p2Theme.primary)
@@ -2345,7 +2366,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // verdade, sem sobra. A largura não precisa do mesmo ajuste porque este
       // div nunca teve `w-screen`/`100vw` - a largura sempre veio do próprio
       // fluxo do layout (100% do pai), que já escala corretamente com o zoom.
-      style={{ zoom: 0.85, height: 'calc(100vh / 0.85)' }}
+      //
+      // FIX (pedido do usuário: "tamanho da carta / zoom da interface") -
+      // `0.85` virou `settings.interfaceZoom / 100` (85 é o valor padrão,
+      // idêntico ao de antes desta opção existir - ver DEFAULT_SETTINGS em
+      // settings.ts) - ajustável no menu de Pausa/Configurações.
+      style={{ zoom: interfaceZoomFactor, height: `calc(100vh / ${interfaceZoomFactor})` }}
     >
     <ZoomContainerContext.Provider value={zoomContainerEl}>
       {/* FIX (checagem extensa por bugs - "vários efeitos... mal
@@ -2373,7 +2399,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           próprio keyframe de .animate-screen-shake, ver globals.css) +
           flash cromático na tela inteira, nos mesmos momentos que o screen
           shake já disparava (golpe decisivo de combate / Magia Numeral). */}
-      <ChromaticFlash active={screenShake} />
+      <ChromaticFlash active={screenFlash} />
       {/* Modo Reações (pedido do usuário) - banner não-bloqueante com o
           contador de 3s (a mão continua 100% visível/clicável embaixo dele -
           ver ReactionAlertBanner.tsx) + o "grande X" no instante em que
@@ -2568,16 +2594,23 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               cada - ainda confortável pro log de texto e pro card do
               Monstro/referência de magias, e libera 200px a mais pra coluna
               central (mão + campo de batalha). */}
-          <div className="grid grid-cols-[300px_minmax(0,1fr)_300px] gap-6 h-full">
+          {/* FIX (pedido do usuário: "mostrar/ocultar o Log de Ações por
+              padrão") - com `showActionLog` desligado, a coluna do Log some
+              inteira (grid de 2 colunas em vez de 3) e a coluna central
+              (mão + campo) ganha esse espaço de volta, em vez de sobrar um
+              vão vazio. */}
+          <div className={`grid gap-6 h-full ${settings.showActionLog ? 'grid-cols-[300px_minmax(0,1fr)_300px]' : 'grid-cols-[minmax(0,1fr)_300px]'}`}>
             {/* Esquerda - Log de Ações */}
-            <div className="space-y-6">
-              <LogPanel
-                log={gameState.log}
-                player1Character={player1Character}
-                player2Character={player2Character}
-                screenReaderMode={settings.screenReader}
-              />
-            </div>
+            {settings.showActionLog && (
+              <div className="space-y-6">
+                <LogPanel
+                  log={gameState.log}
+                  player1Character={player1Character}
+                  player2Character={player2Character}
+                  screenReaderMode={settings.screenReader}
+                />
+              </div>
+            )}
 
             {/* Centro - Área de Jogo */}
             <div className="space-y-6">
@@ -2636,6 +2669,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 // próprio, mesmo sendo um efeito completamente independente.
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[2] !== undefined}
                 isAiControlled={isAi(2)}
+                hotseatPrivacyActive={hotseatPrivacyActive}
                 effectFlashCardIds={effectFlashCardIds}
                 rejectedCardIds={rejectedCardIds}
                 selfEffectFlash={selfEffectFlashPlayer === 2}
@@ -2742,6 +2776,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onActivateNumeralSpell={() => handleActivateNumeralSpell(1)}
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[1] !== undefined}
                 isAiControlled={isAi(1)}
+                hotseatPrivacyActive={hotseatPrivacyActive}
                 effectFlashCardIds={effectFlashCardIds}
                 rejectedCardIds={rejectedCardIds}
                 selfEffectFlash={selfEffectFlashPlayer === 1}
@@ -4310,6 +4345,20 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onCheckedChange={(checked) => updateSetting('animations', checked)}
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="pauseAnimationSpeed" className="text-[#BFB6A6]">
+                Velocidade de Animação: {settings.animationSpeed}%
+              </Label>
+              <Slider
+                id="pauseAnimationSpeed"
+                value={[settings.animationSpeed]}
+                onValueChange={([value]) => updateSetting('animationSpeed', value)}
+                min={50}
+                max={200}
+                step={10}
+                disabled={!settings.animations}
+              />
+            </div>
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label htmlFor="pauseScreenShake" className="text-[#BFB6A6]">
@@ -4325,6 +4374,17 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               />
             </div>
             <div className="flex items-center justify-between">
+              <Label htmlFor="pauseScreenFlash" className="text-[#BFB6A6]">
+                Flash de Tela
+              </Label>
+              <Switch
+                id="pauseScreenFlash"
+                checked={settings.screenFlashEnabled}
+                onCheckedChange={(checked) => updateSetting('screenFlashEnabled', checked)}
+                disabled={!settings.animations}
+              />
+            </div>
+            <div className="flex items-center justify-between">
               <Label htmlFor="pauseHighContrast" className="text-[#BFB6A6]">
                 Alto Contraste
               </Label>
@@ -4334,6 +4394,57 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onCheckedChange={(checked) => updateSetting('highContrast', checked)}
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="pauseInterfaceZoom" className="text-[#BFB6A6]">
+                Tamanho da Interface: {settings.interfaceZoom}%
+              </Label>
+              <Slider
+                id="pauseInterfaceZoom"
+                value={[settings.interfaceZoom]}
+                onValueChange={([value]) => updateSetting('interfaceZoom', value)}
+                min={60}
+                max={100}
+                step={5}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pauseShowActionLog" className="text-[#BFB6A6]">
+                Log de Ações
+              </Label>
+              <Switch
+                id="pauseShowActionLog"
+                checked={settings.showActionLog}
+                onCheckedChange={(checked) => updateSetting('showActionLog', checked)}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pauseConfirmDiscard" className="text-[#BFB6A6]">
+                Confirmar Antes de Descartar
+              </Label>
+              <Switch
+                id="pauseConfirmDiscard"
+                checked={settings.confirmBeforeDiscard}
+                onCheckedChange={(checked) => updateSetting('confirmBeforeDiscard', checked)}
+              />
+            </div>
+            {/* FIX (pedido do usuário: "ocultar mão do oponente
+                automaticamente" no Hotseat) - só faz sentido nesse modo (ver
+                comentário completo em hotseatPrivacyMode, settings.ts). */}
+            {gameConfig.mode === 'hotseat' && (
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="pauseHotseatPrivacy" className="text-[#BFB6A6]">
+                    Ocultar Mão ao Passar o Dispositivo
+                  </Label>
+                  <p className="text-[11px] text-[#BFB6A6]/70">Cada jogador revela a própria mão com um botão</p>
+                </div>
+                <Switch
+                  id="pauseHotseatPrivacy"
+                  checked={settings.hotseatPrivacyMode}
+                  onCheckedChange={(checked) => updateSetting('hotseatPrivacyMode', checked)}
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex gap-4 pt-2">

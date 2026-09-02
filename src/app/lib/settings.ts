@@ -60,6 +60,45 @@ export interface Settings {
    * animações ligadas mas quer especificamente sem o tremor.
    */
   screenShakeEnabled: boolean;
+  /**
+   * FIX (pedido do usuário: "desligar flashes de tela cheia", separado do
+   * Tremor de Tela) - o flash cromático (ChromaticFlash.tsx) disparava no
+   * MESMO estado (`screenShake`) que o tremor em GameBoard.tsx - os dois
+   * agora têm seu próprio estado/gatilho independente, então desligar um
+   * não precisa desligar o outro. Continua exigindo `animations` true.
+   */
+  screenFlashEnabled: boolean;
+  /**
+   * FIX (pedido do usuário: "mostrar/ocultar o Log de Ações por padrão") -
+   * a coluna do Log (GameBoard.tsx) sempre ocupava 300px fixos; desligado,
+   * ela some e a coluna central (mão + campo) ganha esse espaço de volta.
+   */
+  showActionLog: boolean;
+  /**
+   * FIX (pedido do usuário: "tamanho da carta / zoom da interface") -
+   * substitui o `zoom: 0.85` hardcoded de GameBoard.tsx (aplicado à tela de
+   * jogo INTEIRA - mão, campo, painéis) por um valor ajustável. 85 é o
+   * valor de sempre (mesmo padrão visual de antes desta opção existir).
+   */
+  interfaceZoom: number; // 60-100, percentual
+  /**
+   * FIX (pedido do usuário: "confirmar antes de descartar") - desligado por
+   * padrão (preserva o fluxo rápido de sempre); quando ligado, o botão
+   * "Descartar" (PlayerZone.tsx) abre um diálogo de confirmação em vez de
+   * descartar na hora, pra evitar descarte acidental por clique errado.
+   */
+  confirmBeforeDiscard: boolean;
+  /**
+   * FIX (pedido do usuário: "ocultar mão do oponente automaticamente" no
+   * Hotseat) - fora do modo Hotseat isso nunca importa (contra a IA/
+   * Espectador já escondem a mão automaticamente, ver isAiControlled em
+   * PlayerZone.tsx). No Hotseat (os 2 lados são humanos, na mesma tela ao
+   * mesmo tempo), liga um borrão (blur) sobre a mão de cada jogador por
+   * padrão - um botão "Ver minha mão" por zona revela temporariamente (ver
+   * PlayerZone.tsx). Desligado por padrão porque é uma mudança de fluxo
+   * grande o bastante pra ser opt-in, não uma correção de bug.
+   */
+  hotseatPrivacyMode: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -73,6 +112,11 @@ export const DEFAULT_SETTINGS: Settings = {
   screenReader: false,
   handInteractionMode: 'both',
   screenShakeEnabled: true,
+  screenFlashEnabled: true,
+  showActionLog: true,
+  interfaceZoom: 85,
+  confirmBeforeDiscard: false,
+  hotseatPrivacyMode: false,
 };
 
 const STORAGE_KEY = 'magispelll:settings';
