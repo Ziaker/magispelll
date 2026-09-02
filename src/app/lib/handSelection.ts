@@ -31,6 +31,22 @@ export interface HandSelectionState {
  * @param towerSlotThisTurn - `PlayerState.towerSlotThisTurn` do mesmo jogador.
  * @param current - seleção atual (`selectedCardId`/`selectedForTower`).
  * @param clickedCardId - id da carta clicada agora.
+ * @param towersModeEnabled - `gameConfig.towersMode` desta partida. FIX
+ *   (bug real reportado pelo usuário: "clicar na carta... não está
+ *   funcionando corretamente, a opção só aparece quando o jogador faz
+ *   drag") - esta função nunca checava se a variante Towers estava
+ *   LIGADA - qualquer clique numa carta com outra de mesmo valor na mão
+ *   (bem comum, sem relação nenhuma com Towers estar ativo ou não) caía em
+ *   `selectedForTower` em vez de `selectedCardId`, deixando o painel
+ *   "Posicionar/Horizontal" (que só olha `selectedCardId`) sem nada pra
+ *   mostrar - e como Towers estava desligado, o botão "Empilhar" também
+ *   nunca aparecia, então o clique simplesmente não fazia NADA visível.
+ *   Arrastar a carta continuava funcionando porque `onDragStart` seleciona
+ *   direto via `onCardSelect`, sem passar por esta função - só por isso o
+ *   bug parecia "só acontecer no clique". Com Towers desligado, esta
+ *   função agora ignora inteiramente a lógica de agrupamento e sempre
+ *   segue a seleção normal de carta única, não importa quantas cópias do
+ *   mesmo valor existam na mão.
  * @returns a NOVA seleção resultante - sempre com exatamente um dos dois
  *   campos "ativo" (o outro fica null/vazio), nunca os dois ao mesmo tempo.
  */
@@ -39,7 +55,8 @@ export function decideHandCardSelection(
   field: [FieldSlot, FieldSlot, FieldSlot],
   towerSlotThisTurn: number | undefined,
   current: HandSelectionState,
-  clickedCardId: string
+  clickedCardId: string,
+  towersModeEnabled: boolean
 ): HandSelectionState {
   const card = hand.find((c) => c.id === clickedCardId);
   if (!card) return current;
@@ -47,8 +64,10 @@ export function decideHandCardSelection(
   const value = towerEligibleValue(card);
 
   // Cartas não elegíveis pra torre (magia, Monstro) sempre seguem a seleção
-  // normal de carta única - nunca entram em `selectedForTower`.
-  if (value === null) {
+  // normal de carta única - nunca entram em `selectedForTower`. Com Towers
+  // desligado na partida, TODA carta segue esse mesmo caminho simples (ver
+  // FIX acima) - reclicar na já selecionada ainda desmarca normalmente.
+  if (value === null || !towersModeEnabled) {
     return {
       selectedCardId: current.selectedCardId === clickedCardId ? null : clickedCardId,
       selectedForTower: new Set(),

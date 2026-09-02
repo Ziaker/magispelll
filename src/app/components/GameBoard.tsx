@@ -1421,7 +1421,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       player.field,
       player.towerSlotThisTurn,
       { selectedCardId, selectedForTower },
-      cardId
+      cardId,
+      gameConfig.towersMode
     );
     setSelectedCardId(next.selectedCardId);
     setSelectedForTower(next.selectedForTower);
