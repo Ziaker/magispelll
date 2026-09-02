@@ -138,6 +138,39 @@ function coringaQueenCopyValue(opponentField: [FieldSlot, FieldSlot, FieldSlot] 
   return Math.max(...revealed.map((c) => getSpotlightAdjustedValue(c, spotlight)));
 }
 
+/**
+ * Coringa - valor especial de uma carta-armadilha CRUA (J/Q/K/Monstro, ainda
+ * não transformada em numeral - ver `coringaTransformedToNumeral`), a MESMA
+ * regra usada por `applyCoringaTrapCombatValue` em gameEngine.ts (Valete=1,
+ * Monstro=15, Rainha=copia uma carta revelada do oponente ou 1, Rei=9 como
+ * aproximação de planejamento - o Rei nunca perde de verdade, força empate,
+ * mas não há como representar "empate garantido" como um número de valor
+ * comparável a qualquer outra carta, então 9 já era a aproximação usada
+ * aqui). `undefined` = a carta não é uma armadilha crua (não é Coringa, ou já
+ * foi transformada) - quem chamar cai de volta pro valor efetivo normal.
+ *
+ * FIX (achado por simulação real: a IA comprometia disputas com Valete/Rei
+ * crus achando que valiam 11/13, e evitava lutar com o próprio Monstro
+ * achando que valia 0) - extraído de dentro de `combatValue` (usado só pra
+ * planejamento) pra ser reaproveitado TAMBÉM por `trueSlotValue` (usado
+ * quando o valor REAL de uma disputa específica importa) - antes só
+ * `combatValue` tinha essa correção; `trueSlotValue` chamava
+ * `getSpotlightAdjustedValue`/`getEffectiveCardValue` direto, que devolve o
+ * valor de face GENÉRICO de J/Q/K (11/12/13, usado pra ordenar magias
+ * comuns) e 0 pro Coringa (`getCardNumericValue('JOKER')`) - a mesma classe
+ * de bug (duas funções calculando "valor real da carta" cada uma do seu
+ * jeito) que já causou o Tiro Certeiro do Mosqueteiro ficar invisível pra
+ * IA nesta sessão.
+ */
+function coringaRawTrapValue(card: Card, opponentField: [FieldSlot, FieldSlot, FieldSlot] | undefined, spotlight: SpotlightState | null): number | undefined {
+  if (card.coringaTransformedToNumeral) return undefined;
+  if (card.value === 'J') return 1;
+  if (card.isMonster) return 15;
+  if (card.value === 'Q') return coringaQueenCopyValue(opponentField, spotlight);
+  if (card.value === 'K') return 9;
+  return undefined;
+}
+
 function combatValue(card: Card, spotlight: SpotlightState | null, opponentField?: [FieldSlot, FieldSlot, FieldSlot]): number {
   if (card.value === 'A' && card.transformedValue === undefined) {
     return AVERAGE_FIELD_CARD_VALUE;
@@ -154,14 +187,8 @@ function combatValue(card: Card, spotlight: SpotlightState | null, opponentField
   // do zero no momento da revelação. `coringaTransformedToNumeral` já
   // implica dono Coringa (nenhum outro personagem tem esse campo setado),
   // então não precisa saber o personagem aqui pra decidir.
-  if (!card.coringaTransformedToNumeral) {
-    if (card.value === 'J') return 1;
-    if (card.isMonster) return 15;
-    // Rainha: vale o que ela conseguiria COPIAR agora (1 sem alvo revelado) -
-    // ver coringaQueenCopyValue acima.
-    if (card.value === 'Q') return coringaQueenCopyValue(opponentField, spotlight);
-    if (card.value === 'K') return 9;
-  }
+  const rawTrapValue = coringaRawTrapValue(card, opponentField, spotlight);
+  if (rawTrapValue !== undefined) return rawTrapValue;
   return getSpotlightAdjustedValue(card, spotlight);
 }
 
@@ -281,12 +308,28 @@ function cardPriority(card: Card, character: CharacterId, spotlight: SpotlightSt
  * horizontais não reveladas fora da soma nesses casos; chamadas sobre o
  * próprio campo continuam com informação completa (comportamento inalterado).
  */
+/**
+ * FIX (achado por simulação real, ver comentário completo em
+ * `coringaRawTrapValue` acima): antes esta função (que o comentário da
+ * própria função já dizia existir pra saber "se uma disputa específica
+ * realmente será vencida") ignorava por completo a regra especial do
+ * Coringa - uma armadilha crua caía direto em `getSpotlightAdjustedValue`,
+ * que devolve o valor de face GENÉRICO (Valete=11, Rainha=12, Rei=13, igual
+ * a qualquer carta de magia comum) ou 0 pro Monstro (`getCardNumericValue`
+ * não sabe que 'JOKER' vale 15 nesse contexto) - o oposto do valor real
+ * (Valete=1, Rei=nunca perde, Monstro=15). `opts.opponentField` é o campo
+ * DO OPONENTE relativo ao DONO do slot sendo avaliado (não necessariamente
+ * o oponente de quem está chamando - ver os 5 call sites) - só usado pela
+ * Rainha, pra saber o que ela copiaria agora; `undefined` cai pro "1" padrão
+ * de `coringaQueenCopyValue` (sem alvo revelado, mesma regra seja qual for
+ * o motivo do campo estar ausente).
+ */
 function trueSlotValue(
   playerState: PlayerState,
   slotIndex: number,
   character: CharacterId,
   spotlight: SpotlightState | null,
-  opts: { opponentView?: boolean } = {}
+  opts: { opponentView?: boolean; opponentField?: [FieldSlot, FieldSlot, FieldSlot] } = {}
 ): number {
   const slot = playerState.field[slotIndex];
   if (!slot.faceDownCard) return 1;
@@ -304,13 +347,21 @@ function trueSlotValue(
   // Modo Spotlight): `getSpotlightAdjustedValue` no lugar de
   // `getEffectiveCardValue` - precisa da mesma fonte de valor pra não achar
   // que está ganhando/perdendo uma disputa que na real já foi decidida pelo
-  // Spotlight.
-  const base = applyCombatModifiers(getSpotlightAdjustedValue(slot.faceDownCard, spotlight), slot.faceDownCard.id, playerState.combatModifiers);
+  // Spotlight. FIX (auditoria de simulação de IA, Coringa): compõe também
+  // `coringaRawTrapValue` (Monstro/Rei/Valete armadilha calibrados, não o
+  // valor de face cru) por cima de `applyCombatModifiers` - seguro porque
+  // `combatModifiers` do Coringa é sempre vazio (só Besta/Mosqueteiro
+  // preenchem essa lista), as duas correções nunca colidem na mesma carta.
+  const trueCardValue = (card: Card, opponentField: [FieldSlot, FieldSlot, FieldSlot] | undefined): number => {
+    const rawTrapValue = character === 'coringa' ? coringaRawTrapValue(card, opponentField, spotlight) : undefined;
+    const base = rawTrapValue !== undefined ? rawTrapValue : getSpotlightAdjustedValue(card, spotlight);
+    return applyCombatModifiers(base, card.id, playerState.combatModifiers);
+  };
+  const base = trueCardValue(slot.faceDownCard, opts.opponentField);
   const visibleHorizontal = opts.opponentView ? slot.horizontalCards.filter((c) => c.revealed) : slot.horizontalCards;
-  const horizontal = visibleHorizontal.reduce(
-    (sum, c) => sum + applyCombatModifiers(getSpotlightAdjustedValue(c, spotlight), c.id, playerState.combatModifiers),
-    0
-  );
+  // Só o Valete do Coringa é elegível como horizontal (ver
+  // isCoringaTrapFieldEligible) - vale 1 fixo, não precisa de opponentField.
+  const horizontal = visibleHorizontal.reduce((sum, c) => sum + trueCardValue(c, undefined), 0);
   // FIX (pedido do usuário: "no modo towers, a IA não seleciona a torre
   // quando a própria tem valores altos durante as disputas" + "a IA escolhe
   // um valor mais baixo quando o oponente escolhe uma carta revelada") -
@@ -367,7 +418,33 @@ function pickRandomN<T>(items: T[], count: number): T[] {
  * mesmo assim (reduz o mais perigoso, mesmo sem eliminar) - nunca mira um
  * slot vazio ou protegido (Proteção Divina do Anjo). `null` = nenhum alvo
  * válido agora (campo do oponente vazio ou tudo protegido).
+ *
+ * FIX (achado por simulação real: as 4 lançadas observadas miraram 100% em
+ * slots com carta principal AINDA NÃO REVELADA) - antes somava
+ * `getEffectiveCardValue` de toda carta do slot incondicionalmente, sem
+ * checar `revealed` - a IA enxergava o valor VERDADEIRO de cartas ocultas do
+ * oponente pra escolher o alvo "ótimo", contrariando a regra explícita do
+ * cabeçalho deste arquivo ("nunca olha o valor de uma carta virada do
+ * oponente que ainda não foi revelada") e o padrão já usado por toda função
+ * de mira similar (ex.: a checagem de ameaça em shouldHoldBackField). Uma
+ * carta ainda não revelada agora entra na conta pelo valor MÉDIO esperado
+ * (`buildUnseenCombatValuePool`, a mesma distribuição estatística já usada
+ * por pickCombatSlotWithVariety pra apostar contra cartas não vistas) em vez
+ * do valor real OU de 0 - 0 seria pior que onisciente: faria a IA preferir
+ * "obliterar de graça" um slot totalmente oculto achando que não tem nada
+ * ali, quando pode ter a carta mais forte do jogo escondida.
  */
+/** Valor estimado (nunca onisciente - ver comentário de pickFireballTarget) de um slot do OPONENTE, pra mirar/avaliar a Bola de Fogo. */
+function estimatedOpponentSlotTotal(state: GameState, ai: PlayerNumber, slotIndex: number): number {
+  const opponentState = state[playerKeyOf(opponentOf(ai))];
+  const slot = opponentState.field[slotIndex];
+  const unseenPool = buildUnseenCombatValuePool(state, ai);
+  const unseenAverage = unseenPool.length > 0 ? unseenPool.reduce((sum, v) => sum + v, 0) / unseenPool.length : AVERAGE_FIELD_CARD_VALUE;
+  const estimatedValue = (c: Card) => (c.revealed ? getEffectiveCardValue(c) : unseenAverage);
+  const cards = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...slot.horizontalCards];
+  return cards.reduce((sum, c) => sum + estimatedValue(c), 0);
+}
+
 function pickFireballTarget(state: GameState, ai: PlayerNumber): number | null {
   const opponent = opponentOf(ai);
   const opponentState = state[playerKeyOf(opponent)];
@@ -376,7 +453,7 @@ function pickFireballTarget(state: GameState, ai: PlayerNumber): number | null {
       if (isSlotProtected(state, opponent, i)) return null;
       const cards = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...slot.horizontalCards];
       if (cards.length === 0) return null;
-      return { slotIndex: i, total: cards.reduce((sum, c) => sum + getEffectiveCardValue(c), 0) };
+      return { slotIndex: i, total: estimatedOpponentSlotTotal(state, ai, i) };
     })
     .filter((c): c is { slotIndex: number; total: number } => c !== null);
   if (candidates.length === 0) return null;
@@ -398,12 +475,18 @@ function shouldLaunchFireball(state: GameState, ai: PlayerNumber): boolean {
   if (me.fireballValue <= 0) return false;
   const target = pickFireballTarget(state, ai);
   if (target === null) return false;
-  const opponent = opponentOf(ai);
-  const opponentState = state[playerKeyOf(opponent)];
-  const slot = opponentState.field[target];
-  const total = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...slot.horizontalCards].reduce((sum, c) => sum + getEffectiveCardValue(c), 0);
+  const total = estimatedOpponentSlotTotal(state, ai, target);
   const cap = getFireballCap(state.gameConfig);
-  return me.fireballValue >= total || me.fireballValue >= cap - 3;
+  if (me.fireballValue >= total || me.fireballValue >= cap - 3) return true;
+  // FIX (achado por simulação real: a IA nunca lançava fora de "obliterar de
+  // vez" ou "quase no teto", então perdendo o jogo ela seguia acumulando
+  // combustível em vez de usar o que já tem pra amenizar dano AGORA) -
+  // perdendo no placar (mesmo sinal público já usado em todo o resto do
+  // arquivo), um corte real na ameaça (reduz pela METADE ou mais, mesmo sem
+  // obliterar) já vale lançar - esperar pela oportunidade perfeita quando já
+  // se está atrás custa vidas de verdade. Um piso de 5 evita lançar um valor
+  // trivial demais pra fazer diferença.
+  return livesDelta(state, ai) < 0 && me.fireballValue >= 5 && me.fireballValue >= total * 0.5;
 }
 
 function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
@@ -536,7 +619,22 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   if (character === 'piromante') {
     const jCard = me.hand.find((c) => c.value === 'J');
     if (jCard && canActivateMagic('draw', 'piromante', 'J', getMagicActivationContext(state, ai))) {
-      if (ctx.hasFireFuelInHand) {
+      // FIX (achado por simulação real: uma mão só de numerais pequenos ficava
+      // sem NENHUMA carta pra ocupar um slot vazio no mesmo turno, porque
+      // Combustão queima TODAS as cartas <5 de uma vez - não é uma escolha "1
+      // carta por vez" da IA, é assim que a magia funciona (ver
+      // handleExecuteMagic em gameEngine.ts). O combustível nunca "estraga"
+      // (o Valete pode ser jogado de novo mais tarde, mesmo argumento já
+      // usado no comentário original abaixo) - então adiar 1 turno quando
+      // queimar deixaria a mão SEM nenhuma carta elegível pra campo custa
+      // zero de verdade, contra o custo real de um slot vazio (vale 1 no
+      // combate) por um turno inteiro. Só trava nesse caso específico -
+      // com qualquer outra carta de campo sobrando, continua queimando na
+      // hora, do jeito que já era.
+      const hasEmptyMainSlot = me.field.some((slot) => !slot.faceDownCard);
+      const fuelIds = new Set(me.hand.filter((c) => isPlainNumeralCard(c) && getEffectiveCardValue(c) < 5).map((c) => c.id));
+      const wouldStripAllFieldEligible = hasEmptyMainSlot && !me.hand.some((c) => !fuelIds.has(c.id) && isFieldEligible(c));
+      if (ctx.hasFireFuelInHand && !wouldStripAllFieldEligible) {
         return {
           type: 'action',
           action: { type: 'EXECUTE_MAGIC', player: ai, cardId: jCard.id, character: 'piromante', magicType: 'J', selection: {} },
@@ -1530,6 +1628,32 @@ function decidePiromanteQ(state: GameState, ai: PlayerNumber): GameAction | null
   ];
   if (candidates.length > 0) {
     const best = pickHighestBy(candidates, (c) => getEffectiveCardValue(c));
+    const burnValue = getEffectiveCardValue(best);
+    // FIX (achado por simulação real: a IA sempre preferia queimar uma carta
+    // pequena revelada a lançar a Bola de Fogo já pronta pra obliterar uma
+    // ameaça bem maior, só porque a checagem de "tem alvo pra queimar?" vinha
+    // ANTES de considerar lançar) - queimar continua sendo a prioridade
+    // padrão (ainda vale mais que lançar cedo demais, mesmo argumento do
+    // comentário acima), mas só quando não existe uma alternativa
+    // CLARAMENTE melhor: launchValue precisa superar o ganho de queimar por
+    // uma margem real (50%), não só empatar, pra não fazer a IA trocar de
+    // ideia à toa por uma diferença marginal.
+    if (shouldLaunchFireball(state, ai)) {
+      const target = pickFireballTarget(state, ai);
+      if (target !== null) {
+        const launchValue = estimatedOpponentSlotTotal(state, ai, target);
+        if (launchValue >= burnValue * 1.5) {
+          return {
+            type: 'EXECUTE_MAGIC',
+            player: ai,
+            cardId: qCard.id,
+            character: 'piromante',
+            magicType: 'Q',
+            selection: { fireballLaunch: true, selectedTargetSlot: target },
+          };
+        }
+      }
+    }
     return { type: 'EXECUTE_MAGIC', player: ai, cardId: qCard.id, character: 'piromante', magicType: 'Q', selection: { selectedCards: [best.id] } };
   }
 
@@ -1699,7 +1823,9 @@ function shouldHoldBackField(state: GameState, ai: PlayerNumber): boolean {
   const opponentState = state[humanKey];
   const hasRevealedThreat = opponentState.field.some(
     (slot, i) =>
-      slot.faceDownCard && slot.revealed && trueSlotValue(opponentState, i, opponentCharacter, state.spotlight, { opponentView: true }) >= 9
+      slot.faceDownCard &&
+      slot.revealed &&
+      trueSlotValue(opponentState, i, opponentCharacter, state.spotlight, { opponentView: true, opponentField: state[playerKeyOf(ai)].field }) >= 9
   );
   if (!hasRevealedThreat) return false;
 
@@ -2233,7 +2359,10 @@ function knownSelectedSlotValue(state: GameState, ai: PlayerNumber): number | nu
   if (!slot.faceDownCard) return 1;
   if (!slot.revealed) return null;
   const humanCharacter = characterOf(state, opponentOf(ai));
-  return trueSlotValue(state[humanKey], theirSelection, humanCharacter, state.spotlight, { opponentView: true });
+  return trueSlotValue(state[humanKey], theirSelection, humanCharacter, state.spotlight, {
+    opponentView: true,
+    opponentField: state[playerKeyOf(ai)].field,
+  });
 }
 
 /**
@@ -2357,7 +2486,7 @@ function pickCombatSlotWithVariety(
 ): number {
   const pool = buildUnseenCombatValuePool(state, ai);
   const scored = myFilledSlots.map((slotIndex) => {
-    const value = trueSlotValue(playerState, slotIndex, character, state.spotlight);
+    const value = trueSlotValue(playerState, slotIndex, character, state.spotlight, { opponentField: state[opponentKeyOf(ai)].field });
     return { slotIndex, value, winProb: estimateWinProbability(value, pool) };
   });
   const ranked = [...scored].sort((a, b) => {
@@ -2466,10 +2595,12 @@ function decideCombatSlotSelection(state: GameState, ai: PlayerNumber): AiDecisi
   // vencida de verdade.
   const knownValue = knownSelectedSlotValue(state, ai);
   if (knownValue !== null && random() < 0.75) {
-    const winningSlots = myFilledSlots.filter((i) => trueSlotValue(myPlayerState, i, character, state.spotlight) > knownValue);
+    const opponentField = state[humanKey].field;
+    const trueValueOf = (i: number) => trueSlotValue(myPlayerState, i, character, state.spotlight, { opponentField });
+    const winningSlots = myFilledSlots.filter((i) => trueValueOf(i) > knownValue);
     if (winningSlots.length > 0) {
       const economical = winningSlots.reduce((best, i) =>
-        trueSlotValue(myPlayerState, i, character, state.spotlight) < trueSlotValue(myPlayerState, best, character, state.spotlight) ? i : best
+        trueValueOf(i) < trueValueOf(best) ? i : best
       );
       // "esperando um pouco antes de agir naturalmente" - um atraso maior
       // que o padrão disfarça que a IA está reagindo a uma informação já
