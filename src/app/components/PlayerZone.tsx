@@ -138,6 +138,17 @@ interface PlayerZoneProps {
   onActivateNumeralSpell: () => void;
   hasActiveNumeralSpell: boolean;
   /**
+   * FIX (pedido do usuário: "permitindo que o jogador arraste sua magia até
+   * o campo do alvo... para ativar ela") - `PlayerZone.tsx` só enxerga a
+   * própria mão/fase, não o campo do oponente (onde a maioria dos alvos de
+   * `dragActivation.ts` mira), então quem decide se HÁ pelo menos 1 alvo
+   * válido agora é o GameBoard.tsx (`isMagicCardDraggable`, com acesso ao
+   * `gameState` inteiro). `undefined` (personagem sem nenhuma regra
+   * registrada) é tratado como "nunca arrastável por este atalho" - a carta
+   * continua arrastável normalmente pelo fluxo de clique quando aplicável.
+   */
+  isMagicCardDraggable?: (card: Card) => boolean;
+  /**
    * Verdadeiro quando este jogador é a IA (modo "Contra a IA", ver
    * lib/aiPlayer.ts e o efeito em GameBoard.tsx que despacha as ações dela).
    * Nesse caso, este painel vira só leitura: nenhum controle (comprar,
@@ -226,6 +237,7 @@ export function PlayerZone({
   magicContext,
   onActivateNumeralSpell,
   hasActiveNumeralSpell,
+  isMagicCardDraggable,
   isAiControlled = false,
   effectFlashCardIds,
   rejectedCardIds,
@@ -1265,8 +1277,20 @@ export function PlayerZone({
                   const coringaTransformWindowOpen = character === 'coringa' && playerState.coringaTransformWindowUntilTurn !== undefined;
                   const coringaFieldPlaceable =
                     character === 'coringa' && isMagic && (!isCoringaTrapCard || !coringaTransformWindowOpen);
+                  // FIX (pedido do usuário: "permitindo que o jogador
+                  // arraste sua magia até o campo do alvo... para ativar
+                  // ela") - além dos casos já cobertos acima (carta não-
+                  // mágica na Estratégia, armadilha do Coringa, fusão), uma
+                  // magia J/Q/K também vira arrastável quando
+                  // `isMagicCardDraggable` (calculado pelo GameBoard.tsx, que
+                  // enxerga o campo do oponente) confirma que existe um alvo
+                  // válido AGORA - isso já cobre fase de combate (ex.: bola
+                  // de fogo do Piromante), não só Estratégia, por isso é um
+                  // `||` a parte, não uma extensão da condição de fase acima.
+                  const isMagicDragEligible = isMagic && Boolean(isMagicCardDraggable?.(card));
                   const isDraggable =
-                    !isAiControlled && ((phase === 'strategy' && (!isMagic || coringaFieldPlaceable)) || canDragToFuse);
+                    !isAiControlled &&
+                    ((phase === 'strategy' && (!isMagic || coringaFieldPlaceable)) || canDragToFuse || isMagicDragEligible);
                   // FIX (pedido do usuário, variante "Fusão"): esta carta
                   // pode RECEBER outra arrastada em cima agora? Mesma
                   // elegibilidade de quem está sendo arrastada (isso é só

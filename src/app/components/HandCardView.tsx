@@ -196,7 +196,7 @@ export function HandCardView({
         // jogador vê na tela, na mesma direção e proporção do bug relatado.
         const cardCenter = monitor.getClientOffset();
         if (!cardCenter) return;
-        const target = findNearestDropTarget(cardCenter, CARD_SNAP_RADIUS);
+        const target = findNearestDropTarget(cardCenter, CARD_SNAP_RADIUS, item);
         target?.onDrop(item);
       },
     }),

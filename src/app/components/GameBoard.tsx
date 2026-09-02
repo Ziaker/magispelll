@@ -54,7 +54,8 @@ import { isUntransformedAce } from '../lib/fusion';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { getNumeralSpellInfo } from '../lib/numeralSpells';
 import { ZoomContainerContext } from '../lib/zoomContainerContext';
-import { getMagicCardInfo, type MagicCardType } from '../lib/magicCards';
+import { getMagicCardInfo, canActivateMagic, type MagicCardType } from '../lib/magicCards';
+import { getDragActivationRule } from '../lib/dragActivation';
 import { getMonsterEffect } from '../lib/monsterCards';
 import type { GameConfig } from '../lib/gameConfig';
 import { useSettings } from '../context/SettingsContext';
@@ -1770,9 +1771,20 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     }
   };
 
-  const executeMagicEffect = () => {
-    if (!pendingMagic) return;
-    const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch } = pendingMagic;
+  /**
+   * FIX (pedido do usuário: "arraste sua magia até o campo do alvo... pra
+   * ativar mais rápido") - `override` deixa o atalho de arrastar-e-soltar
+   * (`handleMagicCardDrop` abaixo) montar a `PendingMagic` inteira direto do
+   * slot largado e reaproveitar TODA a apresentação/dispatch existente
+   * (flash/som/estilhaço/projétil, e o mesmo respeito ao Modo Reações) sem
+   * duplicar nada - só pula o diálogo em si. Sem `override` (o fluxo normal
+   * de clique-clique-confirmar), continua lendo do estado `pendingMagic` e
+   * fechando o diálogo no final, exatamente como antes.
+   */
+  const executeMagicEffect = (override?: PendingMagic) => {
+    const pm = override ?? pendingMagic;
+    if (!pm) return;
+    const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch } = pm;
     const selection: MagicSelection = { selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch };
     // FIX (checagem extensa por bugs - burst fantasma/duplicado no Modo
     // Reações): ver canMagicTriggerReactionAnnouncement em gameEngine.ts -
@@ -1782,10 +1794,110 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // (negada -> nenhum burst, correto; expira sem reação -> o timer de 3s
     // em GameBoard.tsx já dispara a apresentação exatamente uma vez).
     if (!canMagicTriggerReactionAnnouncement(gameState, playerNumber, cardId)) {
-      applyMagicEffectPresentation(pendingMagic);
+      applyMagicEffectPresentation(pm);
     }
     dispatchMagicAction({ type: 'EXECUTE_MAGIC', player: playerNumber, cardId, character, magicType: type, selection });
-    setPendingMagic(null);
+    if (!override) setPendingMagic(null);
+  };
+
+  /**
+   * FIX (pedido do usuário: "arraste sua magia até o campo do alvo para
+   * ativar ela... isso é pra ser uma feature pra outros personagens também
+   * que possuem alvos escolhíveis") - atalho genérico de arrastar-e-soltar:
+   * consulta `dragActivation.ts` (a ÚNICA fonte de verdade de quais
+   * personagem+magia têm alvo simples o bastante - "só 1 slot de campo" -
+   * pra isso) em vez de qualquer lógica hardcoded aqui. `slotIndex`/
+   * `dropPlayerNumber` são o slot ONDE a carta foi largada (pode ser o
+   * campo do próprio jogador OU do oponente, dependendo da regra) - nunca
+   * confia que o drop já é válido: refaz a MESMA checagem de
+   * `isValidSlotTarget` usada pra decidir se o slot aceitava o drop (ver
+   * FieldSlotView.tsx/isMagicDropTarget), porque o estado pode ter mudado
+   * entre o "pode soltar aqui" visual e o instante real da soltura.
+   */
+  /**
+   * Verdade quando `card` (arrastada de ALGUMA mão - descobre de qual
+   * procurando nas duas) pode ser ativada agora largando-a no slot
+   * `slotPlayerNumber`/`slotIndex` - a MESMA checagem usada tanto pra
+   * decidir se este slot aceita o drop (destaque visual em FieldSlotView,
+   * chamada a cada frame do arraste) quanto pra validar de verdade no
+   * instante da soltura (handleMagicCardDrop abaixo) - nunca duas cópias da
+   * mesma regra podendo divergir.
+   */
+  const isMagicDropTarget = (slotPlayerNumber: 1 | 2, slotIndex: number, card: Card): boolean => {
+    if (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K') return false;
+    const ownerPlayerNumber: 1 | 2 = gameState.player1.hand.some((c) => c.id === card.id) ? 1 : 2;
+    if (isAi(ownerPlayerNumber)) return false;
+    const character = characterOf(gameState, ownerPlayerNumber);
+    const magicType = card.value as MagicCardType;
+    const rule = getDragActivationRule(character, magicType);
+    if (!rule) return false;
+    const expectedDropSide: 1 | 2 = rule.side === 'own' ? ownerPlayerNumber : opponentOf(ownerPlayerNumber);
+    if (slotPlayerNumber !== expectedDropSide) return false;
+    if (!canActivateMagic(gameState.phase, character, magicType, getMagicActivationContext(gameState, ownerPlayerNumber))) return false;
+    return rule.isValidSlotTarget(gameState, ownerPlayerNumber, slotIndex);
+  };
+
+  /**
+   * FIX (pedido do usuário: "arraste sua magia até o campo do alvo para
+   * ativar ela") - `PlayerZone.tsx` (a mão) decide SE mostra a carta como
+   * arrastável olhando só pra ela mesma (fase, personagem, se é magia) - não
+   * tem acesso ao campo do OPONENTE, que é onde a maioria das regras de
+   * `dragActivation.ts` mira. Esta função fecha essa lacuna: verdade quando
+   * `card` tem uma `DragActivationRule` aplicável agora E existe PELO MENOS
+   * 1 slot válido do lado que a regra espera (own/opponent) - se não houver
+   * nenhum alvo possível (ex.: fireball do Piromante fora da fase de
+   * combate, ou nenhum slot inimigo elegível agora), a carta continua
+   * arrastável pelo fluxo normal de clique (se aplicável), só não pelo
+   * atalho de arrastar-e-soltar.
+   */
+  const isMagicCardDraggable = (ownerPlayerNumber: 1 | 2, card: Card): boolean => {
+    if (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K') return false;
+    if (isAi(ownerPlayerNumber)) return false;
+    const character = characterOf(gameState, ownerPlayerNumber);
+    const magicType = card.value as MagicCardType;
+    const rule = getDragActivationRule(character, magicType);
+    if (!rule) return false;
+    if (!canActivateMagic(gameState.phase, character, magicType, getMagicActivationContext(gameState, ownerPlayerNumber))) return false;
+    const targetSide: 1 | 2 = rule.side === 'own' ? ownerPlayerNumber : opponentOf(ownerPlayerNumber);
+    const fieldLength = gameState[playerKeyOf(targetSide)].field.length;
+    for (let i = 0; i < fieldLength; i += 1) {
+      if (rule.isValidSlotTarget(gameState, ownerPlayerNumber, i)) return true;
+    }
+    return false;
+  };
+
+  /**
+   * FIX (pedido do usuário: "arraste sua magia até o campo do alvo para
+   * ativar ela... isso é pra ser uma feature pra outros personagens também
+   * que possuem alvos escolhíveis") - atalho genérico de arrastar-e-soltar:
+   * consulta `dragActivation.ts` (a ÚNICA fonte de verdade de quais
+   * personagem+magia têm alvo simples o bastante - "só 1 slot de campo" -
+   * pra isso) em vez de qualquer lógica hardcoded aqui. Nunca confia que o
+   * drop já era válido no momento em que o destaque visual apareceu -
+   * `isMagicDropTarget` acima é chamada de novo aqui, contra o estado ATUAL
+   * (pode ter mudado entre o início do arraste e a soltura de verdade).
+   */
+  const handleMagicCardDrop = (dropPlayerNumber: 1 | 2, slotIndex: number, cardId: string) => {
+    const ownerPlayerNumber: 1 | 2 = gameState.player1.hand.some((c) => c.id === cardId) ? 1 : 2;
+    const card = gameState[playerKeyOf(ownerPlayerNumber)].hand.find((c) => c.id === cardId);
+    if (!card || !isMagicDropTarget(dropPlayerNumber, slotIndex, card)) return;
+    const character = characterOf(gameState, ownerPlayerNumber);
+    const magicType = card.value as MagicCardType;
+    const rule = getDragActivationRule(character, magicType)!;
+
+    const selection = rule.buildSelection(gameState, ownerPlayerNumber, slotIndex);
+    executeMagicEffect({
+      playerNumber: ownerPlayerNumber,
+      cardId,
+      type: magicType,
+      character,
+      selectedCards: selection.selectedCards,
+      selectedSlot: selection.selectedSlot,
+      selectedTargetPlayer: selection.selectedTargetPlayer,
+      selectedTargetSlot: selection.selectedTargetSlot,
+      selectedRevealCardIds: selection.selectedRevealCardIds,
+      fireballLaunch: selection.fireballLaunch,
+    });
   };
 
   /**
@@ -2461,6 +2573,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 discardPileSize={gameState.discardPile.length}
                 deck={gameState.deck}
                 magicContext={getMagicActivationContext(gameState, 2)}
+                isMagicCardDraggable={(card) => isMagicCardDraggable(2, card)}
                 onActivateNumeralSpell={() => handleActivateNumeralSpell(2)}
                 // FIX (item 8 da 2ª rodada): ver gameEngine.ts (handleActivateNumeralSpell)
                 // - o bloqueio de "já tem uma ativa" precisa ser por jogador, não global,
@@ -2500,6 +2613,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     player2IsAi={isAi(2)}
                     player1IsAi={isAi(1)}
                     onCardDrop={handleCardDrop}
+                    onMagicCardDrop={handleMagicCardDrop}
+                    isMagicDropTarget={isMagicDropTarget}
                     onRemoveHorizontalCard={handleRemoveHorizontalCard}
                     monsterTargetSelection={pendingMonsterTarget}
                     effectFlashSlots={effectFlashSlots}
@@ -2568,6 +2683,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 discardPileSize={gameState.discardPile.length}
                 deck={gameState.deck}
                 magicContext={getMagicActivationContext(gameState, 1)}
+                isMagicCardDraggable={(card) => isMagicCardDraggable(1, card)}
                 onActivateNumeralSpell={() => handleActivateNumeralSpell(1)}
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[1] !== undefined}
                 isAiControlled={isAi(1)}
@@ -3744,7 +3860,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
 
                 <div className="flex gap-3 pt-2">
                   <Button
-                    onClick={executeMagicEffect}
+                    onClick={() => executeMagicEffect()}
                     disabled={(() => {
                       const { character, type, selectedCards, selectedSlot: pSlot, selectedTargetSlot } = pendingMagic;
                       if (character === 'mago' && type === 'J') return !selectedCards || selectedCards.length === 0;

@@ -11,7 +11,7 @@ import { FireShatterBurst } from './FireShatterBurst';
 import { CoringaSmokeBurst } from './CoringaSmokeBurst';
 import { CardImpactBurst } from './CardImpactBurst';
 import { CardKeywords } from './CardKeywords';
-import { getDisplayValue } from '../lib/cardUtils';
+import { getDisplayValue, type Card } from '../lib/cardUtils';
 import type { FieldSlot, CharacterId } from '../lib/gameEngine';
 import { isTowerSlot } from '../lib/gameEngine';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
@@ -194,6 +194,9 @@ interface FieldSlotViewProps {
   onSlotClick: (playerNumber: 1 | 2, slotIndex: number) => void;
   onSlotDoubleClick?: (playerNumber: 1 | 2, slotIndex: number) => void;
   onCardDrop?: (playerNumber: 1 | 2, slotIndex: number, cardId: string, asHorizontal: boolean) => void;
+  /** Ver comentário completo em BattleField.tsx - atalho de arrastar-e-soltar pra ativar magias de alvo único. */
+  onMagicCardDrop?: (playerNumber: 1 | 2, slotIndex: number, cardId: string) => void;
+  isMagicDropTarget?: (playerNumber: 1 | 2, slotIndex: number, card: Card) => boolean;
   onRemoveHorizontalCard?: (playerNumber: 1 | 2, slotIndex: number, cardId: string) => void;
   /** Personagem de quem ativou a magia/efeito de Monstro atualmente em exibição neste slot, e o nome dela - ver BattleField.tsx. */
   activeMagicCaster?: CharacterId | null;
@@ -256,6 +259,8 @@ export function FieldSlotView({
   onSlotClick,
   onSlotDoubleClick,
   onCardDrop,
+  onMagicCardDrop,
+  isMagicDropTarget,
   onRemoveHorizontalCard,
   activeMagicCaster,
   activeMagicLabel,
@@ -349,12 +354,31 @@ export function FieldSlotView({
   // desenha o pouso, não precisa disparar um re-render à parte.
   const lastDropSpinRef = useRef(0);
 
+  // FIX (pedido do usuário: "arraste sua magia até o campo do alvo pra
+  // ativar ela mais rápido") - antes de tratar um drop como "colocar esta
+  // carta AQUI" (a única possibilidade até então), checa se `item.card` é
+  // uma magia com um atalho de arrastar-e-soltar válido PRA ESTE slot
+  // específico (`isMagicDropTarget`, vindo de GameBoard.tsx via
+  // dragActivation.ts - nunca hardcoded aqui). Cartas mágicas nunca eram
+  // `isFieldEligible` (PlayerZone.tsx), então esta checagem nunca compete de
+  // verdade com o caminho de colocação normal - só existe pra QUEM antes
+  // nem chegava a ser arrastável.
+  const isMagicDrop = (item: CardDragItem) => Boolean(item.card && isMagicDropTarget?.(playerNumber, i, item.card));
+
   const dropOnMain = (item: CardDragItem) => {
     lastDropSpinRef.current = item.spinAngle ?? 0;
+    if (isMagicDrop(item)) {
+      onMagicCardDrop?.(playerNumber, i, item.cardId);
+      return;
+    }
     onCardDrop?.(playerNumber, i, item.cardId, Boolean(slot.faceDownCard));
   };
   const dropOnHorizontal = (item: CardDragItem) => {
     lastDropSpinRef.current = item.spinAngle ?? 0;
+    if (isMagicDrop(item)) {
+      onMagicCardDrop?.(playerNumber, i, item.cardId);
+      return;
+    }
     onCardDrop?.(playerNumber, i, item.cardId, true);
   };
 
@@ -365,14 +389,21 @@ export function FieldSlotView({
   >(
     () => ({
       accept: CARD_ITEM_TYPE,
-      canDrop: () => canDropHere,
+      // FIX (pedido do usuário, atalho de magia): `canDropHere` sozinho só
+      // cobre "meu próprio campo, fase de Estratégia" (colocação normal) -
+      // um alvo de magia pode ser o campo do OPONENTE (inclusive controlado
+      // pela IA) e/ou uma fase diferente (Combate) - por isso o OR com
+      // `isMagicDrop`, item-aware (react-dnd chama `canDrop` com o item
+      // sendo arrastado no momento).
+      canDrop: (item) => canDropHere || isMagicDrop(item),
       // Soltar em cima da carta principal já ocupada vira pedido de reforço
       // horizontal (mesma regra do drag nativo anterior); num slot vazio,
-      // vira a carta principal.
+      // vira a carta principal. Uma magia com atalho válido tem prioridade
+      // sobre as duas interpretações (ver dropOnMain acima).
       drop: dropOnMain,
       collect: (monitor) => ({ isOver: monitor.isOver(), canDrop: monitor.canDrop() }),
     }),
-    [canDropHere, playerNumber, i, onCardDrop, slot.faceDownCard]
+    [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard]
   );
 
   const [{ isOver: isOverHorizontal, canDrop: canDropHorizontal }, dropHorizontalRef] = useDrop<
@@ -382,11 +413,11 @@ export function FieldSlotView({
   >(
     () => ({
       accept: CARD_ITEM_TYPE,
-      canDrop: () => canDropHere && Boolean(slot.faceDownCard),
+      canDrop: (item) => (canDropHere && Boolean(slot.faceDownCard)) || isMagicDrop(item),
       drop: dropOnHorizontal,
       collect: (monitor) => ({ isOver: monitor.isOver(), canDrop: monitor.canDrop() }),
     }),
-    [canDropHere, playerNumber, i, onCardDrop, slot.faceDownCard]
+    [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard]
   );
 
   // FIX (pedido do usuário: "melhore a detecção de campo para cartas
@@ -406,12 +437,12 @@ export function FieldSlotView({
         const rect = mainNodeRef.current?.getBoundingClientRect();
         return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
       },
-      canDrop: () => canDropHere,
+      canDrop: (item) => canDropHere || isMagicDrop(item),
       onDrop: dropOnMain,
     });
     return () => unregisterDropTarget(mainId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canDropHere, playerNumber, i, onCardDrop, slot.faceDownCard]);
+  }, [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard]);
 
   useEffect(() => {
     const horizontalId = `field-${playerNumber}-${i}-horizontal`;
@@ -420,12 +451,12 @@ export function FieldSlotView({
         const rect = horizontalNodeRef.current?.getBoundingClientRect();
         return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
       },
-      canDrop: () => canDropHere && Boolean(slot.faceDownCard),
+      canDrop: (item) => (canDropHere && Boolean(slot.faceDownCard)) || isMagicDrop(item),
       onDrop: dropOnHorizontal,
     });
     return () => unregisterDropTarget(horizontalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canDropHere, playerNumber, i, onCardDrop, slot.faceDownCard]);
+  }, [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard]);
 
   const canRemoveHorizontal = Boolean(onRemoveHorizontalCard) && phase === 'strategy' && !isAiField;
 

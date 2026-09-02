@@ -34,7 +34,17 @@ import type { CardDragItem } from './dnd';
  */
 interface DropTargetEntry {
   getCenter: () => { x: number; y: number } | null;
-  canDrop: () => boolean;
+  /**
+   * FIX (pedido do usuário: "arraste sua magia até o campo do alvo pra
+   * ativar ela mais rápido") - recebe o `item` sendo arrastado (antes não
+   * recebia nada) pra que um alvo possa aceitar um drop CONDICIONALMENTE ao
+   * que está sendo arrastado agora (ex.: FieldSlotView.tsx aceita o ímã de
+   * fallback pra uma magia com atalho válido mesmo em slots onde a
+   * colocação normal de carta não seria aceita, tipo o campo do oponente).
+   * Alvos que não precisam dessa distinção (ex.: MonsterZone.tsx) podem
+   * ignorar o parâmetro.
+   */
+  canDrop: (item: CardDragItem) => boolean;
   onDrop: (item: CardDragItem) => void;
 }
 
@@ -48,11 +58,11 @@ export function unregisterDropTarget(id: string): void {
   registry.delete(id);
 }
 
-export function findNearestDropTarget(point: { x: number; y: number }, maxDist: number): DropTargetEntry | null {
+export function findNearestDropTarget(point: { x: number; y: number }, maxDist: number, item: CardDragItem): DropTargetEntry | null {
   let nearest: DropTargetEntry | null = null;
   let nearestDist = Infinity;
   for (const entry of registry.values()) {
-    if (!entry.canDrop()) continue;
+    if (!entry.canDrop(item)) continue;
     const center = entry.getCenter();
     if (!center) continue;
     const dist = Math.hypot(center.x - point.x, center.y - point.y);

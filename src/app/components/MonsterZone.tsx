@@ -101,7 +101,7 @@ export function MonsterZone({
         const rect = nodeRef.current?.getBoundingClientRect();
         return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
       },
-      canDrop: () => canDropMonsterHere,
+      canDrop: (_item) => canDropMonsterHere,
       onDrop: dropOnMonsterZone,
     });
     return () => unregisterDropTarget(id);

@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import type { FieldSlot, CharacterId } from '../lib/gameEngine';
+import type { Card } from '../lib/cardUtils';
 import { FieldSlotView } from './FieldSlotView';
 import type { CombatValueRevealSpec } from './CombatValueReveal';
 import type { SpotlightState } from '../lib/spotlight';
@@ -31,6 +32,22 @@ interface BattleFieldProps {
    * slot) ou no slot principal.
    */
   onCardDrop?: (playerNumber: 1 | 2, slotIndex: number, cardId: string, asHorizontal: boolean) => void;
+
+  /**
+   * FIX (pedido do usuário: "arraste sua magia até o campo do alvo pra
+   * ativar ela mais rápido") - atalho de arrastar-e-soltar pra magias com
+   * alvo = 1 slot de campo (ver dragActivation.ts) - diferente de
+   * `onCardDrop` acima (que sempre significa "jogar esta carta AQUI"), soltar
+   * uma carta mágica ativa a magia usando o slot largado como alvo, sem
+   * passar pelo diálogo. `isMagicDropTarget` decide, a cada frame do
+   * arraste, se ESTE slot aceita a carta sendo arrastada agora (pode ser o
+   * campo do próprio jogador OU do oponente - ver `side` em
+   * DragActivationRule) - inclusive quando o campo alvo é controlado pela
+   * IA, já que `onCardDrop`/`canDropHere` normal nunca permite isso (só
+   * cobre "colocar minha própria carta no meu campo").
+   */
+  onMagicCardDrop?: (playerNumber: 1 | 2, slotIndex: number, cardId: string) => void;
+  isMagicDropTarget?: (playerNumber: 1 | 2, slotIndex: number, card: Card) => boolean;
 
   /**
    * FIX (item 9 da 6ª rodada): "adicione a opção de remover a carta
@@ -183,6 +200,8 @@ export function BattleField({
   player2IsAi = false,
   player1IsAi = false,
   onCardDrop,
+  onMagicCardDrop,
+  isMagicDropTarget,
   onRemoveHorizontalCard,
   monsterTargetSelection,
   effectFlashSlots,
@@ -259,6 +278,8 @@ export function BattleField({
             onSlotClick={onSlotClick}
             onSlotDoubleClick={onSlotDoubleClick}
             onCardDrop={onCardDrop}
+            onMagicCardDrop={onMagicCardDrop}
+            isMagicDropTarget={isMagicDropTarget}
             onRemoveHorizontalCard={onRemoveHorizontalCard}
             activeMagicCaster={activeMagicCaster}
             activeMagicLabel={activeMagicLabel}
