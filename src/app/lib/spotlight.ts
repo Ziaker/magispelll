@@ -17,6 +17,7 @@
  * chamar getSpotlightAdjustedValue no lugar de getEffectiveCardValue onde o
  * valor da carta importa de verdade para a regra sendo resolvida.
  */
+import { random } from './rng';
 
 import { getEffectiveCardValue, type Card } from './cardUtils';
 import type { GameConfig } from './gameConfig';
@@ -52,7 +53,7 @@ export function rollSpotlight(config: GameConfig): SpotlightState | null {
   const count = Math.min(Math.max(1, config.spotlightCount), pool.length);
   const numbers: SpotlightNumber[] = [];
   for (let i = 0; i < count; i++) {
-    const pickIndex = Math.floor(Math.random() * pool.length);
+    const pickIndex = Math.floor(random() * pool.length);
     const [value] = pool.splice(pickIndex, 1);
     numbers.push({ value, polarity: rollPolarity(config) });
   }
@@ -64,7 +65,7 @@ function rollPolarity(config: GameConfig): SpotlightPolarity {
   if (config.spotlightPositive && !config.spotlightNegative) return 'positive';
   if (!config.spotlightPositive && config.spotlightNegative) return 'negative';
   // Ambas ligadas - moeda ao ar independente por número (ver cabeçalho do arquivo).
-  return Math.random() < 0.5 ? 'positive' : 'negative';
+  return random() < 0.5 ? 'positive' : 'negative';
 }
 
 /** A entrada de Spotlight ativa para o valor efetivo de `card` agora, ou `null` se nenhuma bate. */

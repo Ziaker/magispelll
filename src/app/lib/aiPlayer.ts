@@ -35,6 +35,7 @@
  * função abaixo para o raciocínio por trás de cada decisão.
  */
 
+import { random } from './rng';
 import {
   characterOf,
   getFilledFieldSlots,
@@ -339,7 +340,7 @@ function pickRandomN<T>(items: T[], count: number): T[] {
   const result: T[] = [];
   const n = Math.min(count, pool.length);
   for (let i = 0; i < n; i++) {
-    const idx = Math.floor(Math.random() * pool.length);
+    const idx = Math.floor(random() * pool.length);
     result.push(pool[idx]);
     pool.splice(idx, 1);
   }
@@ -445,7 +446,7 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
       const target = shouldDiscardRevealed
         ? bestRevealedTarget
         : unrevealed.length > 0
-        ? unrevealed[Math.floor(Math.random() * unrevealed.length)]
+        ? unrevealed[Math.floor(random() * unrevealed.length)]
         : bestRevealedTarget; // nada mais pra revelar - descarta a melhor carta já revelada, mesmo sem ser "perigosa"
 
       if (target) {
@@ -1407,7 +1408,7 @@ function decideMosqueteiroJ(state: GameState, ai: PlayerNumber): GameAction | nu
   if (redirecting) {
     const opponentHand = state[opponentKeyOf(ai)].hand;
     if (opponentHand.length === 0) return null;
-    const target = opponentHand[Math.floor(Math.random() * opponentHand.length)];
+    const target = opponentHand[Math.floor(random() * opponentHand.length)];
     return {
       type: 'EXECUTE_MAGIC',
       player: ai,
@@ -1696,8 +1697,8 @@ function shouldHoldBackField(state: GameState, ai: PlayerNumber): boolean {
 
   const delta = livesDelta(state, ai);
   if (delta < 0) return false; // perdendo: nunca segura de propósito, precisa de campo cheio agora
-  if (delta >= 2) return Math.random() < 0.65; // ganhando por folga: mais disposta a preservar recursos
-  return Math.random() < 0.4;
+  if (delta >= 2) return random() < 0.65; // ganhando por folga: mais disposta a preservar recursos
+  return random() < 0.4;
 }
 
 function decideFieldPlacement(state: GameState, ai: PlayerNumber, character: CharacterId): GameAction | null {
@@ -2003,7 +2004,7 @@ function decideMagoK(state: GameState, ai: PlayerNumber): GameAction | null {
   const anyRevealed = targets.some((i) => opponentField[i].horizontalCards.some((c) => c.revealed));
   const best = anyRevealed
     ? targets.reduce((a, b) => (revealedHorizontalValue(b) > revealedHorizontalValue(a) ? b : a))
-    : targets[Math.floor(Math.random() * targets.length)];
+    : targets[Math.floor(random() * targets.length)];
   return { type: 'EXECUTE_MAGIC', player: ai, cardId: kCard.id, character: 'mago', magicType: 'K', selection: { selectedSlot: best } };
 }
 
@@ -2038,7 +2039,7 @@ function decideBestaK(state: GameState, ai: PlayerNumber): GameAction | null {
   const riskThreshold = livesDelta(state, ai) < 0 ? AVERAGE_FIELD_CARD_VALUE + 3 : AVERAGE_FIELD_CARD_VALUE;
   if (myWorstValue >= riskThreshold) return null; // já é uma carta boa o bastante pro momento, não vale arriscar numa troca às cegas
 
-  const targetIndex = opponentUnrevealed[Math.floor(Math.random() * opponentUnrevealed.length)];
+  const targetIndex = opponentUnrevealed[Math.floor(random() * opponentUnrevealed.length)];
 
   return {
     type: 'EXECUTE_MAGIC',
@@ -2123,7 +2124,7 @@ function decidePiromanteK(state: GameState, ai: PlayerNumber): GameAction | null
     const target =
       revealedCandidates.length > 0
         ? pickHighestBy(revealedCandidates, (c) => getEffectiveCardValue(c))
-        : candidates[Math.floor(Math.random() * candidates.length)];
+        : candidates[Math.floor(random() * candidates.length)];
     return {
       type: 'EXECUTE_MAGIC',
       player: ai,
@@ -2320,7 +2321,7 @@ function estimateWinProbability(myValue: number, pool: number[]): number {
   if (pool.length === 0) return 0.5;
   let wins = 0;
   for (let i = 0; i < COMBAT_SIMULATION_TRIALS; i++) {
-    const theirValue = pool[Math.floor(Math.random() * pool.length)];
+    const theirValue = pool[Math.floor(random() * pool.length)];
     if (myValue > theirValue) wins += 1;
     else if (myValue === theirValue) wins += 0.5;
   }
@@ -2355,7 +2356,7 @@ function pickCombatSlotWithVariety(
     if (Math.abs(a.winProb - b.winProb) >= 0.03) return b.winProb - a.winProb;
     return a.value - b.value;
   });
-  if (ranked.length >= 2 && Math.random() < 0.2) return ranked[1].slotIndex;
+  if (ranked.length >= 2 && random() < 0.2) return ranked[1].slotIndex;
   return ranked[0].slotIndex;
 }
 
@@ -2416,7 +2417,7 @@ function decideCombatSlotSelection(state: GameState, ai: PlayerNumber): AiDecisi
   // para 2-3.2s - ainda claramente mais lento que o normal, sem arrastar o
   // turno inteiro.
   const isLosing = livesDelta(state, ai) < 0;
-  const disadvantageThinkTimeMs = 2000 + Math.random() * 1200;
+  const disadvantageThinkTimeMs = 2000 + random() * 1200;
 
   // FIX (Fase D, pedido do usuário): antes, se a IA não tivesse mais NENHUMA
   // carta em campo, ela simplesmente desistia (`ready`), deixando a seleção
@@ -2456,7 +2457,7 @@ function decideCombatSlotSelection(state: GameState, ai: PlayerNumber): AiDecisi
   // planejamento, porque o que importa aqui é se a disputa será mesmo
   // vencida de verdade.
   const knownValue = knownSelectedSlotValue(state, ai);
-  if (knownValue !== null && Math.random() < 0.75) {
+  if (knownValue !== null && random() < 0.75) {
     const winningSlots = myFilledSlots.filter((i) => trueSlotValue(myPlayerState, i, character, state.spotlight) > knownValue);
     if (winningSlots.length > 0) {
       const economical = winningSlots.reduce((best, i) =>
@@ -2471,7 +2472,7 @@ function decideCombatSlotSelection(state: GameState, ai: PlayerNumber): AiDecisi
       return {
         type: 'action',
         action: { type: 'SELECT_COMBAT_SLOT', player: ai, slotIndex: economical },
-        thinkTimeMs: isLosing ? disadvantageThinkTimeMs : 1600 + Math.random() * 900,
+        thinkTimeMs: isLosing ? disadvantageThinkTimeMs : 1600 + random() * 900,
       };
     }
   }
@@ -2541,6 +2542,6 @@ export function decideReactionToMagic(
   const candidate = state[playerKeyOf(ai)].hand.find((c) => c.value === pending.cardValue);
   if (!candidate) return null;
 
-  if (Math.random() >= 0.5) return null;
+  if (random() >= 0.5) return null;
   return { type: 'REACT_TO_MAGIC', player: ai, cardId: candidate.id };
 }

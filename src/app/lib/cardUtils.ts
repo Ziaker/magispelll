@@ -14,6 +14,7 @@
  * - Para adicionar novos tipos de carta, adicione propriedades ao tipo Card
  * - Para novos efeitos, adicione flags booleanas (ex: isMonster)
  */
+import { random } from './rng';
 
 /**
  * Estrutura de dados de uma carta no jogo
@@ -67,7 +68,7 @@ const VALUES = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'
 export function shuffle<T>(items: T[]): T[] {
   const arr = [...items];
   for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
