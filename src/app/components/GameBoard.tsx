@@ -584,14 +584,41 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
 
   // ----- Efeitos: traduzem transições de estado do motor em popups/timers -----
 
+  // FIX (pedido do usuário: "quando o jogo inicia, ele não inicia com o
+  // anuncio do inicio da fase... eu gostaria que corrigisse isso") - `turn
+  // === 1 && phase === 'draw'` identifica tanto o mount real de uma partida
+  // nova quanto uma REVANCHE (REMATCH zera `turn` de volta pra 1 - ver
+  // createInitialState em gameEngine.ts), sem precisar de nenhum estado
+  // dedicado só pra isso. Usado tanto pelo efeito abaixo (duração do popup)
+  // quanto pelo JSX mais adiante (mãos escondidas + lista de modos ativos).
+  const isGameStart = gameState.turn === 1 && gameState.phase === 'draw';
+
+  // FIX (pedido do usuário, item 2.1: "deveria mostrar uma mensagem
+  // mostrando quais modos de jogo estão ativos") - mesmos rótulos já usados
+  // na tela de configuração (GameConfig.tsx), pra não inventar nomenclatura
+  // nova. Spotlight fica de fora daqui de propósito - ele já ganha a própria
+  // cutscene de roleta no mesmo popup (ver PhaseTransition.tsx), listar de
+  // novo aqui duplicaria a informação. `discardLimit` também fica de fora -
+  // não é um modo liga/desliga, é sempre ativo (só o número é ajustável).
+  const activeModes: string[] = [
+    ...(gameConfig.monsterCards ? ['Cartas Monstro'] : []),
+    ...(gameConfig.fusion ? [`Fusão (até ${gameConfig.fusionLimit}x/turno)`] : []),
+    ...(gameConfig.towersMode ? ['Towers'] : []),
+    ...(gameConfig.reactionsMode ? [`Reações (até ${gameConfig.reactionsLimit}x/fase)`] : []),
+    ...(gameConfig.drawLimitEnabled ? [`Limite de compra (${gameConfig.drawLimit}/turno)`] : []),
+  ];
+
   // Transição de fase (popup "FASE DE X"), acompanha qualquer mudança de fase
   // (inclusive quando uma disputa fecha o turno ou uma Magia Numeral pula o combate).
-  const [hasMounted, setHasMounted] = useState(false);
+  //
+  // FIX (pedido do usuário): antes um guard `hasMounted` pulava de propósito
+  // a primeira execução deste efeito, então o INÍCIO da partida (turno 1,
+  // Fase de Compra) nunca disparava o popup - o jogo "simplesmente começava"
+  // sem anúncio nenhum, nem a cutscene do Spotlight quando o modo está
+  // ativo. Removido: nada mais dependia desse guard (uma REVANCHE já
+  // disparava este efeito normalmente, via mudança real de fase - ela não
+  // remonta o componente).
   useEffect(() => {
-    if (!hasMounted) {
-      setHasMounted(true);
-      return;
-    }
     setShowPhaseTransition(true);
     soundManager.play('phase-change');
     // FIX (pedido do usuário: "deixe a notificação de troca de fase mais
@@ -605,7 +632,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // roleta inteira (ver getSpotlightCutsceneDurationMs/PhaseTransition.tsx);
     // qualquer outra transição de fase continua no mesmo 900ms de sempre.
     const spotlightNumberCount = gameState.phase === 'draw' ? gameState.spotlight?.numbers.length ?? 0 : 0;
-    const popupDurationMs = Math.max(900, getSpotlightCutsceneDurationMs(spotlightNumberCount));
+    const basePopupDurationMs = Math.max(900, getSpotlightCutsceneDurationMs(spotlightNumberCount));
+    // FIX (pedido do usuário, item 2/2.1): o anúncio de início precisa de
+    // mais tempo na tela - além de "FASE DE COMPRA", agora também mostra a
+    // lista de modos ativos e as mãos enchendo (ver JSX abaixo), e 900ms não
+    // é suficiente pra ler tudo isso.
+    const popupDurationMs = isGameStart ? Math.max(2200, basePopupDurationMs) : basePopupDurationMs;
     const t = setTimeout(() => setShowPhaseTransition(false), delay(popupDurationMs));
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2350,7 +2382,14 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         secondsLeft={reactionCountdown}
       />
       <ReactionNegatedBurst spec={reactionNegatedBurst} />
-      <PhaseTransition phase={gameState.phase} show={showPhaseTransition} spotlight={gameState.spotlight} loneTower={Boolean(gameState.combatLoneTower)} />
+      <PhaseTransition
+        phase={gameState.phase}
+        show={showPhaseTransition}
+        spotlight={gameState.spotlight}
+        loneTower={Boolean(gameState.combatLoneTower)}
+        isGameStart={isGameStart}
+        activeModes={activeModes}
+      />
       <CombatResult
         show={showCombatResult}
         winner={gameState.combatResolution?.winner ?? null}
@@ -2542,7 +2581,18 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 playerNumber={2}
                 character={player2Character}
                 phase={gameState.phase}
-                playerState={gameState.player2}
+                // FIX (pedido do usuário: "ambos jogadores começando com as
+                // mãos vazias e comprando todas cartas") - override só de
+                // EXIBIÇÃO (o estado real já vem com a mão cheia desde
+                // createInitialState, ver comentário completo em
+                // `isGameStart` acima) - enquanto o anúncio de início está
+                // na tela, finge mão vazia; ao fechar, a mão real aparece de
+                // uma vez, e o mecanismo já existente de "carta nova"
+                // (newCardIds/animate-new-card-glow) pulsa cada uma como se
+                // tivesse acabado de ser comprada. Seguro porque nenhuma
+                // ação real (IA ou clique) pode acontecer enquanto
+                // showPhaseTransition é true (ver guards mais abaixo).
+                playerState={showPhaseTransition && isGameStart ? { ...gameState.player2, hand: [] } : gameState.player2}
                 selectedCardId={selectedCardId}
                 onCardSelect={setSelectedCardId}
                 onPlayCard={(cardId, slotIndex, asHorizontal) => handlePlayCard(2, cardId, slotIndex, asHorizontal)}
@@ -2586,6 +2636,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 rejectedCardIds={rejectedCardIds}
                 selfEffectFlash={selfEffectFlashPlayer === 2}
                 isVictoryGlow={victoryGlowPlayer === 2}
+                isFirstPicker={gameState.phase === 'combat' && canSelectCombatSlot(gameState, 2)}
                 activeMagicCaster={activeMagicCaster}
                 activeMagicLabel={activeMagicLabel}
                 aceTransformFlashCardId={aceTransformFlashCardId}
@@ -2652,7 +2703,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 playerNumber={1}
                 character={player1Character}
                 phase={gameState.phase}
-                playerState={gameState.player1}
+                playerState={showPhaseTransition && isGameStart ? { ...gameState.player1, hand: [] } : gameState.player1}
                 selectedCardId={selectedCardId}
                 onCardSelect={setSelectedCardId}
                 onPlayCard={(cardId, slotIndex, asHorizontal) => handlePlayCard(1, cardId, slotIndex, asHorizontal)}
@@ -2691,6 +2742,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 rejectedCardIds={rejectedCardIds}
                 selfEffectFlash={selfEffectFlashPlayer === 1}
                 isVictoryGlow={victoryGlowPlayer === 1}
+                isFirstPicker={gameState.phase === 'combat' && canSelectCombatSlot(gameState, 1)}
                 activeMagicCaster={activeMagicCaster}
                 activeMagicLabel={activeMagicLabel}
                 aceTransformFlashCardId={aceTransformFlashCardId}

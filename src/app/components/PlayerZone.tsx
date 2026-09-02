@@ -193,6 +193,17 @@ interface PlayerZoneProps {
    * que o normal, reforçando o momento além do popup/confete que já existiam.
    */
   isVictoryGlow?: boolean;
+  /**
+   * FIX (pedido do usuário: "referência visual mostrando qual é o jogador
+   * que vai escolher a primeira carta na disputa do turno") - true enquanto
+   * é a vez DESTE jogador escolher o slot de combate (ver
+   * canSelectCombatSlot em gameEngine.ts, GameBoard.tsx é quem calcula e
+   * passa isto) - acende e apaga a cada disputa dentro da fase de combate,
+   * diferente do Badge "Vira primeiro" da barra superior (que fica preso ao
+   * `firstToFlip` da fase inteira, sem indicar se a pessoa já escolheu ou
+   * não nesta disputa específica).
+   */
+  isFirstPicker?: boolean;
   /** Personagem de quem ativou a magia atualmente em exibição na mão deste jogador (não necessariamente o dono da mão!), e o nome dela - ver GameBoard.tsx/CharacterMagicBurst.tsx/MagicCalloutLabel.tsx. */
   activeMagicCaster?: CharacterId | null;
   activeMagicLabel?: string | null;
@@ -243,6 +254,7 @@ export function PlayerZone({
   rejectedCardIds,
   selfEffectFlash,
   isVictoryGlow,
+  isFirstPicker,
   activeMagicCaster,
   activeMagicLabel,
   aceTransformFlashCardId,
@@ -514,7 +526,7 @@ export function PlayerZone({
 
   return (
     <div
-      className={`border-2 rounded-lg p-3 ${isVictoryGlow ? 'animate-victory-glow' : ''}`}
+      className={`border-2 rounded-lg p-3 ${isVictoryGlow ? 'animate-victory-glow' : ''} ${isFirstPicker ? 'animate-first-picker-glow' : ''}`}
       style={{
         // FIX (pedido do usuário, 2ª vez: "no seu fundo ainda é só azul...
         // ambas azul e vermelho estáticos, sem degradê") - este É o "fundo"
@@ -558,6 +570,16 @@ export function PlayerZone({
                 >
                   {theme.name}
                 </h3>
+                {/* FIX (pedido do usuário: "referência visual mostrando qual
+                    é o jogador que vai escolher a primeira carta na disputa
+                    do turno") - ver isFirstPicker acima; só aparece durante a
+                    fase de combate, enquanto for a vez deste jogador. */}
+                {isFirstPicker && (
+                  <div className="flex items-center gap-1" style={{ color: theme.primary }}>
+                    <Crosshair className="w-3 h-3" />
+                    <span className="text-[11px] uppercase tracking-wider">Escolhe agora</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-0.5">
                   {[...Array(3)].map((_, i) => {
                     const isBreaking = i === breakingHeartIndex;
