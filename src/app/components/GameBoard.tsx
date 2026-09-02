@@ -26,7 +26,7 @@ import { FlyingDiscardCard, type FlyingDiscardSpec } from './FlyingDiscardCard';
 import confetti from 'canvas-confetti';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Pause, Play, ArrowLeft, Check, Clock, Heart, Eye, Package, Trophy, Box } from 'lucide-react';
+import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box } from 'lucide-react';
 import { PlayerZone } from './PlayerZone';
 import { BattleField } from './BattleField';
 import { CharacterMagicReference } from './CharacterMagicReference';
@@ -98,6 +98,16 @@ interface GameBoardProps {
   player2Character: CharacterId;
   gameConfig: GameConfig;
 }
+
+/**
+ * Overhaul da região Baralho/Cemitério (pedido do usuário) - referência pra
+ * converter `deck.length` em "quantas camadas da pilha mostrar" (1 a 5,
+ * calculado onde é usado). 54 = baralho Comum completo com Cartas Monstro
+ * (o teto mais comum) - um baralho Temático (62-70+, ver generateDeck em
+ * cardUtils.ts) só faz a pilha aparentar "cheia" (5 camadas) por mais tempo
+ * no início, nunca estoura o teto visual nem quebra o cálculo.
+ */
+const DECK_STACK_REFERENCE = 54;
 
 const phaseNames = {
   draw: 'Compra',
@@ -2655,81 +2665,123 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 </div>
               </div>
 
-              {/* Baralho e Descarte */}
+              {/* Baralho e Cemitério (pedido do usuário: "overhaul completo
+                  dessa região") - as duas pilhas agora leem como LUGARES
+                  físicos com profundidade de verdade, não painéis de texto:
+                  o Baralho é uma pilha real de costas empilhadas (a altura
+                  visível encolhe com `gameState.deck.length`, então dá pra
+                  perceber o baralho esvaziando batendo o olho, sem ler o
+                  número) e o Cemitério é um nicho escuro à parte, onde as
+                  cartas "afundam" em vez de só empilhar - preparando o
+                  terreno visual pra um personagem futuro que manipula o
+                  cemitério (pedido do usuário: "em preparação pra um
+                  personagem futuro"), que ganha um lugar próprio pra atuar
+                  em vez de dividir estilo com o baralho. */}
               <div className="bg-[#1E1A16]/50 border border-[#C59E4F]/20 rounded-lg p-4">
                 <p className="text-[12px] text-[#BFB6A6] mb-3">Baralho & Cemitério</p>
-                <div className="space-y-3">
-                  <div className="border border-[#C59E4F]/30 rounded p-3 cursor-help hover:bg-[#C59E4F]/5 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Package className="w-4 h-4 text-[#C59E4F]" />
-                        <p className="text-[11px] text-[#EFE7D6]">Baralho</p>
-                      </div>
-                      <p className="text-[14px] text-[#C59E4F]">{gameState.deck.length}</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Baralho: pilha de costas empilhadas, cursor-help (sem
+                      diálogo - não há nada pra "abrir", o baralho é opaco por
+                      design). A CONTAGEM de camadas visíveis (1-5) é
+                      proporcional ao que resta (mín. 1 sempre que
+                      deck.length > 0), então uma pilha AFINANDO é visível de
+                      relance - o número exato continua no selo, pra quem
+                      quiser precisão. */}
+                  <div
+                    className="border border-[#C59E4F]/30 rounded p-3 cursor-help hover:bg-[#C59E4F]/5 transition-colors flex flex-col items-center gap-2"
+                    title={`${gameState.deck.length} carta(s) restantes de reembaralhar o cemitério`}
+                  >
+                    <div className="flex items-center gap-2 self-start">
+                      <Layers3 className="w-4 h-4 text-[#C59E4F]" />
+                      <p className="text-[11px] text-[#EFE7D6]">Baralho</p>
                     </div>
+                    <div className="relative flex justify-center" style={{ height: 96, width: 68 }}>
+                      {gameState.deck.length === 0 ? (
+                        <PlayingCard slot className="w-16 h-24" />
+                      ) : (
+                        Array.from({ length: Math.min(5, Math.max(1, Math.ceil((gameState.deck.length / DECK_STACK_REFERENCE) * 5))) }).map((_, idx, arr) => {
+                          const depthFromTop = arr.length - 1 - idx;
+                          return (
+                            <div
+                              key={idx}
+                              className="absolute"
+                              style={{ zIndex: idx, transform: `translate(${depthFromTop * -3}px, ${depthFromTop * 3}px)` }}
+                            >
+                              <PlayingCard faceDown className="w-16 h-24" />
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                    <p className="text-[14px] text-[#C59E4F]">{gameState.deck.length}</p>
                   </div>
 
                   {/* FIX (pedido do usuário: "eu queria que a pilha de
                       descarte fosse visualmente semelhante aos campos, em
-                      vez de só um botão") - antes esta linha era só texto +
-                      contador, sem nenhuma carta visível. FIX (pedido do
-                      usuário: "quero que seja visível as 3 cartas no topo
-                      dele ao invés de só uma") - agora mostra as até 3
-                      últimas cartas descartadas (`pushToDiscard` em
-                      gameEngine.ts sempre acrescenta no FIM do array, então
-                      o topo real é sempre `discardPile[length - 1]`)
-                      levemente escalonadas, como uma pilha de verdade - o
-                      resto continua só visível abrindo o diálogo (clique
-                      continua funcionando igual). `ref={discardPileRef}`
-                      marca a posição real deste painel - é o destino das
-                      cartas "voando" para o descarte (ver
-                      FlyingDiscardCard.tsx/flyingDiscards abaixo). */}
+                      vez de só um botão", depois "overhaul completo... mude o
+                      nome... em preparação pra um personagem futuro") - o
+                      Cemitério deixou de ser uma variação clara do Baralho
+                      (mesmo formato de painel, só cartas viradas pra cima) e
+                      virou um NICHO próprio: fundo mais escuro/fosco (cinza
+                      frio em vez do dourado do Baralho), cantos afundados
+                      (`shadow-inner`), e as cartas empilhadas ficam voltadas
+                      pra BAIXO (é um cemitério - o conteúdo já não importa
+                      pra quem olha de fora, só a PRESENÇA das almas ali,
+                      cada uma virada de vez em quando pelo diálogo). A
+                      última carta descartada continua sendo a única virada
+                      pra cima, no topo - é a única informação pública real
+                      (o resto exige abrir o diálogo, igual antes).
+                      `ref={discardPileRef}` continua marcando a posição real
+                      deste painel para FlyingDiscardCard.tsx mirar nela. */}
                   <div
                     ref={discardPileRef}
                     onClick={() => setShowDiscardPile(true)}
-                    className="border border-[#8F6A30]/30 rounded p-3 cursor-pointer hover:bg-[#8F6A30]/10 transition-colors"
+                    className="border border-[#4A4640] rounded p-3 cursor-pointer bg-[#0F1113]/60 hover:bg-[#0F1113]/80 transition-colors shadow-inner flex flex-col items-center gap-2"
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <Eye className="w-4 h-4 text-[#8F6A30]" />
-                        <p className="text-[11px] text-[#EFE7D6]">Cemitério</p>
-                      </div>
-                      <p className="text-[14px] text-[#8F6A30]">{gameState.discardPile.length}</p>
+                    <div className="flex items-center gap-2 self-start">
+                      <Skull className="w-4 h-4 text-[#8F6A30]" />
+                      <p className="text-[11px] text-[#EFE7D6]">Cemitério</p>
                     </div>
-                    <div className="relative flex justify-center" style={{ height: 112, width: 80, margin: '0 auto' }}>
+                    <div className="relative flex justify-center" style={{ height: 96, width: 68 }}>
                       {gameState.discardPile.length === 0 ? (
-                        <PlayingCard slot className="w-20 h-28" />
+                        <PlayingCard slot className="w-16 h-24" />
                       ) : (
                         gameState.discardPile.slice(-3).map((stackedCard, idx, arr) => {
                           // idx 0 = a mais antiga das 3 (fica atrás), última = topo real da pilha (fica na frente).
                           const depthFromTop = arr.length - 1 - idx;
+                          const isTopOfPile = idx === arr.length - 1;
                           return (
                             <motion.div
                               key={stackedCard.id}
                               layout
                               className="absolute"
                               style={{ zIndex: idx }}
-                              initial={{ opacity: 0, scale: 0.8, y: -8 }}
+                              initial={{ opacity: 0, scale: 0.7, y: -14 }}
                               animate={{
                                 opacity: 1,
                                 scale: 1,
-                                x: depthFromTop * 5,
-                                y: depthFromTop * -5,
-                                rotate: depthFromTop * -4,
+                                x: depthFromTop * 4,
+                                y: depthFromTop * 4,
+                                rotate: depthFromTop * 5,
                               }}
-                              transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+                              transition={{ type: 'spring', stiffness: 260, damping: 22 }}
                             >
-                              <PlayingCard
-                                value={stackedCard.value}
-                                suit={stackedCard.suit}
-                                card={stackedCard}
-                                className="w-20 h-28"
-                              />
+                              {/* Só a carta do TOPO real (a última enterrada)
+                                  vira pra cima - as demais ficam de costas,
+                                  reforçando que o cemitério é opaco por fora
+                                  (mesma ideia do Baralho), a menos que se
+                                  abra o diálogo. */}
+                              {isTopOfPile ? (
+                                <PlayingCard value={stackedCard.value} suit={stackedCard.suit} card={stackedCard} className="w-16 h-24" />
+                              ) : (
+                                <PlayingCard faceDown className="w-16 h-24" />
+                              )}
                             </motion.div>
                           );
                         })
                       )}
                     </div>
+                    <p className="text-[14px] text-[#8F6A30]">{gameState.discardPile.length}</p>
                   </div>
                 </div>
               </div>
