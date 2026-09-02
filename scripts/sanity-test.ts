@@ -24,6 +24,7 @@ import { DEFAULT_GAME_CONFIG, MIN_DISCARD_LIMIT, type GameConfig } from '../src/
 import { getLogEffectInfo } from '../src/app/lib/logFormat';
 import { decideAiAction, decideReactionToMagic } from '../src/app/lib/aiPlayer';
 import { simulateSteps } from '../src/app/lib/simulateGame';
+import { countAllCards } from '../src/app/lib/invariants';
 import { canActivateNumeralSpell } from '../src/app/lib/numeralSpells';
 import { canActivateMagic } from '../src/app/lib/magicCards';
 import { rollSpotlight, getSpotlightAdjustedValue, type SpotlightState } from '../src/app/lib/spotlight';
@@ -41,30 +42,10 @@ function assert(condition: boolean, message: string) {
   }
 }
 
-function countAllCards(state: GameState): number {
-  // Piromante (personagem novo) - cartas-token (`isFireToken`, ver
-  // cardUtils.ts) são sintéticas: nunca existiram no baralho original de 54
-  // cartas (nascem do nada quando a Bola de Fogo reduz um slot sem
-  // obliterar) e nunca vão pro descarte quando saem de campo - por design,
-  // ficam de FORA da conservação total, senão qualquer lançamento que crie
-  // uma delas pareceria "carta duplicada do nada" para este helper.
-  const isReal = (c: Card | undefined): c is Card => Boolean(c) && !c.isFireToken;
-  const inHands = state.player1.hand.filter(isReal).length + state.player2.hand.filter(isReal).length;
-  // FIX (Modo Towers): a reserva da torre (cartas empilhadas abaixo do topo -
-  // ver FieldSlot.towerReserve em gameEngine.ts) precisa contar aqui também,
-  // senão este helper subconta sempre que uma torre existir no momento da
-  // contagem, gerando falsos positivos de "cartas sumindo".
-  const inFields =
-    state.player1.field.reduce((n, s) => n + (isReal(s.faceDownCard) ? 1 : 0) + (s.towerReserve?.filter(isReal).length ?? 0) + s.horizontalCards.filter(isReal).length, 0) +
-    state.player2.field.reduce((n, s) => n + (isReal(s.faceDownCard) ? 1 : 0) + (s.towerReserve?.filter(isReal).length ?? 0) + s.horizontalCards.filter(isReal).length, 0);
-  // FIX (itens 4 e 7 da 3ª rodada): a carta Monstro de cada jogador pode
-  // estar na zona própria (PlayerState.monsterCard), fora de `field` - sem
-  // contá-la aqui, este helper subcontaria o total sempre que um Monstro
-  // estivesse posicionado, gerando falsos positivos de "cartas sumindo" no
-  // teste de conservação (inclusive na simulação IA vs IA completa abaixo).
-  const inMonsterZones = (isReal(state.player1.monsterCard) ? 1 : 0) + (isReal(state.player2.monsterCard) ? 1 : 0);
-  return inHands + inFields + inMonsterZones + state.deck.filter(isReal).length + state.discardPile.filter(isReal).length;
-}
+// `countAllCards` mudou pra src/app/lib/invariants.ts (item 4 do plano de
+// melhoria do debug mode) - importado abaixo. Continua a mesma lógica, só
+// compartilhada agora com `checkInvariants`/`checkDuplicateCardIds`, usados
+// por scripts/fuzz.ts e window.__debug.checkInvariants().
 
 function makeCard(id: string, value: string, suit = '♠'): Card {
   return { id, value, suit };
