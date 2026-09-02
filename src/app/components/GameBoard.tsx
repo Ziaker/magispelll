@@ -2657,7 +2657,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
 
               {/* Baralho e Descarte */}
               <div className="bg-[#1E1A16]/50 border border-[#C59E4F]/20 rounded-lg p-4">
-                <p className="text-[12px] text-[#BFB6A6] mb-3">Baralho & Descarte</p>
+                <p className="text-[12px] text-[#BFB6A6] mb-3">Baralho & Cemitério</p>
                 <div className="space-y-3">
                   <div className="border border-[#C59E4F]/30 rounded p-3 cursor-help hover:bg-[#C59E4F]/5 transition-colors">
                     <div className="flex items-center justify-between">
@@ -2692,7 +2692,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <Eye className="w-4 h-4 text-[#8F6A30]" />
-                        <p className="text-[11px] text-[#EFE7D6]">Pilha de Descarte</p>
+                        <p className="text-[11px] text-[#EFE7D6]">Cemitério</p>
                       </div>
                       <p className="text-[14px] text-[#8F6A30]">{gameState.discardPile.length}</p>
                     </div>
@@ -2767,7 +2767,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       <Dialog open={showDiscardPile} onOpenChange={setShowDiscardPile}>
         <DialogContent className="bg-[#1E1A16] border-[#C59E4F] max-w-2xl">
           <DialogHeader>
-            <DialogTitle className="text-[#EFE7D6] font-display text-[24px]">Pilha de Descarte</DialogTitle>
+            <DialogTitle className="text-[#EFE7D6] font-display text-[24px]">Cemitério</DialogTitle>
             <DialogDescription className="text-[#BFB6A6]">
               {gameState.discardPile.length} carta(s) descartada(s)
             </DialogDescription>
@@ -2989,7 +2989,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     gameEngine.ts) vai rejeitar de qualquer forma. */}
                 {pendingMagic.character === 'besta' && pendingMagic.type === 'J' && (
                   <div>
-                    <p className="text-[#BFB6A6] text-[12px] mb-2">Pilha de Descarte (selecione até 2 cartas numerais - Ás não incluído):</p>
+                    <p className="text-[#BFB6A6] text-[12px] mb-2">Cemitério (selecione até 2 cartas numerais - Ás não incluído):</p>
                     <ScrollArea className="h-48 border border-[#C59E4F]/30 rounded p-2">
                       <div className="flex flex-wrap gap-2">
                         {gameState.discardPile.length === 0 ? (
