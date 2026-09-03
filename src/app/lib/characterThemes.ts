@@ -187,6 +187,20 @@ export const characterThemes: Record<Character, CharacterTheme> = {
     border: '#CC5500',
     darkAccent: '#3D1900', // Igual a `dark` (personagem de matiz único, sem duotone como o Coringa)
   },
+
+  // DRUIDA (personagem novo, pedido do usuário: "verde #0f8a19") - tom de
+  // verde vivo (crescimento, natureza), escolhido pelo próprio usuário.
+  druida: {
+    name: 'DRUIDA',
+    primary: '#0F8A19',      // Verde vivo (pedido do usuário)
+    secondary: '#0B5E12',    // Verde escuro
+    accent: '#3FD452',       // Verde claro brilhante
+    light: '#B7EFBC',        // Verde pastel
+    dark: '#072B0B',         // Verde quase preto
+    glow: 'rgba(15, 138, 25, 0.3)', // Brilho verde translúcido
+    border: '#0F8A19',
+    darkAccent: '#072B0B', // Igual a `dark` (personagem de matiz único, sem duotone como o Coringa)
+  },
 };
 
 /**

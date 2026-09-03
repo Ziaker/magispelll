@@ -2,11 +2,14 @@
  * numeralSpells.ts - Sistema de Magias Numerais
  *
  * Magias Numerais são habilidades especiais únicas de cada personagem,
- * ativadas ao reunir 3 cartas do mesmo número específico.
+ * ativadas ao reunir 3 cartas de números específicos.
  *
  * MECÂNICA:
- * - Cada personagem tem um número específico: MAGO=9, BESTA=6, ANJO=3
- * - Requer 3 cartas iguais desse número (Ás transformado conta)
+ * - Cada personagem tem 3 números específicos: MAGO=9,9,9, BESTA=6,6,6, ANJO=3,3,3
+ * - Requer 1 carta de CADA número da lista (Ás transformado conta) - na
+ *   maioria dos personagens os 3 números são iguais ("3 cartas iguais"), mas
+ *   o Druida (Fotossíntese) exige 3 valores DIFERENTES (A, 3, 7) - ver
+ *   `requiredNumbers`/getMatchingNumeralCards.
  * - Só pode ativar na fase de ESTRATÉGIA
  * - Campo deve estar vazio (sem cartas posicionadas)
  * - Apenas uma Magia Numeral pode estar ativa por vez
@@ -35,16 +38,32 @@ export interface FieldSlotLike {
   faceDownCard?: Card;
 }
 
+/**
+ * FIX (Druida, personagem novo - Fotossíntese): antes `requiredNumber` era
+ * um único número, assumindo implicitamente "3 cartas do MESMO valor" em
+ * toda a cadeia (getMatchingNumeralCards/canActivateNumeralSpell/
+ * formatNumeralRequirement). Fotossíntese exige 1 Ás + 1 três + 1 sete (3
+ * valores DIFERENTES) - `requiredNumbers` generaliza pra um array de 3
+ * valores (repetidos ou não): todo personagem existente vira `[N, N, N]`
+ * (comportamento idêntico a antes), Druida vira `[14, 3, 7]` (Ás=14, ver
+ * getCardNumericValue em cardUtils.ts).
+ */
 export type NumeralSpellType = {
   character: NumeralCharacter;
-  requiredNumber: number;
+  requiredNumbers: number[];
   name: string;
   description: string;
 };
 
-/** Texto do requisito da Magia Numeral pra exibição (UI). */
+/** Rótulo de exibição de um valor de Magia Numeral fora do intervalo 2-10 (só o Ás do Druida usa isto hoje). Exportado pra UI (ver CharacterSelection.tsx) montar seus próprios layouts a partir de `requiredNumbers` bruto quando precisar. */
+const NUMERAL_DISPLAY_LABELS: Record<number, string> = { 14: 'A', 11: 'J', 12: 'Q', 13: 'K' };
+export function numeralDisplayLabel(value: number): string {
+  return NUMERAL_DISPLAY_LABELS[value] ?? String(value);
+}
+
+/** Texto do requisito da Magia Numeral pra exibição (UI) - ex.: "9, 9, 9" ou "A, 3, 7". */
 export function formatNumeralRequirement(spell: NumeralSpellType): string {
-  return String(spell.requiredNumber);
+  return spell.requiredNumbers.map(numeralDisplayLabel).join(', ');
 }
 
 /**
@@ -52,36 +71,36 @@ export function formatNumeralRequirement(spell: NumeralSpellType): string {
  * IMPORTANTE: cada personagem tem apenas UMA Magia Numeral.
  *
  * EXTENSÃO: para novo personagem, adicione:
- * novoPersonagem: { character: 'novoPersonagem', requiredNumber: X, name: '...', description: '...' }
+ * novoPersonagem: { character: 'novoPersonagem', requiredNumbers: [X, X, X], name: '...', description: '...' }
  */
 export const NUMERAL_SPELLS: Record<NumeralCharacter, NumeralSpellType> = {
   mago: {
     character: 'mago',
-    requiredNumber: 9,
+    requiredNumbers: [9, 9, 9],
     name: 'Visão Arcana',
     description: 'No próximo turno, todas as cartas do oponente estarão reveladas (inclui as cartas que comprar).',
   },
   besta: {
     character: 'besta',
-    requiredNumber: 6,
+    requiredNumbers: [6, 6, 6],
     name: 'Fúria Sanguinária',
     description: 'Efeito imediato: o oponente descarta toda a mão que possui e compra de volta mais de 6 cartas.',
   },
   anjo: {
     character: 'anjo',
-    requiredNumber: 3,
+    requiredNumbers: [3, 3, 3],
     name: 'Benção Eterna',
     description: 'Compre uma carta a mais na fase de compra permanentemente (acumulativo). Seu limite de mão também aumenta em 1.',
   },
   mosqueteiro: {
     character: 'mosqueteiro',
-    requiredNumber: 9,
+    requiredNumbers: [9, 9, 9],
     name: 'Munição Infinita',
     description: 'No próximo turno, seu limite de mão aumenta em 1 para cada carta que suas magias (Valete/Rainha) descartaram nos últimos 3 turnos.',
   },
   coringa: {
     character: 'coringa',
-    requiredNumber: 7,
+    requiredNumbers: [7, 7, 7],
     name: 'Mão de Ferro',
     description:
       'No próximo turno, suas cartas de magia (Valete/Rainha/Rei) podem ser transformadas (permanentemente, um botão surge em cada uma) em cartas de número 11, 12 e 13.',
@@ -94,10 +113,23 @@ export const NUMERAL_SPELLS: Record<NumeralCharacter, NumeralSpellType> = {
   // quantos turnos demore) - trade-off clássico "1 alvo forte" vs "3 alvos fracos".
   piromante: {
     character: 'piromante',
-    requiredNumber: 6,
+    requiredNumbers: [6, 6, 6],
     name: 'Chama Repartida',
     description:
       'No próximo lançamento da Bola de Fogo, ela se propaga pros 3 slots do campo do oponente de uma vez (em vez de só 1), mas com o valor dividido entre eles em vez do total.',
+  },
+  // Druida (personagem novo) - primeira Magia Numeral do jogo que exige 3
+  // valores DIFERENTES (Ás=14, 3, 7) em vez de 3 cartas iguais - ver
+  // getMatchingNumeralCards abaixo (generalizada pra suportar os dois casos).
+  // Efeito PERMANENTE e REATIVÁVEL (decisão confirmada com o usuário): cada
+  // ativação soma +1 em `PlayerState.druidaPhotosynthesisLevel`, sem teto -
+  // ver handleFinalizeNumeralSpell em gameEngine.ts.
+  druida: {
+    character: 'druida',
+    requiredNumbers: [14, 3, 7],
+    name: 'Fotossíntese',
+    description:
+      'Permanente e reativável (empilha): aprimore em +1 todos os efeitos relacionados ao Broto - crescimento por turno, marcador da Rainha/Rei, e a redução do Rei/Rainha.',
   },
 };
 
@@ -121,9 +153,30 @@ export function getNumeralSpellInfo(character: NumeralCharacter): NumeralSpellTy
  * verdade) rejeitava em silêncio. Passe `null` explicitamente quando não
  * houver Spotlight nesta chamada (nunca deixe implícito).
  */
+/**
+ * FIX (Druida, personagem novo): antes era um `hand.filter(...)` simples,
+ * assumindo implicitamente "qualquer carta do valor certo serve, pegue as 3
+ * primeiras" - válido só quando `requiredNumbers` repete o MESMO valor 3
+ * vezes (todo personagem antigo). Fotossíntese precisa de 1 carta de CADA
+ * valor distinto em `requiredNumbers` (nunca reusar a mesma carta física
+ * para 2 valores) - este algoritmo cobre os dois casos: para cada valor
+ * requerido, na ORDEM, procura a primeira carta ainda não usada que bate,
+ * remove ela do pool restante e segue pro próximo valor. Se algum valor não
+ * tiver candidato, ele é simplesmente pulado (o resultado fica com menos de
+ * 3 cartas) - `canActivateNumeralSpell` já rejeita corretamente com
+ * `.length >= 3` nesse caso, sem precisar de nenhuma mudança lá.
+ */
 export function getMatchingNumeralCards(character: NumeralCharacter, hand: Card[], spotlight: SpotlightState | null): Card[] {
   const spell = NUMERAL_SPELLS[character];
-  return hand.filter((card) => getSpotlightAdjustedValue(card, spotlight) === spell.requiredNumber);
+  const remainingHand = [...hand];
+  const matched: Card[] = [];
+  for (const requiredValue of spell.requiredNumbers) {
+    const idx = remainingHand.findIndex((card) => getSpotlightAdjustedValue(card, spotlight) === requiredValue);
+    if (idx === -1) continue;
+    matched.push(remainingHand[idx]);
+    remainingHand.splice(idx, 1);
+  }
+  return matched;
 }
 
 /**

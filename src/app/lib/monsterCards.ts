@@ -97,6 +97,17 @@ export const MONSTER_EFFECTS: Record<MonsterCharacter, MonsterEffect> = {
     description: 'Adiciona 5 à sua Bola de Fogo',
     detailedDescription: 'Ativa direto (sem escolher alvo) e adiciona 5 à sua Bola de Fogo, até o teto atual.',
   },
+  // Druida (personagem novo) - mesmo padrão do Coringa acima: NUNCA usa a
+  // Zona Monstro (ver handlePlaceMonsterCard, gameEngine.ts) - vai pro campo
+  // normal como uma carta numeral comum, valendo o valor ATUAL do Broto no
+  // instante em que é jogada (travado, não sincroniza depois). Só pode ser
+  // jogada com um Broto ativo em algum slot do próprio campo.
+  druida: {
+    name: 'Broto Espelhado',
+    description: 'Tratada como uma carta numeral valendo o mesmo valor que o Broto',
+    detailedDescription:
+      'Não usa a Zona Monstro - é posicionada no campo como uma carta numeral comum, valendo o mesmo valor do Broto no instante em que é jogada (travado - não muda se o Broto continuar crescendo depois). Só pode ser jogada com um Broto ativo em algum slot do seu campo.',
+  },
 };
 
 /** Retorna as informações do efeito de Monstro de um personagem */

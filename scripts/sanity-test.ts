@@ -1610,6 +1610,22 @@ function simulateAiVsAiGame(
     ['piromante', 'coringa'],
     ['coringa', 'piromante'],
     ['piromante', 'piromante'],
+    // Druida (personagem novo, "crescimento e simbiose" - Broto/Fotossíntese)
+    // - mesma cobertura dos outros 6: um confronto contra cada personagem
+    // existente + o espelho.
+    ['druida', 'mago'],
+    ['mago', 'druida'],
+    ['druida', 'besta'],
+    ['besta', 'druida'],
+    ['druida', 'anjo'],
+    ['anjo', 'druida'],
+    ['druida', 'mosqueteiro'],
+    ['mosqueteiro', 'druida'],
+    ['druida', 'coringa'],
+    ['coringa', 'druida'],
+    ['druida', 'piromante'],
+    ['piromante', 'druida'],
+    ['druida', 'druida'],
   ];
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, monsterCards: true };
   const expectedTotalCards = 54; // 52 + 2 Coringas
@@ -1712,6 +1728,22 @@ function simulateAiVsAiGame(
     ['piromante', 'coringa'],
     ['coringa', 'piromante'],
     ['piromante', 'piromante'],
+    // Druida (personagem novo, "crescimento e simbiose" - Broto/Fotossíntese)
+    // - mesma cobertura dos outros 6: um confronto contra cada personagem
+    // existente + o espelho.
+    ['druida', 'mago'],
+    ['mago', 'druida'],
+    ['druida', 'besta'],
+    ['besta', 'druida'],
+    ['druida', 'anjo'],
+    ['anjo', 'druida'],
+    ['druida', 'mosqueteiro'],
+    ['mosqueteiro', 'druida'],
+    ['druida', 'coringa'],
+    ['coringa', 'druida'],
+    ['druida', 'piromante'],
+    ['piromante', 'druida'],
+    ['druida', 'druida'],
   ];
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, monsterCards: true, towersMode: true };
   // FIX (Modo Towers): baralho comum (54) + 20 numerais extras + 2 Áses extras = 76.
@@ -2416,6 +2448,22 @@ function simulateAiVsAiGame(
     ['piromante', 'coringa'],
     ['coringa', 'piromante'],
     ['piromante', 'piromante'],
+    // Druida (personagem novo, "crescimento e simbiose" - Broto/Fotossíntese)
+    // - mesma cobertura dos outros 6: um confronto contra cada personagem
+    // existente + o espelho.
+    ['druida', 'mago'],
+    ['mago', 'druida'],
+    ['druida', 'besta'],
+    ['besta', 'druida'],
+    ['druida', 'anjo'],
+    ['anjo', 'druida'],
+    ['druida', 'mosqueteiro'],
+    ['mosqueteiro', 'druida'],
+    ['druida', 'coringa'],
+    ['coringa', 'druida'],
+    ['druida', 'piromante'],
+    ['piromante', 'druida'],
+    ['druida', 'druida'],
   ];
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, spotlightMode: true, spotlightCount: 3, spotlightPositive: true, spotlightNegative: true };
   const expectedTotalCards = 54;
@@ -2624,6 +2672,22 @@ function makeReactionsBaseState(config: GameConfig): GameState {
     ['piromante', 'coringa'],
     ['coringa', 'piromante'],
     ['piromante', 'piromante'],
+    // Druida (personagem novo, "crescimento e simbiose" - Broto/Fotossíntese)
+    // - mesma cobertura dos outros 6: um confronto contra cada personagem
+    // existente + o espelho.
+    ['druida', 'mago'],
+    ['mago', 'druida'],
+    ['druida', 'besta'],
+    ['besta', 'druida'],
+    ['druida', 'anjo'],
+    ['anjo', 'druida'],
+    ['druida', 'mosqueteiro'],
+    ['mosqueteiro', 'druida'],
+    ['druida', 'coringa'],
+    ['coringa', 'druida'],
+    ['druida', 'piromante'],
+    ['piromante', 'druida'],
+    ['druida', 'druida'],
   ];
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, reactionsMode: true, reactionsLimit: 3 };
   const expectedTotalCards = 54;
@@ -3922,6 +3986,423 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 
   assert(state.player2.field[0].faceDownCard?.id === targetCard.id, 'FIX (pedido explícito do usuário: "bloqueia"): a Proteção Divina do Anjo impede COMPLETAMENTE o efeito da Bola de Fogo no slot protegido');
   assert(state.player1.fireballValue === 0, 'A Bola de Fogo ainda é consumida mesmo quando o alvo resiste (o "tiro" foi dado)');
+})();
+
+// ---------------------------------------------------------------------------
+// Druida (personagem novo, "crescimento e simbiose" - Broto/Simbiose/Urtiga/
+// Fotossíntese/Monstro) - ver comentário completo em gameEngine.ts
+// (FieldSlot.brotoReserve/isBrotoSlot) para o design completo.
+// ---------------------------------------------------------------------------
+(function testDruidaBrotoPlantAndStack() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const j1 = makeCard('druida-broto-j1', 'J');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [j1] } };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: j1.id, slotIndex: 0, asHorizontal: false });
+
+  assert(state.player1.field[0].faceDownCard?.transformedValue === 1, 'FIX Druida: plantar o Broto cria valor 1 no slot');
+  assert(state.player1.field[0].brotoReserve?.length === 0, 'FIX Druida: Broto sozinho tem brotoReserve vazio (mas definido - marca a presença do Broto)');
+
+  const j2 = makeCard('druida-broto-j2', 'J');
+  state = { ...state, player1: { ...state.player1, hand: [j2] } };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: j2.id, slotIndex: 0, asHorizontal: false });
+
+  assert(state.player1.field[0].faceDownCard?.transformedValue === 2, 'FIX Druida: empilhar outro Valete soma +1 no valor do Broto');
+  assert(state.player1.field[0].brotoReserve?.length === 1, 'FIX Druida: a carta antiga do topo vai pra reserva ao empilhar');
+  assert(state.player1.hand.length === 0, 'As 2 cartas de Valete saíram da mão (plantada + empilhada)');
+
+  // "Só 1 Broto por vez" (decisão confirmada): tentar plantar um 2º Broto num
+  // slot DIFERENTE do já existente é rejeitado, mesmo com um slot vazio disponível.
+  const j3 = makeCard('druida-broto-j3', 'J');
+  state = { ...state, player1: { ...state.player1, hand: [j3] } };
+  const rejectedState = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: j3.id, slotIndex: 1, asHorizontal: false });
+  assert(rejectedState.player1.hand.some((c) => c.id === j3.id), 'FIX Druida: tentar plantar um 2º Broto num slot diferente é rejeitado - só empilha no já existente');
+})();
+
+(function testDruidaBrotoTurnGrowth() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const top = makeCard('druida-grow-top', 'J');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      field: [
+        { faceDownCard: { ...top, transformedValue: 5, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  // Ambos "Prontos" sem nenhum combate de verdade força advancePhaseState pra
+  // fase de Compra do próximo turno (mesmo padrão já usado pelos testes de
+  // torre sobrevivendo à virada de turno, acima neste arquivo).
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 1 });
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 2 });
+
+  assert(state.phase === 'draw', 'Pré-condição: o turno avançou pra fase de Compra');
+  assert(
+    state.player1.field[0].faceDownCard?.transformedValue === 6,
+    `FIX Druida: Broto sozinho (sem reserva) cresce +1 por turno (5 -> 6, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
+  );
+  assert(state.player1.field[0].faceDownCard?.id === top.id, 'O Broto continua sendo a MESMA carta (não foi descartado nem recriado)');
+})();
+
+(function testDruidaBrotoTurnGrowthWithStackAndPhotosynthesis() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const top = makeCard('druida-grow2-top', 'J');
+  const reserveCard = makeCard('druida-grow2-reserve', 'J');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      druidaPhotosynthesisLevel: 2,
+      field: [
+        {
+          faceDownCard: { ...top, transformedValue: 10, revealed: true },
+          revealed: true,
+          horizontalCards: [],
+          brotoReserve: [{ ...reserveCard, revealed: true }],
+        },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 1 });
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 2 });
+
+  // taxa = 1 (base) + 1 (1 carta na reserva) + 2 (nível de Fotossíntese) = +4
+  assert(
+    state.player1.field[0].faceDownCard?.transformedValue === 14,
+    `FIX Druida: Broto com 1 carta empilhada + nível 2 de Fotossíntese cresce +4 por turno (10 -> 14, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
+  );
+})();
+
+(function testDruidaBrotoCollapsesWholeStackOnCombatLoss() {
+  // "É removida apenas se for combatida ou removida por efeitos... Não é
+  // tratada como torre, então se uma carta for removida da pilha, todas são"
+  // - a MESMA classe de bug já encontrada 2x nesta sessão com Towers
+  // (conservação de cartas num colapso de pilha grande) merece o mesmo teste
+  // paranoico aqui, com 4 cartas empilhadas (topo + 3 na reserva).
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const top = makeCard('druida-collapse-top', 'J');
+  const reserve1 = makeCard('druida-collapse-r1', 'J');
+  const reserve2 = makeCard('druida-collapse-r2', 'J');
+  const reserve3 = makeCard('druida-collapse-r3', 'J');
+  const strongerCard = makeCard('druida-collapse-opponent', '10');
+
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      field: [
+        {
+          faceDownCard: { ...top, transformedValue: 4, revealed: true },
+          revealed: true,
+          horizontalCards: [],
+          brotoReserve: [
+            { ...reserve1, revealed: true },
+            { ...reserve2, revealed: true },
+            { ...reserve3, revealed: true },
+          ],
+        },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: strongerCard, revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  const totalBefore = countAllCards(state);
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: state.firstToFlip, slotIndex: 0 });
+  const other = state.firstToFlip === 1 ? 2 : 1;
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: other as PlayerNumber, slotIndex: 0 });
+  state = gameReducer(state, { type: 'RESOLVE_COMBAT' });
+  state = gameReducer(state, { type: 'FINALIZE_COMBAT' });
+
+  assert(!state.player1.field[0].faceDownCard, 'FIX Druida: perder o combate colapsa o Broto por completo (slot vazio, não sobrevive erodindo como uma torre)');
+  assert(!state.player1.field[0].brotoReserve, 'A reserva do Broto também some do slot (colapso total, não erosão)');
+  const discardIds = new Set(state.discardPile.map((c) => c.id));
+  assert(
+    [top.id, reserve1.id, reserve2.id, reserve3.id].every((id) => discardIds.has(id)),
+    'FIX Druida: TODAS as 4 cartas do Broto (topo + 3 da reserva) foram pro descarte, nenhuma órfã'
+  );
+  assert(
+    countAllCards(state) === totalBefore,
+    `FIX Druida: conservação de cartas mantida após colapso de um Broto de 4 cartas empilhadas (${totalBefore} -> ${countAllCards(state)})`
+  );
+})();
+
+(function testDruidaSimbioseMarkerOption() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const qCard = makeCard('druida-simbiose-q', 'Q');
+  const brotoTop = makeCard('druida-simbiose-broto', 'J');
+  const targetCard = makeCard('druida-simbiose-target', '5');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [qCard],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 8, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { faceDownCard: targetCard, revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: qCard.id,
+    character: 'druida',
+    magicType: 'Q',
+    selection: { selectedCards: [targetCard.id] },
+  });
+
+  assert(
+    state.player1.field[0].faceDownCard?.transformedValue === 4,
+    `FIX Druida Simbiose: o Broto é reduzido pela metade (8 -> 4, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
+  );
+  const marker = state.player1.combatModifiers.find((m) => m.cardId === targetCard.id && m.source === 'druida');
+  assert(Boolean(marker), 'FIX Druida Simbiose: um marcador de combate foi criado na carta própria escolhida');
+  assert(marker?.amount === 4, `O marcador vale a metade reduzida do Broto (recebido: ${marker?.amount})`);
+  assert(!state.player1.hand.some((c) => c.id === qCard.id), 'A Rainha foi consumida (descartada)');
+})();
+
+(function testDruidaSimbioseGrowOption() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const qCard = makeCard('druida-simbiose-grow-q', 'Q');
+  const brotoTop = makeCard('druida-simbiose-grow-broto', 'J');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [qCard],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 5, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: qCard.id,
+    character: 'druida',
+    magicType: 'Q',
+    selection: { druidaGrowBroto: true },
+  });
+
+  assert(
+    state.player1.field[0].faceDownCard?.transformedValue === 7,
+    `FIX Druida Simbiose: opção "aumentar" soma +2 no Broto (5 -> 7, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
+  );
+  assert(state.player1.combatModifiers.length === 0, 'A opção de aumentar não cria nenhum marcador de combate');
+})();
+
+(function testDruidaUrtigaWritesOpponentModifier() {
+  // Primeira magia do jogo a escrever no `combatModifiers` do OPONENTE -
+  // Besta/Mosqueteiro só se auto-buffam (ver comentário completo em
+  // CombatModifier, gameEngine.ts) - merece verificação dedicada.
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('druida-urtiga-k', 'K');
+  const brotoTop = makeCard('druida-urtiga-broto', 'J');
+  const opponentTarget = makeCard('druida-urtiga-target', '9');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      hand: [kCard],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 6, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: { ...opponentTarget, revealed: true }, revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: kCard.id,
+    character: 'druida',
+    magicType: 'K',
+    selection: { selectedCards: [opponentTarget.id] },
+  });
+
+  assert(
+    state.player1.field[0].faceDownCard?.transformedValue === 3,
+    `FIX Druida Urtiga: o Broto é reduzido pela metade (6 -> 3, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
+  );
+  const debuff = state.player2.combatModifiers.find((m) => m.cardId === opponentTarget.id && m.source === 'druida');
+  assert(Boolean(debuff), 'FIX Druida Urtiga: um marcador foi criado no array de combatModifiers do OPONENTE (primeiro personagem a escrever lá, não no próprio)');
+  assert(debuff?.amount === -3, `O marcador é NEGATIVO, valendo a metade reduzida do Broto (recebido: ${debuff?.amount})`);
+  assert(state.player1.combatModifiers.length === 0, 'Nenhum marcador foi criado no PRÓPRIO array do Druida (Urtiga mira só o oponente)');
+})();
+
+(function testDruidaFotossinteseRequiresDistinctValues() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  // 3 setes (mesmo valor) NÃO deve ativar - Fotossíntese exige A, 3 e 7 distintos.
+  const seven1 = makeCard('druida-fotossintese-reject-7a', '7');
+  const seven2 = makeCard('druida-fotossintese-reject-7b', '7');
+  const seven3 = makeCard('druida-fotossintese-reject-7c', '7');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [seven1, seven2, seven3] } };
+  assert(
+    !canActivateNumeralSpell('druida', state.player1.hand, state.player1.field, false, null),
+    'FIX Druida Fotossíntese: 3 cartas do MESMO valor (7,7,7) NÃO ativa - exige 3 valores diferentes'
+  );
+
+  const rejectedState = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
+  assert(rejectedState.player1.hand.length === 3, 'A ativação rejeitada não consome nenhuma carta da mão');
+})();
+
+(function testDruidaFotossinteseActivatesAndStacks() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const ace = makeCard('druida-fotossintese-a', 'A');
+  const three = makeCard('druida-fotossintese-3', '3');
+  const seven = makeCard('druida-fotossintese-7', '7');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [ace, three, seven] } };
+
+  assert(
+    canActivateNumeralSpell('druida', state.player1.hand, state.player1.field, false, null),
+    'FIX Druida Fotossíntese: A, 3 e 7 (valores distintos) ativa normalmente'
+  );
+
+  state = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
+  state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
+
+  assert(
+    state.player1.druidaPhotosynthesisLevel === 1,
+    `FIX Druida: 1ª ativação de Fotossíntese leva o nível a 1 (recebido: ${state.player1.druidaPhotosynthesisLevel})`
+  );
+  assert([ace.id, three.id, seven.id].every((id) => state.discardPile.some((c) => c.id === id)), 'As 3 cartas (A, 3, 7) foram descartadas ao finalizar');
+
+  // Reativação (decisão confirmada: reativável, empilha sem teto) - precisa de campo vazio de novo.
+  const ace2 = makeCard('druida-fotossintese-a2', 'A');
+  const three2 = makeCard('druida-fotossintese-3-2', '3');
+  const seven2 = makeCard('druida-fotossintese-7-2', '7');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [ace2, three2, seven2] } };
+  state = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
+  state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
+
+  assert(
+    state.player1.druidaPhotosynthesisLevel === 2,
+    `FIX Druida: reativar Fotossíntese soma +1 de novo, sem teto (recebido: ${state.player1.druidaPhotosynthesisLevel})`
+  );
+})();
+
+(function testDruidaMonsterLocksValueAtPlayTime() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const brotoTop = makeCard('druida-monster-broto', 'J');
+  const monster: Card = { id: 'druida-monster-card', value: 'JOKER', suit: '🃏', isMonster: true, monsterUsed: false };
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [monster],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 7, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: monster.id, slotIndex: 1, asHorizontal: false });
+  assert(
+    state.player1.field[1].faceDownCard?.transformedValue === 7,
+    `FIX Druida Monstro: trava no valor ATUAL do Broto no instante em que é jogado (recebido: ${state.player1.field[1].faceDownCard?.transformedValue})`
+  );
+  assert(!state.player1.monsterCard, 'FIX Druida Monstro: NUNCA usa a Zona Monstro própria - foi pro campo normal como carta numeral');
+
+  // Simula o Broto crescendo DEPOIS (sem re-simular a fase inteira, que
+  // descartaria o Monstro já em campo por não ser um slot persistente - fora
+  // do escopo deste teste) - confirma que o Monstro lê um SNAPSHOT, nunca o
+  // valor "ao vivo" do Broto.
+  state = {
+    ...state,
+    player1: {
+      ...state.player1,
+      field: [
+        { ...state.player1.field[0], faceDownCard: { ...state.player1.field[0].faceDownCard!, transformedValue: 20 } },
+        state.player1.field[1],
+        state.player1.field[2],
+      ] as GameState['player1']['field'],
+    },
+  };
+  assert(state.player1.field[1].faceDownCard?.transformedValue === 7, 'FIX Druida Monstro: o valor travado NÃO muda mesmo o Broto crescendo depois (snapshot, não referência ao vivo)');
+})();
+
+(function testDruidaMonsterBlockedWithoutActiveBroto() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const monster: Card = { id: 'druida-monster-no-broto', value: 'JOKER', suit: '🃏', isMonster: true, monsterUsed: false };
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [monster] } };
+  const rejected = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: monster.id, slotIndex: 0, asHorizontal: false });
+  assert(rejected.player1.hand.some((c) => c.id === monster.id), 'FIX Druida Monstro: sem Broto ativo no campo, a carta não pode ser jogada (fica na mão)');
+})();
+
+(function testDruidaBrotoAndTowerCoexistAcrossTurnTransition() {
+  // Modo Towers + Druida ao mesmo tempo (mesmo jogador com uma Torre num
+  // slot e um Broto em outro) - os dois precisam sobreviver à virada de
+  // turno INDEPENDENTEMENTE, sem um sweep sobrescrever o outro (ver
+  // keepPersistentFieldSlots/growDruidaBrotoField em gameEngine.ts).
+  const towersConfig: GameConfig = { ...DEFAULT_GAME_CONFIG, towersMode: true };
+  let state = createInitialState('druida', 'mago', towersConfig);
+  const brotoTop = makeCard('druida-coexist-broto', 'J');
+  const towerTop = makeCard('druida-coexist-tower-top', '5');
+  const towerReserveCard = makeCard('druida-coexist-tower-reserve', '5');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 3, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { faceDownCard: towerTop, revealed: true, horizontalCards: [], towerReserve: [towerReserveCard] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  const totalBefore = countAllCards(state);
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 1 });
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 2 });
+
+  assert(state.phase === 'draw', 'Pré-condição: o turno avançou pra fase de Compra');
+  assert(Boolean(state.player1.field[0].faceDownCard), 'FIX Druida+Towers: o Broto sobrevive à virada de turno mesmo com uma Torre em outro slot do mesmo campo');
+  assert(
+    state.player1.field[0].faceDownCard?.transformedValue === 4,
+    `O Broto ainda cresce normalmente (3 -> 4, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
+  );
+  assert(Boolean(state.player1.field[1].faceDownCard), 'FIX Druida+Towers: a Torre sobrevive à virada de turno mesmo com um Broto em outro slot do mesmo campo');
+  assert(state.player1.field[1].towerReserve?.length === 1, 'A reserva da Torre continua intacta (nenhum sweep sobrescreveu o outro)');
+  assert(countAllCards(state) === totalBefore, `Conservação de cartas mantida com Torre + Broto coexistindo (${totalBefore} -> ${countAllCards(state)})`);
 })();
 
 // ---------------------------------------------------------------------------

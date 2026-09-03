@@ -55,6 +55,7 @@ import {
   getEffectiveDrawLimit,
   towerEligibleValue,
   isTowerSlot,
+  isBrotoSlot,
   getFireballCap,
   type CharacterId,
   type GameAction,
@@ -246,7 +247,7 @@ function monsterChargesRemaining(me: PlayerState): number {
 function cardPriority(card: Card, character: CharacterId, spotlight: SpotlightState | null): number {
   if (card.isMonster) return 100;
   if (card.value === 'A') return 90;
-  const requiredNumber = getNumeralSpellInfo(character).requiredNumber;
+  const requiredNumber = getNumeralSpellInfo(character).requiredNumbers[0];
   // FIX (pedido do usuário, Modo Spotlight: "IA deve considerar o Spotlight
   // nas decisões") - a régua de prioridade agora usa o valor JÁ ajustado
   // pelo Spotlight, não o efetivo cru: uma carta positiva vale muito mais
@@ -910,7 +911,7 @@ function decideFusionForMagicCard(
 function decideFusionTowardNumeralSpell(me: PlayerState, character: CharacterId, spotlight: SpotlightState | null): { cardId1: string; cardId2: string } | null {
   if (character === 'anjo') return null;
 
-  const requiredNumber = getNumeralSpellInfo(character).requiredNumber;
+  const requiredNumber = getNumeralSpellInfo(character).requiredNumbers[0];
   if (getMatchingNumeralCards(character, me.hand, spotlight).length >= 3) return null; // trio já completo, não precisa de mais
 
   const reserved = reservedNumeralCardIds(me.hand, character, spotlight);
@@ -972,7 +973,7 @@ function decideFusionForCombatNecessity(
   const alreadyHasAnswer = me.hand.some((c) => isNumeralCard(c) && combatValue(c, state.spotlight) > biggestThreat);
   if (alreadyHasAnswer) return null;
 
-  const requiredNumber = getNumeralSpellInfo(character).requiredNumber;
+  const requiredNumber = getNumeralSpellInfo(character).requiredNumbers[0];
   const reserved = reservedNumeralCardIds(me.hand, character, state.spotlight);
   const candidates = me.hand.filter(
     (c) => isPlainNumeralCard(c) && !reserved.has(c.id) && getEffectiveCardValue(c) !== requiredNumber
@@ -1008,10 +1009,12 @@ function decideFusionForCombatNecessity(
  */
 function decidePlaceMonsterCard(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  // Coringa (redesenho completo) nunca posiciona a carta Monstro na Zona -
-  // ela vai pro campo normal (ver isCoringaTrapFieldEligible), decidida por
-  // decideFieldPlacement/decideHorizontalPlacement, nunca aqui.
-  if (characterOf(state, ai) === 'coringa') return null;
+  // Coringa (redesenho completo) e Druida (personagem novo) nunca posicionam
+  // a carta Monstro na Zona - vai pro campo normal (ver
+  // isCoringaTrapFieldEligible / decideDruidaMonster), decidida por
+  // decideFieldPlacement/decideHorizontalPlacement/decideDruidaMonster,
+  // nunca aqui.
+  if (characterOf(state, ai) === 'coringa' || characterOf(state, ai) === 'druida') return null;
   if (me.monsterCard) return null; // zona já ocupada
   // FIX (checagem extensa por bugs, achado via teste de propriedade: "a IA
   // nunca propõe uma ação que o motor rejeita em silêncio"): um Coringa que
@@ -1606,6 +1609,7 @@ function decideStrategyMagic(state: GameState, ai: PlayerNumber, character: Char
   // Coringa (redesenho completo) nunca chega aqui - Rainha/Rei são
   // posicionados no campo normal (decideFieldPlacement), não ativados.
   if (character === 'piromante') return decidePiromanteQ(state, ai);
+  if (character === 'druida') return decideDruidaQ(state, ai);
   return null;
 }
 
@@ -1835,6 +1839,137 @@ function shouldHoldBackField(state: GameState, ai: PlayerNumber): boolean {
   return random() < 0.4;
 }
 
+/**
+ * Druida (personagem novo) - Broto (Valete): planta assim que possível
+ * (quanto mais cedo, mais trocas de fase ele acumula) e SEMPRE empilha outro
+ * Valete no Broto já existente em vez de segurá-lo - crescer o Broto nunca
+ * tem custo nenhum (ao contrário de Simbiose/Urtiga, que sacrificam metade
+ * dele), então mais Valetes empilhados são estritamente melhores. Chamada
+ * ANTES de decideFieldPlacement em decideStrategyPhase - o Valete nunca
+ * seria elegível lá de qualquer forma (isFieldEligible sempre exclui J/Q/K).
+ */
+function decideDruidaBroto(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  const valete = me.hand.find((c) => c.value === 'J');
+  if (!valete) return null;
+
+  const brotoSlotIndex = me.field.findIndex(isBrotoSlot);
+  if (brotoSlotIndex !== -1) {
+    return { type: 'PLAY_CARD', player: ai, cardId: valete.id, slotIndex: brotoSlotIndex, asHorizontal: false };
+  }
+
+  const emptySlotIndex = me.field.findIndex((slot) => !slot.faceDownCard);
+  if (emptySlotIndex === -1) return null;
+  return { type: 'PLAY_CARD', player: ai, cardId: valete.id, slotIndex: emptySlotIndex, asHorizontal: false };
+}
+
+/**
+ * Druida - Monstro (Broto Espelhado): joga assim que houver um Broto ativo E
+ * um slot vazio - ao contrário do Monstro dos outros personagens (zona
+ * própria, ativa a QUALQUER momento), este é jogado uma única vez como carta
+ * de campo comum, então não há razão pra segurar (o valor travado só piora
+ * esperando - o Broto pode ser combatido/reduzido antes de jogar o Monstro).
+ */
+function decideDruidaMonster(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  if (!me.field.some(isBrotoSlot)) return null;
+  const monster = me.hand.find((c) => c.isMonster);
+  if (!monster) return null;
+  const emptySlotIndex = me.field.findIndex((slot) => !slot.faceDownCard);
+  if (emptySlotIndex === -1) return null;
+  return { type: 'PLAY_CARD', player: ai, cardId: monster.id, slotIndex: emptySlotIndex, asHorizontal: false };
+}
+
+/**
+ * Druida - Simbiose (Rainha, Estratégia): reduzir o Broto pela metade só
+ * vale a pena quando (a) o Broto já está grande o bastante pro marcador
+ * resultante importar (metade >= 3) E (b) existe uma carta própria em campo
+ * pra receber o marcador que não seja o próprio Broto - caso contrário,
+ * aumentar o Broto em 2 é estritamente melhor (nenhum sacrifício, mais
+ * Broto pra crescer/reduzir depois).
+ */
+function decideDruidaQ(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  const qCard = me.hand.find((c) => c.value === 'Q');
+  if (!qCard) return null;
+  if (!canActivateMagic('strategy', 'druida', 'Q', getMagicActivationContext(state, ai))) return null;
+
+  const brotoSlot = me.field.find(isBrotoSlot);
+  const brotoValue = brotoSlot?.faceDownCard?.transformedValue ?? 1;
+  const halved = Math.floor(brotoValue / 2);
+
+  const ownTargets = me.field.flatMap((slot) =>
+    [...(slot.faceDownCard && slot.faceDownCard.id !== brotoSlot?.faceDownCard?.id ? [slot.faceDownCard] : []), ...slot.horizontalCards]
+  );
+  const bestTarget = ownTargets.length > 0 ? pickHighestBy(ownTargets, (c) => getEffectiveCardValue(c)) : null;
+
+  if (halved >= 3 && bestTarget) {
+    return {
+      type: 'EXECUTE_MAGIC',
+      player: ai,
+      cardId: qCard.id,
+      character: 'druida',
+      magicType: 'Q',
+      selection: { selectedCards: [bestTarget.id] },
+    };
+  }
+
+  return {
+    type: 'EXECUTE_MAGIC',
+    player: ai,
+    cardId: qCard.id,
+    character: 'druida',
+    magicType: 'Q',
+    selection: { druidaGrowBroto: true },
+  };
+}
+
+/**
+ * Druida - Urtiga (Rei, Combate): mesma lógica de decideDruidaQ, mas mirando
+ * a carta REVELADA mais valiosa do OPONENTE (nunca mira às cegas - a IA não
+ * lê valor de carta ainda oculta, mesmo princípio de todo o resto deste
+ * arquivo). Sem nenhum alvo revelado disponível, sempre cresce o Broto.
+ */
+function decideDruidaK(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  const kCard = me.hand.find((c) => c.value === 'K');
+  if (!kCard) return null;
+  if (!canActivateMagic('combat', 'druida', 'K', getMagicActivationContext(state, ai))) return null;
+
+  const brotoSlot = me.field.find(isBrotoSlot);
+  const brotoValue = brotoSlot?.faceDownCard?.transformedValue ?? 1;
+  const halved = Math.floor(brotoValue / 2);
+
+  const opponent = opponentOf(ai);
+  const opponentField = state[opponentKeyOf(ai)].field;
+  const opponentTargets = opponentField.flatMap((slot, slotIdx) =>
+    isSlotProtected(state, opponent, slotIdx)
+      ? []
+      : [...(slot.faceDownCard?.revealed ? [slot.faceDownCard] : []), ...slot.horizontalCards.filter((c) => c.revealed)]
+  );
+  const bestTarget = opponentTargets.length > 0 ? pickHighestBy(opponentTargets, (c) => getEffectiveCardValue(c)) : null;
+
+  if (halved >= 3 && bestTarget) {
+    return {
+      type: 'EXECUTE_MAGIC',
+      player: ai,
+      cardId: kCard.id,
+      character: 'druida',
+      magicType: 'K',
+      selection: { selectedCards: [bestTarget.id] },
+    };
+  }
+
+  return {
+    type: 'EXECUTE_MAGIC',
+    player: ai,
+    cardId: kCard.id,
+    character: 'druida',
+    magicType: 'K',
+    selection: { druidaGrowBroto: true },
+  };
+}
+
 function decideFieldPlacement(state: GameState, ai: PlayerNumber, character: CharacterId): GameAction | null {
   const horizontalAction = decideHorizontalPlacement(state, ai, character);
   if (horizontalAction) return horizontalAction;
@@ -1943,7 +2078,7 @@ function decideFieldPlacement(state: GameState, ai: PlayerNumber, character: Cha
  * sempre, sem nada mudar no estado).
  */
 function decideAceTransform(state: GameState, ai: PlayerNumber, character: CharacterId, me: PlayerState): GameAction | null {
-  const requiredNumber = getNumeralSpellInfo(character).requiredNumber;
+  const requiredNumber = getNumeralSpellInfo(character).requiredNumbers[0];
   const numeralSpellAlreadyActive = state.activeNumeralSpells[ai] !== undefined;
 
   // `getMatchingNumeralCards` conta pelo valor EFETIVO (inclui um Ás JÁ
@@ -2041,6 +2176,18 @@ function decideStrategyPhase(state: GameState, ai: PlayerNumber): AiDecision {
   // novo a cada ciclo, e o slot da torre já estará ocupado).
   const towerAction = decideTowerAction(state, ai, character, me);
   if (towerAction) return { type: 'action', action: towerAction };
+
+  // Druida (personagem novo) - Broto e Monstro nunca passam por
+  // decideFieldPlacement (isFieldEligible sempre exclui J/Q/K, e o Monstro
+  // dele precisa de um Broto ativo antes) - decididos à parte, ANTES do
+  // preenchimento genérico de slots (mesmo motivo de decidePlaceMonsterCard
+  // rodar antes para os outros personagens).
+  if (character === 'druida') {
+    const brotoAction = decideDruidaBroto(state, ai);
+    if (brotoAction) return { type: 'action', action: brotoAction };
+    const druidaMonsterAction = decideDruidaMonster(state, ai);
+    if (druidaMonsterAction) return { type: 'action', action: druidaMonsterAction };
+  }
 
   const placeAction = decideFieldPlacement(state, ai, character);
   if (placeAction) return { type: 'action', action: placeAction };
@@ -2325,6 +2472,7 @@ function decideCombatMagic(state: GameState, ai: PlayerNumber, character: Charac
   if (character === 'besta') return decideBestaK(state, ai);
   if (character === 'mosqueteiro') return decideMosqueteiroK(state, ai);
   if (character === 'piromante') return decidePiromanteK(state, ai) ?? decidePiromanteCombatFireball(state, ai);
+  if (character === 'druida') return decideDruidaK(state, ai);
   return null;
 }
 

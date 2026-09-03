@@ -1,6 +1,6 @@
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { ArrowLeft, Wand2, Crosshair, Flame } from 'lucide-react';
+import { ArrowLeft, Wand2, Crosshair, Flame, Sprout } from 'lucide-react';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { CharacterDivider } from './CharacterDivider';
 import { ScrollArea } from './ui/scroll-area';
@@ -336,6 +336,59 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
       monsterEffect: {
         name: 'Brasa',
         effect: 'Ativa direto (sem escolher alvo) e adiciona 5 à sua Bola de Fogo, até o teto atual.',
+      },
+    },
+    druida: {
+      name: 'DRUIDA',
+      icon: Sprout,
+      color: '#0F8A19',
+      profile: 'Cultiva um Broto que planta na Estratégia e cresce sozinho a cada troca de fase, empilhando mais Valetes por cima pra crescer mais rápido. Simbiose e Urtiga sacrificam metade do valor acumulado do Broto para marcar uma carta em combate - a favor ou contra.',
+      spells: [
+        {
+          card: 'Valete (J)',
+          phase: 'Estratégia',
+          name: 'Broto',
+          description: 'Posicione no campo virado para cima, valendo 1. A cada troca de fase, seu valor cresce. Plantar outro Valete sempre empilha no Broto já existente (aumenta o valor e a taxa de crescimento). Não recebe horizontais e só é removido sendo combatido ou por efeito.',
+        },
+        {
+          card: 'Rainha (Q)',
+          phase: 'Estratégia',
+          name: 'Simbiose',
+          description: 'Reduza o Broto pela metade para adicionar um marcador de combate (vale a metade reduzida) numa carta sua no campo. Ou: aumente o Broto em 2.',
+        },
+        {
+          card: 'Rei (K)',
+          phase: 'Combate',
+          name: 'Urtiga',
+          description: 'Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do oponente. Ou: aumente o Broto em 2.',
+        },
+      ],
+      strategies: [
+        {
+          title: 'Plantio Cedo',
+          description: 'Plante o Broto o quanto antes - cada troca de fase que ele passa em campo é mais valor acumulado, e empilhar Valetes extras acelera o crescimento.',
+        },
+        {
+          title: 'Colher ou Guardar',
+          description: 'Simbiose/Urtiga sempre oferecem a escolha: sacrificar metade do Broto agora por um marcador imediato, ou deixá-lo crescer +2 pra colher um valor maior depois.',
+        },
+        {
+          title: 'Urtiga Cirúrgica',
+          description: 'Use Urtiga pra enfraquecer bem a carta que o oponente mais confia numa disputa - o marcador negativo pode virar o resultado do combate sozinho.',
+        },
+        {
+          title: 'Fotossíntese Reativável',
+          description: 'Reúna A, 3 e 7 pra ativar Fotossíntese (campo vazio, então antes de plantar de novo) - o bônus permanente empilha a cada reativação, aprimorando o Broto pelo resto da partida.',
+        },
+      ],
+      numericSpell: {
+        cards: 'A, 3, 7',
+        name: 'Fotossíntese',
+        effect: 'Permanente e reativável (empilha): aprimora em +1 todos os efeitos relacionados ao Broto - crescimento por turno, marcador da Rainha/Rei, e a redução do Rei/Rainha.',
+      },
+      monsterEffect: {
+        name: 'Broto Espelhado',
+        effect: 'Não usa a Zona Monstro - é jogada no campo como uma carta numeral comum, valendo o mesmo valor do Broto no instante em que é jogada (travado). Só pode ser jogada com um Broto ativo no campo.',
       },
     },
   };

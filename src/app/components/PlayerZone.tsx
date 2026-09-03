@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { Wand2, Heart as HeartIcon, Flame, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Hand, MousePointerClick, Eye, EyeOff } from 'lucide-react';
+import { Wand2, Heart as HeartIcon, Flame, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Hand, MousePointerClick, Eye, EyeOff, Sprout } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { Badge } from './ui/badge';
@@ -429,6 +429,7 @@ export function PlayerZone({
     mosqueteiro: Crosshair,
     coringa: JesterHatIcon,
     piromante: Flame,
+    druida: Sprout,
   };
 
   const Icon = characterIcons[character];
@@ -466,7 +467,14 @@ export function PlayerZone({
       return;
     }
 
-    const isMagic = (card.value === 'J' || card.value === 'Q' || card.value === 'K') && !(character === 'coringa' && card.coringaTransformedToNumeral);
+    // Druida (personagem novo) - o Broto (Valete) NUNCA "ativa" como as
+    // outras magias, é posicionado no campo (plantado/empilhado) igual às
+    // cartas do Coringa acima - mesma exclusão, mas só pro Valete (Rainha/
+    // Rei do Druida SÃO magias de verdade, ativadas normalmente).
+    const isMagic =
+      (card.value === 'J' || card.value === 'Q' || card.value === 'K') &&
+      !(character === 'coringa' && card.coringaTransformedToNumeral) &&
+      !(character === 'druida' && card.value === 'J');
 
     if (phase === 'draw') {
       // Cartas reveladas nunca podem ser descartadas, mas podem ser
@@ -962,7 +970,12 @@ export function PlayerZone({
                     <div className="flex items-center justify-center gap-2">
                       <Sparkles className="w-4 h-4" />
                       <span className="text-[11px]">
-                        Magia Numeral ({formatNumeralRequirement(spellInfo)},{formatNumeralRequirement(spellInfo)},{formatNumeralRequirement(spellInfo)})
+                        {/* FIX (Druida, personagem novo): antes repetia
+                            formatNumeralRequirement(spellInfo) 3x manualmente
+                            (assumindo os 3 valores sempre iguais) - a função
+                            já devolve a lista inteira formatada agora ("9, 9,
+                            9" ou "A, 3, 7" pro Druida). */}
+                        Magia Numeral ({formatNumeralRequirement(spellInfo)})
                       </span>
                       <Sparkles className="w-4 h-4" />
                     </div>
@@ -998,7 +1011,7 @@ export function PlayerZone({
                   <div className="text-[10px] text-[#8F6A30] border-t border-[#8F6A30] pt-2 mt-2">
                     <p>Requisitos:</p>
                     <ul className="list-disc list-inside space-y-1 mt-1">
-                      <li>3 cartas {formatNumeralRequirement(spellInfo)} na mão</li>
+                      <li>Cartas {formatNumeralRequirement(spellInfo)} na mão</li>
                       <li>Sem cartas no seu campo</li>
                       <li>Sem magia numeral ativa</li>
                     </ul>
@@ -1213,8 +1226,19 @@ export function PlayerZone({
                 {/* FIX (itens 4 e 7 da 3ª rodada): uma carta Monstro nunca
                     vai para um dos 3 slots numerados - ela tem sua própria
                     zona dedicada (ver BattleField.tsx), então a dica precisa
-                    apontar para lá em vez de "um slot no campo". */}
-                {selectedCard?.isMonster ? '→ Clique na Zona do Monstro' : '→ Clique em um slot no campo'}
+                    apontar para lá em vez de "um slot no campo".
+                    FIX (Druida, personagem novo, achado testando ao vivo no
+                    navegador - mas o mesmo já valia pro Coringa, nunca
+                    corrigido até agora): Coringa e Druida são as DUAS
+                    exceções que nunca usam a Zona do Monstro - a carta deles
+                    vai pro campo normal, como qualquer carta numeral (ver
+                    handlePlaceMonsterCard/handlePlayCard, gameEngine.ts) -
+                    sem esta exclusão, a dica mandava "clicar na Zona do
+                    Monstro" mesmo quando ela nem aceita a carta pra esses 2
+                    personagens. */}
+                {selectedCard?.isMonster && character !== 'coringa' && character !== 'druida'
+                  ? '→ Clique na Zona do Monstro'
+                  : '→ Clique em um slot no campo'}
               </p>
             )}
             {!isAiControlled && phase === 'draw' && selectedForDiscard.size > 0 && (
@@ -1362,7 +1386,14 @@ export function PlayerZone({
                 displayHand.map((card, displayIndex) => {
                   const isSelectedForDiscard = selectedForDiscard.has(card.id);
                   const isSelectedForPlay = selectedCardId === card.id;
-                  const isMagic = (card.value === 'J' || card.value === 'Q' || card.value === 'K') && !(character === 'coringa' && card.coringaTransformedToNumeral);
+                  // Druida (personagem novo) - o Broto (Valete) NUNCA "ativa" como as
+    // outras magias, é posicionado no campo (plantado/empilhado) igual às
+    // cartas do Coringa acima - mesma exclusão, mas só pro Valete (Rainha/
+    // Rei do Druida SÃO magias de verdade, ativadas normalmente).
+    const isMagic =
+      (card.value === 'J' || card.value === 'Q' || card.value === 'K') &&
+      !(character === 'coringa' && card.coringaTransformedToNumeral) &&
+      !(character === 'druida' && card.value === 'J');
                   // FIX (item 3 da 6ª rodada): true por ~0.5s logo após o
                   // jogador tentar (por clique ou drag-and-drop) posicionar
                   // esta carta na Zona Monstro sem ela ser uma carta Monstro -

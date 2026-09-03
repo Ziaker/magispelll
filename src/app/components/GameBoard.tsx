@@ -86,6 +86,7 @@ import {
   isCoringaRawTrapCard,
   getFireballCap,
   canMagicTriggerReactionAnnouncement,
+  isBrotoSlot,
   type CharacterId,
   type GameAction,
   type GameState,
@@ -139,6 +140,8 @@ interface PendingMagic {
   selectedRevealCardIds?: string[];
   /** Piromante - verdadeiro quando o jogador escolheu, no diálogo, lançar a Bola de Fogo já acumulada em vez do efeito próprio de alimentar (J/Q/K) - ver MagicSelection.fireballLaunch em gameEngine.ts. */
   fireballLaunch?: boolean;
+  /** Druida - verdadeiro quando o jogador escolheu, no diálogo, aumentar o Broto em 2 em vez de reduzi-lo pela metade pra criar um marcador - ver MagicSelection.druidaGrowBroto em gameEngine.ts. */
+  druidaGrowBroto?: boolean;
 }
 
 export function GameBoard({ onBack, player1Character, player2Character, gameConfig }: GameBoardProps) {
@@ -1847,8 +1850,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const executeMagicEffect = (override?: PendingMagic) => {
     const pm = override ?? pendingMagic;
     if (!pm) return;
-    const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch } = pm;
-    const selection: MagicSelection = { selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch };
+    const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch, druidaGrowBroto } = pm;
+    const selection: MagicSelection = { selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch, druidaGrowBroto };
     // FIX (checagem extensa por bugs - burst fantasma/duplicado no Modo
     // Reações): ver canMagicTriggerReactionAnnouncement em gameEngine.ts -
     // se esta ativação for na verdade só um ANÚNCIO (efeito represado em
@@ -1993,6 +1996,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         selectedTargetSlot: action.selection.selectedTargetSlot,
         selectedRevealCardIds: action.selection.selectedRevealCardIds,
         fireballLaunch: action.selection.fireballLaunch,
+        druidaGrowBroto: action.selection.druidaGrowBroto,
       });
     } else if (action.type === 'ACTIVATE_SIMPLE_MAGIC') {
       // Só usada pelo Anjo J (Bênção Divina) e K (Reforço Angelical) - as
@@ -4023,6 +4027,84 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     );
                   })()}
 
+                {/* Druida (personagem novo) - Simbiose (Rainha) e Urtiga
+                    (Rei) sempre oferecem a MESMA escolha (mesmo espírito do
+                    Piromante acima): reduzir o Broto pela metade pra marcar
+                    uma carta em combate, OU aumentar o Broto em 2. O bloco é
+                    compartilhado pelas 2; só o alvo (próprio campo na
+                    Rainha, campo do oponente no Rei) e a cor do marcador
+                    (positivo/negativo) mudam. */}
+                {pendingMagic.character === 'druida' &&
+                  (() => {
+                    const brotoSlot = gameState[ownKey].field.find(isBrotoSlot);
+                    const brotoValue = brotoSlot?.faceDownCard?.transformedValue ?? 1;
+                    const level = gameState[ownKey].druidaPhotosynthesisLevel;
+                    const growAmount = 2 + level;
+                    const halved = Math.floor(brotoValue / 2);
+                    const isGrow = Boolean(pendingMagic.druidaGrowBroto);
+                    const isUrtiga = pendingMagic.type === 'K';
+
+                    const ownTargets = gameState[ownKey].field.flatMap((slot, slotIdx) =>
+                      [
+                        ...(slot.faceDownCard && slot.faceDownCard.id !== brotoSlot?.faceDownCard?.id ? [slot.faceDownCard] : []),
+                        ...slot.horizontalCards,
+                      ].map((c) => ({ card: c, slotIdx }))
+                    );
+                    const opponentTargets = gameState[opponentKey].field.flatMap((slot, slotIdx) =>
+                      isSlotProtectedFor(opponentNumber, slotIdx)
+                        ? []
+                        : [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...slot.horizontalCards].map((c) => ({ card: c, slotIdx }))
+                    );
+                    const targets = isUrtiga ? opponentTargets : ownTargets;
+
+                    return (
+                      <div className="space-y-3">
+                        <div className="flex gap-2 flex-wrap">
+                          <button
+                            disabled={halved <= 0}
+                            onClick={() => setPendingMagic({ ...pendingMagic, druidaGrowBroto: false, selectedCards: [] })}
+                            className={`flex-1 min-w-[180px] px-3 py-2 rounded border-2 text-[11px] text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                              !isGrow ? 'border-[#6CC47A] bg-[#6CC47A]/10 text-[#EFE7D6]' : 'border-[#C59E4F]/30 hover:border-[#C59E4F] text-[#BFB6A6]'
+                            }`}
+                          >
+                            Reduzir o Broto para {halved} e marcar uma carta {isUrtiga ? 'do oponente' : 'sua'} com {isUrtiga ? '-' : '+'}
+                            {halved + level}
+                          </button>
+                          <button
+                            onClick={() => setPendingMagic({ ...pendingMagic, druidaGrowBroto: true, selectedCards: undefined })}
+                            className={`flex-1 min-w-[180px] px-3 py-2 rounded border-2 text-[11px] text-left transition-all ${
+                              isGrow ? 'border-[#0F8A19] bg-[#0F8A19]/10 text-[#EFE7D6]' : 'border-[#C59E4F]/30 hover:border-[#C59E4F] text-[#BFB6A6]'
+                            }`}
+                          >
+                            🌱 Aumentar o Broto em {growAmount} (agora vale {brotoValue}, ficaria {brotoValue + growAmount})
+                          </button>
+                        </div>
+
+                        {!isGrow && (
+                          <div className="space-y-2">
+                            <p className="text-[#BFB6A6] text-[12px]">
+                              Selecione a carta {isUrtiga ? 'do campo do oponente' : 'do seu campo'} que vai receber o marcador:
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {targets.map(({ card: c }) => (
+                                <div
+                                  key={c.id}
+                                  onClick={() => setPendingMagic({ ...pendingMagic, selectedCards: [c.id] })}
+                                  className={`cursor-pointer transition-all hover:scale-105 rounded ${
+                                    (pendingMagic.selectedCards || [])[0] === c.id ? 'ring-2 ring-[#0F8A19]' : ''
+                                  }`}
+                                >
+                                  {c.revealed ? <PlayingCard value={c.value} suit={c.suit} card={c} /> : <div className="w-16 h-24 rounded bg-[#1E1A16] border-2 border-[#C59E4F]/30 flex items-center justify-center text-[20px]">🂠</div>}
+                                </div>
+                              ))}
+                            </div>
+                            {targets.length === 0 && <p className="text-[#8A5A5A] text-[11px]">Nenhuma carta {isUrtiga ? 'no campo do oponente' : 'no seu campo'} disponível agora.</p>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                 <div className="flex gap-3 pt-2">
                   <Button
                     onClick={() => executeMagicEffect()}
@@ -4058,6 +4140,10 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                         // mão - o usuário via a Combustão "escolhida" mas não
                         // conseguia avançar.
                         if (type === 'J') return false; // Combustão própria não exige seleção (junta tudo automaticamente)
+                        return !selectedCards || selectedCards.length === 0;
+                      }
+                      if (character === 'druida') {
+                        if (pendingMagic.druidaGrowBroto) return false;
                         return !selectedCards || selectedCards.length === 0;
                       }
                       return false;

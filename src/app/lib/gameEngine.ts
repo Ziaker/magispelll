@@ -48,7 +48,7 @@ import { getCharacterTheme } from './characterThemes';
 export type Phase = 'draw' | 'strategy' | 'combat';
 export type PlayerNumber = 1 | 2;
 export type PlayerKey = 'player1' | 'player2';
-export type CharacterId = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante';
+export type CharacterId = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante' | 'druida';
 
 export type FieldSlot = {
   faceDownCard?: Card;
@@ -74,6 +74,25 @@ export type FieldSlot = {
    * `undefined`/`[]` = slot normal, sem torre. Ver FORM_OR_REINFORCE_TOWER.
    */
   towerReserve?: Card[];
+  /**
+   * Druida (personagem novo) - cartas do Broto empilhadas ABAIXO do topo
+   * (mesma forma de `towerReserve`, mas NUNCA erode - ver resolveCombatSlot).
+   * Campo IRMÃO de `towerReserve`, não reaproveitado dele de propósito: um
+   * Broto plantado sozinho (sem nenhum Valete extra empilhado) já marca este
+   * campo como `[]` (define a PRESENÇA do Broto, ao contrário de
+   * `towerReserve`, que só existe de verdade com 1+ carta - uma torre
+   * precisa de 2+ cartas pra nascer, um Broto nasce sozinho com 1) - por
+   * isso `isBrotoSlot` testa PRESENÇA (`!== undefined`), nunca o
+   * comprimento, diferente de `isTowerSlot`. O valor de combate atual do
+   * Broto vive em `faceDownCard.transformedValue` (mesmo campo reaproveitado
+   * do Ás transformado e do Monstro-15 do Coringa) - a reserva aqui só
+   * guarda as cartas físicas empilhadas por baixo, pra conservação de
+   * cartas no colapso (ver fieldCards/resolveCombatSlot), nunca é somada
+   * separadamente ao valor de combate (ao contrário de `towerReserve` -
+   * comparar com `towerValue` em slotCombatTotal). `undefined` = sem Broto
+   * neste slot. Ver PLANT_OR_STACK_BROTO/handlePlantOrStackBroto.
+   */
+  brotoReserve?: Card[];
 };
 
 /**
@@ -293,6 +312,16 @@ export interface PlayerState {
    * acima) - ver executeFireballLaunch.
    */
   piromanteSpreadArmed: boolean;
+  /**
+   * Druida (personagem novo) - nível permanente de Fotossíntese (Magia
+   * Numeral, A+3+7): 0 = nunca ativada; N = ativada N vezes NO TOTAL na
+   * partida. Reativável sem teto (cada ativação soma +1) - mesmo padrão de
+   * `permanentDrawBonus` do Anjo: NUNCA resetado em `resetForNewTurn`,
+   * permanente pelo resto da partida. Somado diretamente em todo efeito
+   * relacionado ao Broto (crescimento de turno, redução da Rainha/Rei) - ver
+   * handleActivateNumeralSpell/handleExecuteMagic.
+   */
+  druidaPhotosynthesisLevel: number;
 }
 
 /**
@@ -530,6 +559,15 @@ export interface MagicSelection {
    * `selectedCards` com a carta do oponente a queimar).
    */
   fireballLaunch?: boolean;
+  /**
+   * Druida (personagem novo) - Simbiose (Rainha) e Urtiga (Rei) sempre
+   * oferecem 2 formas de ativar (mesmo espírito de `fireballLaunch` acima):
+   * `true` = aumentar o Broto em 2 (+ nível de Fotossíntese), sem alvo
+   * nenhum; `false`/ausente = reduzir o Broto pela metade para colocar um
+   * marcador de combate (`selectedCards[0]` é o alvo - próprio campo na
+   * Rainha, campo do oponente no Rei).
+   */
+  druidaGrowBroto?: boolean;
 }
 
 export type GameAction =
@@ -664,6 +702,7 @@ function createPlayerState(hand: Card[], handLimit: number): PlayerState {
     coringaTransformWindowUntilTurn: undefined,
     fireballValue: 0,
     piromanteSpreadArmed: false,
+    druidaPhotosynthesisLevel: 0,
   };
 }
 
@@ -850,15 +889,26 @@ function fieldCards(field: [FieldSlot, FieldSlot, FieldSlot]): Card[] {
   // esta é a ÚNICA função usada por todos esses lugares (fim de combate,
   // limpeza do campo do oponente pela Magia Numeral, etc.), então uma
   // mudança aqui já basta para todos eles tratarem a torre inteira, não só o
-  // topo visível.
+  // topo visível. Druida: `brotoReserve` entra no mesmo lugar, mesmo motivo.
   return field
-    .flatMap((slot) => [slot.faceDownCard, ...(slot.towerReserve ?? []), ...slot.horizontalCards])
+    .flatMap((slot) => [slot.faceDownCard, ...(slot.towerReserve ?? []), ...(slot.brotoReserve ?? []), ...slot.horizontalCards])
     .filter((c): c is Card => Boolean(c));
 }
 
 /** Verdadeiro quando este slot é uma torre do Modo Towers (tem reserva empilhada abaixo do topo). */
 export function isTowerSlot(slot: FieldSlot): boolean {
   return Boolean(slot.towerReserve && slot.towerReserve.length > 0);
+}
+
+/**
+ * Verdadeiro quando este slot tem um Broto do Druida ativo - ao contrário de
+ * `isTowerSlot`, testa PRESENÇA (`!== undefined`), nunca o comprimento: um
+ * Broto plantado sozinho (sem nenhum Valete extra empilhado) já é um Broto
+ * de verdade, com `brotoReserve: []` (ver comentário completo em
+ * FieldSlot.brotoReserve).
+ */
+export function isBrotoSlot(slot: FieldSlot): boolean {
+  return slot.brotoReserve !== undefined;
 }
 
 /**
@@ -885,30 +935,72 @@ export function isTowerSlot(slot: FieldSlot): boolean {
  * nenhuma regra de descarte.
  */
 /**
- * Campo com os slots de TORRE preservados e todo o resto esvaziado - usado
- * nos dois pontos onde o campo era limpo por completo entre turnos
- * (handleToggleReady no fim do Combate e advancePhaseState na virada pra
- * Compra). Uma torre é uma estrutura que persiste: só some batalhando contra
- * outra torre, ou erodindo até a última carta (ver resolveCombatSlot).
- * Sempre use junto com `nonTowerFieldCards` (mesmo critério) para montar a
- * lista de descarte - senão uma carta ficaria em campo E no descarte.
+ * Campo com os slots PERSISTENTES (torre do Modo Towers OU Broto do Druida)
+ * preservados e todo o resto esvaziado - usado nos dois pontos onde o campo
+ * era limpo por completo entre turnos (handleToggleReady no fim do Combate e
+ * advancePhaseState na virada pra Compra). Uma torre só some batalhando
+ * contra outra torre, ou erodindo até a última carta; um Broto só some sendo
+ * combatido ou removido por efeito (ver resolveCombatSlot pros dois casos -
+ * nenhum dos dois nunca "expira" sozinho por passar o turno). Sempre use
+ * junto com `nonPersistentFieldCards` (mesmo critério) para montar a lista
+ * de descarte - senão uma carta ficaria em campo E no descarte.
+ *
+ * FIX (Druida, personagem novo): antes só conhecia torres (`keepTowerSlots`)
+ * - generalizado pra também preservar Broto, já que os dois modos podem
+ * estar ligados ao mesmo tempo (um jogador com Torre num slot e Broto em
+ * outro, ao mesmo tempo) e cada um precisa sobreviver independente do outro.
  */
-function keepTowerSlots(field: [FieldSlot, FieldSlot, FieldSlot]): [FieldSlot, FieldSlot, FieldSlot] {
-  return field.map((slot) => (isTowerSlot(slot) ? slot : { revealed: false, horizontalCards: [] })) as [FieldSlot, FieldSlot, FieldSlot];
+function keepPersistentFieldSlots(field: [FieldSlot, FieldSlot, FieldSlot]): [FieldSlot, FieldSlot, FieldSlot] {
+  return field.map((slot) => (isTowerSlot(slot) || isBrotoSlot(slot) ? slot : { revealed: false, horizontalCards: [] })) as [
+    FieldSlot,
+    FieldSlot,
+    FieldSlot
+  ];
 }
 
-/** Contrapartida de `keepTowerSlots`: as cartas que ELE descarta (tudo que não está num slot de torre). */
-function nonTowerFieldCards(field: [FieldSlot, FieldSlot, FieldSlot]): Card[] {
+/** Contrapartida de `keepPersistentFieldSlots`: as cartas que ELE descarta (tudo que não está num slot de torre nem de Broto). */
+function nonPersistentFieldCards(field: [FieldSlot, FieldSlot, FieldSlot]): Card[] {
   return field
-    .filter((slot) => !isTowerSlot(slot))
+    .filter((slot) => !isTowerSlot(slot) && !isBrotoSlot(slot))
     .flatMap((slot) => [slot.faceDownCard, ...slot.horizontalCards])
     .filter((c): c is Card => Boolean(c));
+}
+
+/**
+ * Druida (personagem novo) - crescimento do Broto na virada de turno
+ * (decisão confirmada com o usuário: 1x por turno, na virada Combate→Compra
+ * - não a cada fase). Chamada de `resetForNewTurn` (dentro de
+ * advancePhaseState), depois de `keepPersistentFieldSlots` já ter decidido
+ * que este campo sobrevive à virada - aqui só ajusta o VALOR do topo
+ * (`transformedValue`), nunca move nenhuma carta.
+ *
+ * `taxa` = 1 (o Broto sozinho) + 1 por Valete extra empilhado em
+ * `brotoReserve` - um Broto de 3 Valetes (1 topo + 2 na reserva) cresce +3
+ * por turno, não +1. Fotossíntese soma seu nível diretamente por cima,
+ * empilhando a cada reativação (ver handleFinalizeNumeralSpell).
+ */
+function growDruidaBrotoField(field: [FieldSlot, FieldSlot, FieldSlot], photosynthesisLevel: number): [FieldSlot, FieldSlot, FieldSlot] {
+  const brotoIndex = field.findIndex(isBrotoSlot);
+  if (brotoIndex === -1) return field;
+  const slot = field[brotoIndex];
+  const top = slot.faceDownCard;
+  if (!top) return field;
+  const growthRate = 1 + (slot.brotoReserve?.length ?? 0);
+  const newValue = (top.transformedValue ?? 1) + growthRate + photosynthesisLevel;
+  const newField = [...field] as [FieldSlot, FieldSlot, FieldSlot];
+  newField[brotoIndex] = { ...slot, faceDownCard: { ...top, transformedValue: newValue } };
+  return newField;
 }
 
 function resolveCombatSlot(slot: FieldSlot, erodeOnly: boolean): { newSlot: FieldSlot; discarded: Card[] } {
   const reserve = slot.towerReserve ?? [];
   if (!erodeOnly || reserve.length === 0) {
-    const discarded = [slot.faceDownCard, ...reserve, ...slot.horizontalCards].filter((c): c is Card => Boolean(c));
+    // Druida: um Broto nunca "eroda" (erodeOnly nunca é true pra ele - ver
+    // isTowerSlot, que não reconhece brotoReserve) - qualquer combate perdido
+    // colapsa a pilha INTEIRA de uma vez, cai sempre neste branch. A reserva
+    // do Broto entra aqui pro descarte junto com o topo, senão as cartas
+    // empilhadas ficariam órfãs (nem em campo, nem no descarte).
+    const discarded = [slot.faceDownCard, ...reserve, ...(slot.brotoReserve ?? []), ...slot.horizontalCards].filter((c): c is Card => Boolean(c));
     return { newSlot: { revealed: false, horizontalCards: [] }, discarded };
   }
   const newTop = reserve[reserve.length - 1];
@@ -1321,6 +1413,11 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
       state.phase === 'combat' &&
       playerState.fireballValue > 0 &&
       opponentState.field.some((slot) => Boolean(slot.faceDownCard) || slot.horizontalCards.length > 0),
+    // Druida (personagem novo) - Simbiose (Rainha) e Urtiga (Rei) só podem
+    // ativar com um Broto plantado em algum slot do próprio campo (a opção
+    // "aumentar o Broto em 2" já é válida sozinha, sem precisar de nenhum
+    // alvo - ver handleExecuteMagic).
+    hasActiveBroto: playerState.field.some(isBrotoSlot),
   };
 }
 
@@ -1747,7 +1844,15 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
   // jeito "normal" que um número transformado deveria aceitar.
   const isCoringaTransformedCard = character === 'coringa' && card.coringaTransformedToNumeral;
   const isCoringaTrapCard = character === 'coringa' && !isCoringaTransformedCard && (card.value === 'J' || card.value === 'Q' || card.value === 'K' || card.isMonster);
-  if (!isCoringaTrapCard) {
+  // Druida (personagem novo) - o Broto (Valete) nunca "ativa" como as outras
+  // magias: é POSICIONADO no campo (plantado ou empilhado sobre um Broto já
+  // existente - ver mais abaixo), igual à Rainha/Rei do Coringa serem
+  // posicionadas em vez de ativadas. O Monstro dele também nunca usa a Zona
+  // Monstro (ver handlePlaceMonsterCard) - é jogado como carta numeral comum,
+  // valendo o valor atual do Broto - mesmo padrão do Monstro-15 do Coringa.
+  const isDruidaBrotoCard = character === 'druida' && card.value === 'J';
+  const isDruidaMonsterCard = character === 'druida' && Boolean(card.isMonster);
+  if (!isCoringaTrapCard && !isDruidaBrotoCard && !isDruidaMonsterCard) {
     // FIX: Cartas mágicas (J, Q, K) de qualquer OUTRO personagem nunca podem
     // ser posicionadas no campo como carta comum - elas só saem da mão
     // ativando seu efeito de magia. Não se aplica a uma carta do Coringa já
@@ -1766,7 +1871,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     if (card.isMonster) {
       return { ...state, log: appendLog(state, state.log, 'warning', `Cartas Monstro só podem ser posicionadas na sua zona própria, não em um slot de combate!`) };
     }
-  } else {
+  } else if (isCoringaTrapCard) {
     // Valete: SÓ pode ir como horizontal ("Esta carta pode ser posicionada
     // como horizontal em uma carta sua"). Rainha/Rei: SÓ como carta
     // principal ("posicionada como uma carta normal"/"virada no seu
@@ -1777,6 +1882,21 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     }
     if ((card.value === 'Q' || card.value === 'K') && asHorizontal) {
       return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta do Coringa só pode ser posicionada como carta principal, não horizontal!`) };
+    }
+  } else if (isDruidaBrotoCard) {
+    // "Não pode receber horizontais" também vale pra ele MESMO ser
+    // posicionado como horizontal - o Broto só existe como carta principal
+    // de um slot (plantado ou empilhado - ver mais abaixo).
+    if (asHorizontal) {
+      return { ...state, log: appendLog(state, state.log, 'warning', `O Broto do Druida só pode ser plantado como carta principal, não horizontal!`) };
+    }
+  } else if (isDruidaMonsterCard) {
+    // "Pode ser jogada no campo como uma carta numeral" (sem restrição de
+    // posição, igual ao Monstro-15 do Coringa) - mas só com um Broto ativo
+    // em algum slot do próprio campo (decisão confirmada com o usuário: sem
+    // Broto, a carta fica bloqueada na mão).
+    if (!playerState.field.some(isBrotoSlot)) {
+      return { ...state, log: appendLog(state, state.log, 'warning', `O Monstro do Druida só pode ser jogado com um Broto ativo no campo!`) };
     }
   }
 
@@ -1792,6 +1912,11 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     // torre") - uma torre nunca recebe reforço horizontal.
     if (isTowerSlot(newField[slotIndex])) {
       return { ...state, log: appendLog(state, log, 'warning', `Não é possível posicionar carta horizontal sobre uma torre!`) };
+    }
+    // Druida (personagem novo, "não pode receber horizontais"): mesma regra
+    // acima, aplicada ao Broto.
+    if (isBrotoSlot(newField[slotIndex])) {
+      return { ...state, log: appendLog(state, log, 'warning', `Não é possível posicionar carta horizontal sobre o Broto!`) };
     }
     // FIX (item 1, revisado): o limite de cartas horizontais é por TURNO
     // (contando o campo inteiro do jogador), não por slot - "Reforço
@@ -1841,6 +1966,51 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     // individualmente, não só o do slot).
     newField[slotIndex] = { ...newField[slotIndex], horizontalCards: [...newField[slotIndex].horizontalCards, card] };
     log = appendLog(state, log, 'field', `Jogador ${player} posicionou uma carta ${card.revealed ? 'revelada ' : ''}horizontal no slot ${slotIndex + 1}`, { player });
+  } else if (isDruidaBrotoCard) {
+    // Druida - plantar (sem Broto ativo em nenhum slot do próprio campo
+    // ainda) ou empilhar (já existe um Broto - "só 1 por vez", decisão
+    // confirmada: plantar de novo SEMPRE empilha no já existente, nunca cria
+    // um segundo Broto independente em outro slot).
+    const existingBrotoIndex = playerState.field.findIndex(isBrotoSlot);
+    if (existingBrotoIndex !== -1) {
+      if (slotIndex !== existingBrotoIndex) {
+        return { ...state, log: appendLog(state, log, 'warning', `Já existe um Broto plantado - o próximo Valete precisa reforçar o mesmo slot!`) };
+      }
+      const brotoSlot = newField[slotIndex];
+      const oldTop = brotoSlot.faceDownCard!;
+      const newValue = (oldTop.transformedValue ?? 1) + 1;
+      newField[slotIndex] = {
+        ...brotoSlot,
+        faceDownCard: { ...card, revealed: true, transformedValue: newValue },
+        brotoReserve: [...(brotoSlot.brotoReserve ?? []), { ...oldTop, revealed: true }],
+        revealed: true,
+      };
+      log = appendLog(state, log, 'field', `Jogador ${player} empilhou o Broto no slot ${slotIndex + 1} (agora vale ${newValue})`, { player });
+    } else {
+      if (newField[slotIndex].faceDownCard) return state;
+      newField[slotIndex] = {
+        ...newField[slotIndex],
+        faceDownCard: { ...card, revealed: true, transformedValue: 1 },
+        brotoReserve: [],
+        revealed: true,
+      };
+      log = appendLog(state, log, 'field', `Jogador ${player} plantou um Broto no slot ${slotIndex + 1}`, { player });
+    }
+  } else if (isDruidaMonsterCard) {
+    // Druida - Monstro travado no valor ATUAL do Broto no instante em que é
+    // jogado (snapshot, decisão confirmada - não sincroniza depois se o
+    // Broto continuar crescendo). `playerState.field.some(isBrotoSlot)` já
+    // foi validado acima (guard de posicionamento), então sempre existe um
+    // Broto aqui.
+    if (newField[slotIndex].faceDownCard) return state;
+    const brotoTop = playerState.field.find(isBrotoSlot)?.faceDownCard;
+    const brotoValue = brotoTop?.transformedValue ?? 1;
+    newField[slotIndex] = {
+      ...newField[slotIndex],
+      faceDownCard: { ...card, revealed: true, transformedValue: brotoValue },
+      revealed: true,
+    };
+    log = appendLog(state, log, 'monster', `Jogador ${player} posicionou o Monstro no slot ${slotIndex + 1} (valendo ${brotoValue}, como o Broto)`, { player, cardValue: '🃏' });
   } else {
     if (newField[slotIndex].faceDownCard) return state;
 
@@ -1870,9 +2040,11 @@ function handleReturnCardToHand(state: GameState, player: PlayerNumber, slotInde
   // FIX (Modo Towers, pedido do usuário): idem para a reserva da torre - sem
   // isso, devolver o topo de uma torre pra mão perderia as cartas empilhadas
   // por baixo para sempre (nunca voltariam pra lugar nenhum).
-  const newHand = [...playerState.hand, slot.faceDownCard, ...(slot.towerReserve ?? []), ...slot.horizontalCards];
+  // Druida: a reserva do Broto (se este slot for um) volta pra mão junto,
+  // mesmo motivo/padrão já usado pela reserva de torre logo abaixo.
+  const newHand = [...playerState.hand, slot.faceDownCard, ...(slot.towerReserve ?? []), ...(slot.brotoReserve ?? []), ...slot.horizontalCards];
   const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
-  newField[slotIndex] = { ...newField[slotIndex], faceDownCard: undefined, horizontalCards: [], towerReserve: undefined, revealed: false };
+  newField[slotIndex] = { ...newField[slotIndex], faceDownCard: undefined, horizontalCards: [], towerReserve: undefined, brotoReserve: undefined, revealed: false };
 
   const log = appendLog(state, state.log, 'field', `Jogador ${player} retornou carta do slot ${slotIndex + 1} para a mão`, { player });
 
@@ -1968,7 +2140,10 @@ function handleSwapFieldCard(state: GameState, player: PlayerNumber, cardId: str
   // esta ação não é uma interação prevista no design (a torre só cresce via
   // FORM_OR_REINFORCE_TOWER, ou encolhe via uma magia de troca do oponente) -
   // bloqueado aqui pra nunca perder silenciosamente as cartas da reserva.
-  if (isTowerSlot(slot)) return state;
+  // Druida: mesmo bloqueio para um Broto - ele só cresce/empilha via
+  // PLAY_CARD (plantar/empilhar) ou encolhe via Simbiose/Urtiga, nunca por
+  // esta troca genérica.
+  if (isTowerSlot(slot) || isBrotoSlot(slot)) return state;
 
   const oldCard = slot.faceDownCard;
   const newHand = [...playerState.hand.filter((c) => c.id !== cardId), oldCard];
@@ -3164,6 +3339,129 @@ function handleExecuteMagic(
     };
   }
 
+  // ----- Druida Q: Simbiose -----
+  // Fase de ESTRATÉGIA. Sempre 2 formas de ativar (mesmo espírito da escolha
+  // do Piromante acima, ver `selection.druidaGrowBroto`): reduza o Broto pela
+  // metade para adicionar um marcador de combate numa carta PRÓPRIA (vale a
+  // metade reduzida + nível de Fotossíntese), OU aumente o Broto em 2 (+
+  // nível de Fotossíntese) sem precisar de alvo nenhum. Precisa de um Broto
+  // ativo em algum slot do próprio campo pra qualquer uma das duas opções.
+  if (character === 'druida' && magicType === 'Q') {
+    const brotoSlotIndex = playerState.field.findIndex(isBrotoSlot);
+    if (brotoSlotIndex === -1) return state;
+    const brotoSlot = playerState.field[brotoSlotIndex];
+    const brotoTop = brotoSlot.faceDownCard!;
+    const brotoValue = brotoTop.transformedValue ?? 1;
+    const level = playerState.druidaPhotosynthesisLevel;
+
+    if (selection.druidaGrowBroto) {
+      const growth = 2 + level;
+      const newValue = brotoValue + growth;
+      const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
+      newField[brotoSlotIndex] = { ...brotoSlot, faceDownCard: { ...brotoTop, transformedValue: newValue } };
+      const { deck, discardPile } = pushToDiscard(state, [card]);
+      const log = appendLog(state, state.log, 'magic', `Simbiose: Jogador ${player} aumentou o Broto em ${growth} (agora vale ${newValue})`, { player, cardValue: card.value });
+      return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic, field: newField } };
+    }
+
+    const targetId = selectedCards?.[0];
+    if (!targetId) return state;
+    const targetMain = playerState.field.find((s) => s.faceDownCard?.id === targetId)?.faceDownCard;
+    const targetHorizontal = playerState.field.flatMap((s) => s.horizontalCards).find((c) => c.id === targetId);
+    const targetCard = targetMain ?? targetHorizontal;
+    // O próprio Broto nunca pode ser o alvo do marcador (ele já É a fonte do
+    // efeito) - sem esta exclusão, `combatModifiers` somaria um marcador em
+    // cima do `transformedValue` que a própria redução acabou de definir.
+    if (!targetCard || targetCard.id === brotoTop.id) return state;
+
+    const halved = Math.floor(brotoValue / 2);
+    if (halved <= 0) return state; // Broto vale 1 (ou 0) - nada pra reduzir
+    const markerAmount = halved + level;
+    const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
+    newField[brotoSlotIndex] = { ...brotoSlot, faceDownCard: { ...brotoTop, transformedValue: halved } };
+    const { deck, discardPile } = pushToDiscard(state, [card]);
+    const log = appendLog(
+      state,
+      state.log,
+      'magic',
+      `Simbiose: Jogador ${player} reduziu o Broto para ${halved} e marcou ${targetCard.value}${targetCard.suit} com +${markerAmount}`,
+      { player, cardValue: card.value }
+    );
+    return {
+      ...state,
+      deck,
+      discardPile,
+      log,
+      [playerKey]: {
+        ...playerState,
+        hand: handWithoutMagic,
+        field: newField,
+        combatModifiers: [...playerState.combatModifiers, { cardId: targetId, kind: 'add', amount: markerAmount, source: 'druida', label: 'Simbiose' }],
+      },
+    };
+  }
+
+  // ----- Druida K: Urtiga -----
+  // Fase de COMBATE. Mesma escolha de Simbiose acima, mas o marcador (opção
+  // "reduzir") é NEGATIVO e mira uma carta do OPONENTE - primeira magia do
+  // jogo a escrever em `combatModifiers` do adversário (Besta/Mosqueteiro só
+  // se auto-buffam - ver comentário completo em CombatModifier).
+  if (character === 'druida' && magicType === 'K') {
+    const brotoSlotIndex = playerState.field.findIndex(isBrotoSlot);
+    if (brotoSlotIndex === -1) return state;
+    const brotoSlot = playerState.field[brotoSlotIndex];
+    const brotoTop = brotoSlot.faceDownCard!;
+    const brotoValue = brotoTop.transformedValue ?? 1;
+    const level = playerState.druidaPhotosynthesisLevel;
+
+    if (selection.druidaGrowBroto) {
+      const growth = 2 + level;
+      const newValue = brotoValue + growth;
+      const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
+      newField[brotoSlotIndex] = { ...brotoSlot, faceDownCard: { ...brotoTop, transformedValue: newValue } };
+      const { deck, discardPile } = pushToDiscard(state, [card]);
+      const log = appendLog(state, state.log, 'magic', `Urtiga: Jogador ${player} aumentou o Broto em ${growth} (agora vale ${newValue})`, { player, cardValue: card.value });
+      return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic, field: newField } };
+    }
+
+    const targetId = selectedCards?.[0];
+    if (!targetId) return state;
+    const opponentState = state[opponentKey];
+    const targetSlotIndex = opponentState.field.findIndex((s) => s.faceDownCard?.id === targetId || s.horizontalCards.some((c) => c.id === targetId));
+    if (targetSlotIndex === -1) return state;
+    if (isSlotProtected(state, opponent, targetSlotIndex)) {
+      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+    }
+    const targetSlot = opponentState.field[targetSlotIndex];
+    const targetCard = targetSlot.faceDownCard?.id === targetId ? targetSlot.faceDownCard : targetSlot.horizontalCards.find((c) => c.id === targetId);
+    if (!targetCard) return state;
+
+    const halved = Math.floor(brotoValue / 2);
+    if (halved <= 0) return state;
+    const debuffAmount = halved + level;
+    const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
+    newField[brotoSlotIndex] = { ...brotoSlot, faceDownCard: { ...brotoTop, transformedValue: halved } };
+    const { deck, discardPile } = pushToDiscard(state, [card]);
+    const log = appendLog(
+      state,
+      state.log,
+      'magic',
+      `Urtiga: Jogador ${player} reduziu o Broto para ${halved} e enfraqueceu ${targetCard.value}${targetCard.suit} de Jogador ${opponent} em -${debuffAmount}`,
+      { player, cardValue: card.value }
+    );
+    return {
+      ...state,
+      deck,
+      discardPile,
+      log,
+      [playerKey]: { ...playerState, hand: handWithoutMagic, field: newField },
+      [opponentKey]: {
+        ...opponentState,
+        combatModifiers: [...opponentState.combatModifiers, { cardId: targetId, kind: 'add', amount: -debuffAmount, source: 'druida', label: 'Urtiga' }],
+      },
+    };
+  }
+
   return state;
 }
 
@@ -3496,7 +3794,11 @@ function handlePlaceMonsterCard(state: GameState, player: PlayerNumber, cardId: 
   // posicionado [na zona], é tratado como uma carta de número 15") - nunca
   // usa a Zona Monstro - a carta vai pro campo normal via PLAY_CARD/
   // SWAP_FIELD_CARD, como qualquer carta numeral comum.
-  if (characterOf(state, player) === 'coringa') return state;
+  // Druida (personagem novo, "pode ser jogada no campo como uma carta
+  // numeral valendo o mesmo valor que o Broto") - mesmo padrão do Coringa:
+  // nunca usa a Zona Monstro, vai pro campo normal via PLAY_CARD (ver
+  // handlePlayCard).
+  if (characterOf(state, player) === 'coringa' || characterOf(state, player) === 'druida') return state;
   if (playerState.monsterCard) return state; // zona já ocupada
 
   const card = playerState.hand.find((c) => c.id === cardId);
@@ -3833,7 +4135,10 @@ function handleActivateNumeralSpell(state: GameState, player: PlayerNumber): Gam
     state,
     state.log,
     'numeral-spell',
-    `Jogador ${player} ativou ${getNumeralSpellInfo(character).name} (${requiredNumberLabel},${requiredNumberLabel},${requiredNumberLabel})!`,
+    // FIX (Druida, personagem novo): antes repetia `requiredNumberLabel` 3x
+    // manualmente (assumindo os 3 números sempre iguais) - `formatNumeralRequirement`
+    // já devolve a lista formatada inteira agora ("9, 9, 9" ou "A, 3, 7").
+    `Jogador ${player} ativou ${getNumeralSpellInfo(character).name} (${requiredNumberLabel})!`,
     { player, cardValue: requiredNumberLabel }
   );
   if (opponentFieldCards.length > 0 || opponentMonsterCards.length > 0) {
@@ -4016,6 +4321,22 @@ function handleFinalizeNumeralSpell(state: GameState): GameState {
     log = appendLog(state, log, 'numeral-spell', `Efeito da Magia Numeral estará ativo no próximo turno`);
     updatedOpponent = { ...opponentState, hand: opponentState.hand.map((c) => ({ ...c, revealed: true })) };
     log = appendLog(state, log, 'numeral-spell', `Cartas de Jogador ${opponent} foram reveladas pela Magia Numeral`, { player: opponent });
+  } else if (character === 'druida') {
+    // Fotossíntese - permanente e REATIVÁVEL (decisão confirmada com o
+    // usuário): cada ativação soma +1 no nível, sem teto, empilhando o
+    // bônus em todo efeito relacionado ao Broto (crescimento de turno,
+    // marcador da Rainha/Rei - ver handlePlayCard/handleExecuteMagic). Não
+    // precisa de `activeNumeralSpells` (não é um efeito com prazo, ao
+    // contrário da Visão Arcana do Mago acima).
+    const newLevel = playerState.druidaPhotosynthesisLevel + 1;
+    updatedPlayer = { ...updatedPlayer, druidaPhotosynthesisLevel: newLevel };
+    log = appendLog(
+      state,
+      log,
+      'numeral-spell',
+      `Fotossíntese: todos os efeitos relacionados ao Broto de Jogador ${player} estão aprimorados em +${newLevel}`,
+      { player }
+    );
   }
 
   const midState: GameState = {
@@ -4395,7 +4716,11 @@ function handleFinalizeCombat(state: GameState): GameState {
           discarded.push(...result.discarded);
           return result.newSlot;
         }
-        if (isTowerSlot(slot)) return slot;
+        // Druida: um Broto que NÃO batalhou nesta disputa (ela fechou por
+        // outro par de slots) permanece intacto, mesmo motivo de uma torre
+        // parada - "é removida apenas se for combatida" (ver spec do
+        // personagem); só o slot que de fato lutou passa por resolveCombatSlot.
+        if (isTowerSlot(slot) || isBrotoSlot(slot)) return slot;
         discarded.push(...[slot.faceDownCard, ...slot.horizontalCards].filter((c): c is Card => Boolean(c)));
         return { revealed: false, horizontalCards: [] } as FieldSlot;
       }) as [FieldSlot, FieldSlot, FieldSlot];
@@ -4431,7 +4756,11 @@ function handleFinalizeCombat(state: GameState): GameState {
     const opponentOfKo = koForcedTie ? opponentOf(koForcedTie.koPlayer) : undefined;
     const resolveSlotToHand = (slot: FieldSlot): { newSlot: FieldSlot; returnedToHand: Card[] } => {
       const reserve = slot.towerReserve ?? [];
-      const returnedToHand = [slot.faceDownCard, ...slot.horizontalCards].filter((c): c is Card => Boolean(c));
+      // Druida: se o alvo for um Broto (nunca tem towerReserve, então cai
+      // sempre no branch de baixo), a reserva dele também precisa voltar pra
+      // mão junto - senão essas cartas ficariam órfãs (nem em campo, nem na
+      // mão, nem no descarte).
+      const returnedToHand = [slot.faceDownCard, ...(slot.brotoReserve ?? []), ...slot.horizontalCards].filter((c): c is Card => Boolean(c));
       if (reserve.length === 0) {
         return { newSlot: { revealed: false, horizontalCards: [] }, returnedToHand };
       }
@@ -4570,16 +4899,16 @@ function handleToggleReady(state: GameState, player: PlayerNumber): GameState {
     // última carta (ver resolveCombatSlot). Encerrar a fase de Combate com os
     // dois "Prontos" não é combate nenhum, então os slots de torre são
     // preservados aqui em vez de descartados junto com o resto do campo -
-    // `keepTowerSlots` e a lista de descarte abaixo usam o MESMO critério
+    // `keepPersistentFieldSlots` e a lista de descarte abaixo usam o MESMO critério
     // (slot de torre ou não), pra nenhuma carta ficar em campo E no descarte.
-    const cardsToDiscard = [...nonTowerFieldCards(next.player1.field), ...nonTowerFieldCards(next.player2.field)];
+    const cardsToDiscard = [...nonPersistentFieldCards(next.player1.field), ...nonPersistentFieldCards(next.player2.field)];
     const { deck, discardPile } = pushToDiscard(next, cardsToDiscard);
     next = {
       ...next,
       deck,
       discardPile,
-      player1: { ...next.player1, field: keepTowerSlots(next.player1.field), readyForNextPhase: false },
-      player2: { ...next.player2, field: keepTowerSlots(next.player2.field), readyForNextPhase: false },
+      player1: { ...next.player1, field: keepPersistentFieldSlots(next.player1.field), readyForNextPhase: false },
+      player2: { ...next.player2, field: keepPersistentFieldSlots(next.player2.field), readyForNextPhase: false },
     };
     if (cardsToDiscard.length > 0) {
       next = { ...next, log: appendLog(state, next.log, 'combat', `Todas as cartas do campo foram descartadas`) };
@@ -4689,14 +5018,14 @@ function advancePhaseState(state: GameState): GameState {
     }
 
     // FIX (pedido do usuário, Modo Towers): esta varredura de "sobras" precisa
-    // usar EXATAMENTE o mesmo critério de `keepTowerSlots` (aplicado ao campo
+    // usar EXATAMENTE o mesmo critério de `keepPersistentFieldSlots` (aplicado ao campo
     // logo abaixo) - `fieldCards` inclui a reserva da torre, então descartar
     // por ele enquanto o campo preserva a torre deixava as MESMAS cartas em
     // campo e no descarte ao mesmo tempo (duplicação real, pega pelo teste de
     // conservação de cartas da suíte).
     const leftover = [
-      ...nonTowerFieldCards(state.player1.field),
-      ...nonTowerFieldCards(state.player2.field),
+      ...nonPersistentFieldCards(state.player1.field),
+      ...nonPersistentFieldCards(state.player2.field),
       ...(p1Monster.discarded ? [p1Monster.discarded] : []),
       ...(p2Monster.discarded ? [p2Monster.discarded] : []),
     ];
@@ -4774,9 +5103,9 @@ function advancePhaseState(state: GameState): GameState {
     horizontalStackBonus: 0,
     combatWins: 0,
     // FIX (pedido do usuário, Modo Towers): a virada de turno preserva os
-    // slots de torre (ver keepTowerSlots) - quem chama já descartou o resto
+    // slots de torre (ver keepPersistentFieldSlots) - quem chama já descartou o resto
     // do campo, então nada fica em campo e no descarte ao mesmo tempo.
-    field: newPhase === 'draw' ? keepTowerSlots(p.field) : p.field,
+    field: newPhase === 'draw' ? growDruidaBrotoField(keepPersistentFieldSlots(p.field), p.druidaPhotosynthesisLevel) : p.field,
     monsterCard: newPhase === 'draw' ? monster.kept : p.monsterCard,
     monsterTargetSlot: newPhase === 'draw' ? undefined : p.monsterTargetSlot,
     combatModifiers: newPhase === 'draw' ? [] : p.combatModifiers,

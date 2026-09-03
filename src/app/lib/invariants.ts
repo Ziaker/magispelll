@@ -48,6 +48,12 @@ function allRealCards(state: GameState): Card[] {
       if (isReal(slot.faceDownCard)) cards.push(slot.faceDownCard);
       cards.push(...slot.horizontalCards.filter(isReal));
       cards.push(...(slot.towerReserve ?? []).filter(isReal));
+      // Druida (personagem novo) - reserva do Broto (FieldSlot.brotoReserve),
+      // mesmo motivo/padrão da reserva de torre logo acima: sem isto, toda
+      // carta empilhada por baixo do topo do Broto "some" pra este contador
+      // assim que há 1+ carta na reserva, mesmo continuando 100% presente no
+      // estado - um falso-positivo de perda, não uma perda real.
+      cards.push(...(slot.brotoReserve ?? []).filter(isReal));
     }
     if (isReal(p.monsterCard)) cards.push(p.monsterCard);
   }

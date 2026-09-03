@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { ArrowLeft, Search, Check, Wand2, Crosshair, Flame } from 'lucide-react';
+import { ArrowLeft, Search, Check, Wand2, Crosshair, Flame, Sprout } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { getCharacterTheme } from '../lib/characterThemes';
@@ -27,6 +27,7 @@ const CHARACTER_ICONS: Record<CharacterId, ComponentType<{ className?: string }>
   mosqueteiro: Crosshair,
   coringa: JesterHatIcon,
   piromante: Flame,
+  druida: Sprout,
 };
 
 const READ_SECTIONS_KEY = 'magispelll:rulesRead';
@@ -72,7 +73,7 @@ export function Rules({ onBack, onViewCharacter }: RulesProps) {
       id: 'intro',
       title: 'Introdução',
       content:
-        'Magispelll é um jogo de duelo estratégico para dois jogadores usando cartas de baralho. Cada jogador escolhe um personagem (MAGO, BESTA, ANJO, MOSQUETEIRO, CORINGA ou PIROMANTE) com magias e habilidades únicas.',
+        'Magispelll é um jogo de duelo estratégico para dois jogadores usando cartas de baralho. Cada jogador escolhe um personagem (MAGO, BESTA, ANJO, MOSQUETEIRO, CORINGA, PIROMANTE ou DRUIDA) com magias e habilidades únicas.',
     },
     {
       id: 'objetivo',
@@ -285,15 +286,55 @@ CHAMA REPARTIDA (Magia Numeral, 6, 6, 6):
 • Não altera a Bola de Fogo em si - arma o PRÓXIMO lançamento pra se espalhar pelos 3 slots do oponente de uma vez, com o valor DIVIDIDO entre eles em vez do total mirando 1 slot só`,
     },
     {
+      id: 'druida-broto',
+      title: 'Druida - Broto e Simbiose',
+      characters: ['druida'],
+      content: `O Broto é uma carta que cresce SOZINHA a cada troca de fase - só o Druida tem isso. Diferente de uma carta comum, ele permanece em campo entre turnos (não é descartado quando o resto do campo é) e só some sendo combatido ou removido por um efeito.
+
+═══════════════════════════════════════
+🟢 VALETE - Broto (Fase de Estratégia)
+═══════════════════════════════════════
+• Posicione no campo virado para cima, valendo 1
+• A cada troca de fase (Compra→Estratégia→Combate→Compra), seu valor cresce sozinho
+• Plantar outro Valete SEMPRE empilha no Broto já existente (só 1 Broto por vez) - aumenta o valor E a taxa de crescimento
+• Não recebe cartas horizontais
+• É removido apenas sendo combatido ou por efeito - nunca por passar o turno
+
+═══════════════════════════════════════
+🟢 RAINHA - Simbiose (Fase de Estratégia)
+═══════════════════════════════════════
+Sempre oferece 2 formas de ativar (precisa de um Broto ativo):
+• Reduza o Broto pela metade para adicionar um marcador de combate (vale a metade reduzida) numa carta SUA no campo
+• OU: aumente o Broto em 2
+
+═══════════════════════════════════════
+🟢 REI - Urtiga (Fase de Combate)
+═══════════════════════════════════════
+Mesma escolha de Simbiose, mas mirando o OPONENTE:
+• Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do OPONENTE
+• OU: aumente o Broto em 2
+
+═══════════════════════════════════════
+🟢 MONSTRO - Broto Espelhado
+═══════════════════════════════════════
+• Não usa a Zona Monstro - é jogada no campo como uma carta numeral comum
+• Vale o mesmo valor do Broto no instante em que é jogada (TRAVADO - não muda se o Broto continuar crescendo depois)
+• Só pode ser jogada com um Broto ativo em algum slot do seu campo
+
+FOTOSSÍNTESE (Magia Numeral, A, 3, 7):
+• Única Magia Numeral do jogo que exige 3 VALORES DIFERENTES (Ás, 3 e 7), não 3 cópias do mesmo número
+• PERMANENTE e REATIVÁVEL: cada ativação soma +1 a um nível que nunca reseta, empilhando o bônus em TODOS os efeitos relacionados ao Broto - crescimento por turno, marcador da Rainha/Rei, e a redução do Rei/Rainha`,
+    },
+    {
       id: 'numeral',
       title: 'Magias Numerais',
-      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante'],
-      content: `Reúna 3 cartas do mesmo número específico para ativar efeitos poderosos.
+      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida'],
+      content: `Reúna 3 cartas de números específicos para ativar efeitos poderosos - na maioria dos personagens as 3 são o MESMO número, mas o Druida (Fotossíntese) exige 3 valores DIFERENTES.
 
 CONDIÇÕES:
 • Só pode ativar na Fase de Estratégia
 • Campo deve estar vazio (sem cartas posicionadas)
-• Precisa de exatamente 3 cartas do número correto
+• Precisa de exatamente 1 carta de cada valor exigido
 • Apenas 1 Magia Numeral ativa por vez
 
 AO ATIVAR:
@@ -342,12 +383,18 @@ AO ATIVAR:
 ═══════════════════════════════════════
 🟠 PIROMANTE - CHAMA REPARTIDA (6, 6, 6)
 ═══════════════════════════════════════
-• Não altera a Bola de Fogo em si - arma o PRÓXIMO lançamento pra se espalhar pelos 3 slots do oponente de uma vez, com o valor dividido entre eles (ver seção "Piromante - Bola de Fogo")`,
+• Não altera a Bola de Fogo em si - arma o PRÓXIMO lançamento pra se espalhar pelos 3 slots do oponente de uma vez, com o valor dividido entre eles (ver seção "Piromante - Bola de Fogo")
+
+═══════════════════════════════════════
+🟢 DRUIDA - FOTOSSÍNTESE (A, 3, 7)
+═══════════════════════════════════════
+• Única exigindo 3 valores DIFERENTES (Ás, 3 e 7), não 3 cópias do mesmo número
+• PERMANENTE e REATIVÁVEL: cada ativação soma +1 a um nível que nunca reseta, aprimorando TODOS os efeitos relacionados ao Broto pelo resto da partida (ver seção "Druida - Broto e Simbiose")`,
     },
     {
       id: 'monstro',
       title: 'Cartas Monstro (Coringas)',
-      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante'],
+      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida'],
       content: `Existem 2 Monstros no baralho Comum (4 no Temático). O nome "Coringas" aqui é sobre as cartas físicas JOKER do baralho - não confundir com o personagem CORINGA, que tem seu próprio efeito de Monstro chamado "Carta Coringa" logo abaixo.
 
 Cada jogador (exceto o próprio Coringa - ver abaixo) tem uma ZONA PRÓPRIA e separada pro seu Monstro (ao lado do Slot 3) - ele NUNCA entra em disputa de combate sozinho, só fica ali para ativar sua habilidade.
@@ -396,7 +443,14 @@ EFEITOS POR PERSONAGEM:
 🟠 PIROMANTE - Brasa
 ═══════════════════════════════════════
 • Ativa direto, sem escolher alvo
-• Adiciona 5 à sua Bola de Fogo, até o teto atual`,
+• Adiciona 5 à sua Bola de Fogo, até o teto atual
+
+═══════════════════════════════════════
+🟢 DRUIDA - Broto Espelhado
+═══════════════════════════════════════
+• NÃO usa a Zona Monstro - é jogada no campo como uma carta numeral comum
+• Vale o mesmo valor do Broto no instante em que é jogada (travado - não muda se o Broto continuar crescendo)
+• Só pode ser jogada com um Broto ativo em algum slot do seu campo`,
     },
     {
       id: 'as',
@@ -500,7 +554,7 @@ DESISTÊNCIA:
     {
       id: 'estrategias',
       title: 'Dicas e Estratégias',
-      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante'],
+      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida'],
       content: `GERAIS:
 • Gerencie bem os descartes (máximo 4 por turno)
 • Observe quais cartas o oponente descarta
@@ -537,7 +591,13 @@ CORINGA:
 PIROMANTE:
 • A Bola de Fogo é permanente entre turnos - não tenha pressa de lançar cedo demais
 • Chama Repartida (6,6,6) é devastadora contra um campo cheio, mas divide o dano entre os 3 slots - calcule se vale mais lançar concentrado
-• Cada magia sempre te dá a escolha de alimentar OU lançar - não fique preso num só plano`,
+• Cada magia sempre te dá a escolha de alimentar OU lançar - não fique preso num só plano
+
+DRUIDA:
+• Plante o Broto o quanto antes - cada troca de fase que ele passa em campo é valor acumulado, e ele nunca se descarta sozinho
+• Empilhar outro Valete no Broto acelera o crescimento (aumenta a taxa, não só o valor de uma vez)
+• Simbiose (Q) e Urtiga (K) sempre oferecem a escolha: sacrificar metade do Broto por um marcador imediato, ou deixá-lo crescer +2 pra colher mais depois
+• Fotossíntese (A,3,7) é permanente e reativável - reunir A, 3 e 7 de novo (com campo vazio) empilha ainda mais o bônus em tudo relacionado ao Broto`,
     },
   ];
 

@@ -188,6 +188,35 @@ export const MAGIC_CARDS: Record<Character, Record<MagicCardType, MagicCardInfo>
         'Queime uma carta horizontal do campo do oponente (vai pro descarte) - seu valor é adicionado à sua Bola de Fogo (até o teto). OU: lance a Bola de Fogo já acumulada contra um slot do oponente.',
     },
   },
+
+  // Druida (personagem novo, "crescimento e simbiose") - mecânica própria: o
+  // Broto, uma carta que cresce a cada troca de turno e é compartilhada por
+  // Simbiose/Urtiga (reduzem o Broto pela metade para criar um marcador de
+  // combate) - ver FieldSlot.brotoReserve/isBrotoSlot em gameEngine.ts. O
+  // Valete NUNCA "ativa" como as outras magias - é posicionado no campo
+  // (plantado/empilhado, ver handlePlayCard), por isso `canActivateMagic`
+  // sempre recusa ativá-lo como magia (mesmo padrão do Coringa, mas só pro
+  // Valete - Rainha/Rei do Druida são magias de verdade).
+  druida: {
+    J: {
+      name: 'Valete - Broto',
+      phase: 'strategy',
+      description:
+        'Posicione no campo virado para cima, valendo 1. A cada troca de fase, seu valor cresce. Outro Valete pode ser plantado em cima do mesmo Broto para empilhar (aumenta o valor e a taxa de crescimento). Não recebe cartas horizontais e só é removido sendo combatido ou por efeito - nunca por passar o turno.',
+    },
+    Q: {
+      name: 'Rainha - Simbiose',
+      phase: 'strategy',
+      description:
+        'Reduza o Broto pela metade para adicionar um marcador de combate (vale a metade reduzida) numa carta sua no campo. OU: aumente o Broto em 2.',
+    },
+    K: {
+      name: 'Rei - Urtiga',
+      phase: 'combat',
+      description:
+        'Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do oponente (vale a metade reduzida). OU: aumente o Broto em 2.',
+    },
+  },
 };
 
 /** Retorna as informações de uma Carta Mágica específica */
@@ -279,6 +308,14 @@ export interface MagicActivationContext {
   hasUnbattledHorizontalCardsInOpponentFieldForBurn?: boolean;
   /** Bola de Fogo > 0 E existe pelo menos 1 slot do oponente com alguma carta pra mirar. */
   canLaunchFireball?: boolean;
+  /**
+   * Druida (personagem novo) - Simbiose (Rainha) e Urtiga (Rei) só podem
+   * ativar com um Broto plantado em algum slot do próprio campo - a opção
+   * "aumentar o Broto em 2" já é válida sozinha assim que ele existe, sem
+   * precisar de nenhum alvo escolhido ainda (a escolha entre as 2 opções
+   * acontece no diálogo de ativação, não aqui - mesmo padrão do Piromante).
+   */
+  hasActiveBroto?: boolean;
 }
 
 /**
@@ -475,6 +512,20 @@ export function canActivateMagic(
   // queimar, OU pode lançar a Bola de Fogo já acumulada.
   if (character === 'piromante' && cardValue === 'K') {
     return (ctx.hasUnbattledHorizontalCardsInOpponentFieldForBurn ?? false) || (ctx.canLaunchFireball ?? false);
+  }
+
+  // Druida (personagem novo) - o Valete (Broto) nunca ativa como magia, é
+  // posicionado no campo (ver handlePlayCard em gameEngine.ts) - mesmo
+  // espírito da recusa do Coringa acima, mas só pro Valete (Rainha/Rei são
+  // magias de verdade, tratadas abaixo).
+  if (character === 'druida' && cardValue === 'J') return false;
+
+  // Druida Q (Simbiose) e K (Urtiga): as duas exigem um Broto ativo em algum
+  // slot do próprio campo - a opção "aumentar em 2" já é válida sozinha
+  // assim que ele existe (a escolha entre as 2 opções acontece no diálogo de
+  // ativação, não aqui).
+  if (character === 'druida' && (cardValue === 'Q' || cardValue === 'K')) {
+    return ctx.hasActiveBroto ?? false;
   }
 
   // Sem condições especiais além da fase (Mago J, Anjo K)

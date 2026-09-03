@@ -1,6 +1,6 @@
 import { useState, type ComponentType, type CSSProperties } from 'react';
 import { Button } from './ui/button';
-import { ArrowLeft, Wand2, Bot, Dices, Info, Crosshair, Flame } from 'lucide-react';
+import { ArrowLeft, Wand2, Bot, Dices, Info, Crosshair, Flame, Sprout } from 'lucide-react';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { CharacterDivider } from './CharacterDivider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -8,7 +8,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { getMagicCardInfo, type MagicCardType } from '../lib/magicCards';
 import { getMonsterEffect } from '../lib/monsterCards';
-import { getNumeralSpellInfo, formatNumeralRequirement } from '../lib/numeralSpells';
+import { getNumeralSpellInfo, formatNumeralRequirement, numeralDisplayLabel } from '../lib/numeralSpells';
 import { PHASE_DISPLAY } from './PlayingCard';
 import type { CharacterId } from '../lib/gameEngine';
 
@@ -59,6 +59,7 @@ const CHARACTER_ICONS: Record<CharacterId, ComponentType<{ className?: string }>
   mosqueteiro: Crosshair,
   coringa: JesterHatIcon,
   piromante: Flame,
+  druida: Sprout,
 };
 
 /**
@@ -75,6 +76,7 @@ const CHARACTER_TAGLINE: Record<CharacterId, string> = {
   mosqueteiro: 'Descarte e precisão',
   coringa: 'Armadilhas e sabotagem',
   piromante: 'Combustível e destruição em área',
+  druida: 'Crescimento e simbiose',
 };
 
 /**
@@ -102,12 +104,24 @@ function MiniMonsterCard() {
   );
 }
 
-/** Miniatura representando a Magia Numeral - uma carta numeral (estilo claro, como as cartas comuns) com o número exigido e um "×3" indicando que são 3 cópias. Recebe o valor já formatado para exibição (ver formatNumeralRequirement em numeralSpells.ts), nunca o `requiredNumber` numérico bruto direto. */
-function MiniNumeralCard({ requirementLabel }: { requirementLabel: string }) {
+/**
+ * Miniatura representando a Magia Numeral - uma carta numeral (estilo claro,
+ * como as cartas comuns) com o(s) valor(es) exigido(s). FIX (Druida,
+ * personagem novo - Fotossíntese, primeira Magia Numeral a exigir 3 valores
+ * DIFERENTES em vez de 3 cópias do mesmo): antes recebia só o texto já
+ * formatado e sempre mostrava um "× 3" fixo embaixo (correto quando os 3
+ * números são iguais, enganoso pro Druida - "A, 3, 7 × 3" pareceria pedir 9
+ * cartas). Agora recebe `requiredNumbers` bruto e decide sozinho: valores
+ * iguais mostram o número grande + "× 3" (como antes); valores diferentes
+ * mostram a lista inteira formatada, sem badge de multiplicação nenhuma.
+ */
+function MiniNumeralCard({ requiredNumbers }: { requiredNumbers: number[] }) {
+  const allSame = requiredNumbers.every((n) => n === requiredNumbers[0]);
+  const label = allSame ? numeralDisplayLabel(requiredNumbers[0]) : requiredNumbers.map(numeralDisplayLabel).join(', ');
   return (
     <div className="w-14 h-20 flex-shrink-0 bg-[#EFE7D6] border-2 border-[#8F6A30] rounded-md flex flex-col items-center justify-center gap-0.5 shadow-md">
-      <span className="text-[#0F1113] text-[24px] font-bold leading-none">{requirementLabel}</span>
-      <span className="text-[10px] text-[#8F6A30] font-semibold">× 3</span>
+      <span className={`text-[#0F1113] font-bold leading-none ${allSame ? 'text-[24px]' : 'text-[15px]'}`}>{label}</span>
+      {allSame && <span className="text-[10px] text-[#8F6A30] font-semibold">× 3</span>}
     </div>
   );
 }
@@ -237,10 +251,10 @@ function DetailsDialog({
             <div className="space-y-4">
               <p className="text-[11px] uppercase tracking-wider text-[#8F6A30] font-semibold">Magia Numeral</p>
               <AbilityRow
-                card={<MiniNumeralCard requirementLabel={formatNumeralRequirement(numeralSpell)} />}
+                card={<MiniNumeralCard requiredNumbers={numeralSpell.requiredNumbers} />}
                 name={numeralSpell.name}
                 phases={['strategy']}
-                description={`Requer 3 cartas de valor ${formatNumeralRequirement(numeralSpell)} na mão. ${numeralSpell.description}`}
+                description={`Requer as cartas ${formatNumeralRequirement(numeralSpell)} na mão. ${numeralSpell.description}`}
               />
             </div>
           </div>

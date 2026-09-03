@@ -13,7 +13,7 @@ import { CardImpactBurst } from './CardImpactBurst';
 import { CardKeywords } from './CardKeywords';
 import { getDisplayValue, type Card } from '../lib/cardUtils';
 import type { FieldSlot, CharacterId } from '../lib/gameEngine';
-import { isTowerSlot } from '../lib/gameEngine';
+import { isTowerSlot, isBrotoSlot } from '../lib/gameEngine';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { CARD_ITEM_TYPE, type CardDragItem } from '../lib/dnd';
 import { registerDropTarget, unregisterDropTarget } from '../lib/dropTargetRegistry';
@@ -310,8 +310,18 @@ export function FieldSlotView({
   // Só é "reforço" quando NÃO é um Ás transformado (que usa o mesmo campo
   // pra um propósito totalmente diferente) - `card.value !== 'A'` distingue
   // os dois casos sem precisar de nenhum estado extra.
+  // FIX (Druida, personagem novo, achado testando ao vivo no navegador): o
+  // Broto TAMBÉM reaproveita `transformedValue` (pro próprio valor
+  // acumulado, nunca copiado de outra carta) - sem esta exclusão, o selo
+  // "🔮 Ilusão Arcana" (com a cor azul do Mago) aparecia sobre o Broto de
+  // QUALQUER Druida, mesmo numa partida sem Mago nenhum, insinuando um
+  // reforço que nunca aconteceu.
   const isMainReinforced = Boolean(
-    slot.faceDownCard && !slot.faceDownCard.isMonster && slot.faceDownCard.value !== 'A' && slot.faceDownCard.transformedValue !== undefined
+    slot.faceDownCard &&
+      !slot.faceDownCard.isMonster &&
+      slot.faceDownCard.value !== 'A' &&
+      slot.faceDownCard.transformedValue !== undefined &&
+      !isBrotoSlot(slot)
   );
 
   // Modo Spotlight (pedido do usuário: "adicione um efeito de spotlight
