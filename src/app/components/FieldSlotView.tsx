@@ -159,6 +159,9 @@ const STATUS_COLORS = {
   // protegido) - ver spotlightPositive/spotlightNegative mais abaixo.
   spotlightPositive: { ring: '#6CC47A', soft: 'rgba(108, 196, 122, 0.45)', strong: 'rgba(108, 196, 122, 0.9)' },
   spotlightNegative: { ring: '#D45D4A', soft: 'rgba(212, 93, 74, 0.35)', strong: 'rgba(212, 93, 74, 0.75)' },
+  // Druida (personagem novo, pedido do usuário: "marcador verde com ícone de
+  // broto") - mesmo verde do tema do personagem (characterThemes.ts).
+  broto: { ring: '#0F8A19', soft: 'rgba(15, 138, 25, 0.45)', strong: 'rgba(15, 138, 25, 0.9)' },
 } as const;
 
 const STATUS_PARTICLES_2 = [
@@ -957,6 +960,35 @@ export function FieldSlotView({
                       colors: STATUS_COLORS.boosted,
                       title: `Tiro Certeiro: esta carta recebe +${boostAmount ?? 0} de valor`,
                       content: <span className="text-[12px] font-black">+{boostAmount ?? 0}</span>,
+                    });
+                  }
+                  // Druida (personagem novo, pedido do usuário: "só ser um J
+                  // não é perceptível o bastante") - o Broto precisa de um
+                  // selo próprio, sempre visível enquanto ativo (não só
+                  // quando empilhado) - mesma coluna/posição dos outros 3
+                  // selos acima (canto superior ESQUERDO, nunca direito -
+                  // pedido explícito do usuário, mesmo motivo do FIX de
+                  // sobreposição documentado no topo deste bloco). Com 1 só
+                  // Valete, mostra só o ícone (nada pra contar ainda); com 2+
+                  // empilhados, ícone + número - "quando há 2 ou mais, não dá
+                  // pra saber visualmente" - mesmo padrão de ícone+número já
+                  // usado pelos selos de Fúria Selvagem/Ilusão Arcana/Tiro
+                  // Certeiro acima.
+                  if (isBrotoSlot(slot)) {
+                    const brotoStackCount = 1 + (slot.brotoReserve?.length ?? 0);
+                    statusBadges.push({
+                      key: 'broto',
+                      colors: STATUS_COLORS.broto,
+                      title:
+                        brotoStackCount > 1
+                          ? `Broto: ${brotoStackCount} Valetes empilhados, vale ${getDisplayValue(slot.faceDownCard!)}`
+                          : `Broto: vale ${getDisplayValue(slot.faceDownCard!)}, cresce a cada troca de turno`,
+                      content: (
+                        <>
+                          <span className="text-[13px]">🌱</span>
+                          {brotoStackCount > 1 && <span className="text-[12px] font-black">{brotoStackCount}</span>}
+                        </>
+                      ),
                     });
                   }
                   if (statusBadges.length === 0) return null;

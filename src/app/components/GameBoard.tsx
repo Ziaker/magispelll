@@ -738,7 +738,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         // padrão das armadilhas do Coringa acima, o único jeito de saber
         // "isto aconteceu" é o texto de log distintivo, não um dispatch
         // dedicado de EXECUTE_MAGIC que applyMagicEffectPresentation cobriria.
+        // FIX (pedido do usuário: "adicione um efeito e som pra quando o
+        // Broto é jogado, como um asset de planta surgindo") - reaproveita o
+        // motivo próprio do Druida em CharacterMagicBurst.tsx (gavinhas
+        // curvando, folhas subindo, anel de crescimento, broto pulsando -
+        // já É literalmente "planta surgindo"), disparado no SLOT exato
+        // onde a carta caiu (ver `slotIndex` no log, gameEngine.ts).
         soundManager.play(magicSoundFor('druida', 'J'));
+        if (entry.slotIndex !== undefined) {
+          flashEffectTargets({ slots: [{ player: entry.player, slotIndex: entry.slotIndex }] }, 'druida', 'Broto');
+        }
       } else if (entry.type === 'monster' && entry.player && entry.text.includes('posicionou o Monstro') && characterOf(gameState, entry.player) === 'druida') {
         // Druida - o Monstro também nunca usa a Zona Monstro/ACTIVATE_MONSTER_EFFECT_SIMPLE
         // (ver handlePlaceMonsterCard) - mesmo motivo do Broto acima.

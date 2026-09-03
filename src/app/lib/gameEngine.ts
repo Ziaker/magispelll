@@ -1985,7 +1985,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
         brotoReserve: [...(brotoSlot.brotoReserve ?? []), { ...oldTop, revealed: true }],
         revealed: true,
       };
-      log = appendLog(state, log, 'field', `Jogador ${player} empilhou o Broto no slot ${slotIndex + 1} (agora vale ${newValue})`, { player });
+      log = appendLog(state, log, 'field', `Jogador ${player} empilhou o Broto no slot ${slotIndex + 1} (agora vale ${newValue})`, { player, slotIndex });
     } else {
       if (newField[slotIndex].faceDownCard) return state;
       newField[slotIndex] = {
@@ -1994,7 +1994,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
         brotoReserve: [],
         revealed: true,
       };
-      log = appendLog(state, log, 'field', `Jogador ${player} plantou um Broto no slot ${slotIndex + 1}`, { player });
+      log = appendLog(state, log, 'field', `Jogador ${player} plantou um Broto no slot ${slotIndex + 1}`, { player, slotIndex });
     }
   } else if (isDruidaMonsterCard) {
     // Druida - Monstro travado no valor ATUAL do Broto no instante em que é
