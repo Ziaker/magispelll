@@ -876,6 +876,32 @@ export function FieldSlotView({
                 )}
                 <MagicCalloutLabel active={isEffectFlashing} text={activeMagicLabel} character={activeMagicCaster} />
                 {slot.faceDownCard && <CardImpactBurst active={impactIds.has(slot.faceDownCard.id)} />}
+                {/* Druida (personagem novo, pedido do usuário: "não tem
+                    indicador visual do valor atual do broto") - o Broto
+                    sempre renderiza pelo template de carta de magia
+                    (`isMagic` em PlayingCard.tsx, que só olha `card.value`,
+                    nunca `transformedValue`), então o valor de verdade nunca
+                    aparecia - só o "J♠" cru, sem nenhuma pista do valor
+                    acumulado. Em vez de mexer no template compartilhado de
+                    magia (usado por 5 outros personagens, cada carta J/Q/K
+                    de verdade), um número grande sobreposto no MEIO da
+                    carta, por cima do "J" pequeno que já está lá - só neste
+                    slot específico (isBrotoSlot), nunca em nenhum outro
+                    lugar que reusa PlayingCard. */}
+                {isBrotoSlot(slot) && slot.faceDownCard && (
+                  <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                    <span
+                      className="font-black leading-none"
+                      style={{
+                        fontSize: 42,
+                        color: '#EFE7D6',
+                        textShadow: '0 0 16px rgba(15,138,25,0.95), 0 0 4px rgba(15,138,25,1), 0 2px 6px rgba(0,0,0,0.9)',
+                      }}
+                    >
+                      {getDisplayValue(slot.faceDownCard)}
+                    </span>
+                  </div>
+                )}
                 {/* Modo Towers (pedido do usuário: "deixe visualmente mais
                     destacado"): faixa maior e mais chamativa no topo da
                     carta (em vez de uma pastilha pequena no canto) -
