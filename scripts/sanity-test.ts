@@ -14,6 +14,7 @@ import {
   isSlotProtected,
   getMagicActivationContext,
   getFireballCap,
+  canFormOrReinforceTower,
   type CharacterId,
   type GameState,
   type PlayerNumber,
@@ -4403,6 +4404,135 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(Boolean(state.player1.field[1].faceDownCard), 'FIX Druida+Towers: a Torre sobrevive à virada de turno mesmo com um Broto em outro slot do mesmo campo');
   assert(state.player1.field[1].towerReserve?.length === 1, 'A reserva da Torre continua intacta (nenhum sweep sobrescreveu o outro)');
   assert(countAllCards(state) === totalBefore, `Conservação de cartas mantida com Torre + Broto coexistindo (${totalBefore} -> ${countAllCards(state)})`);
+})();
+
+(function testDruidaAiNeverRetriesHorizontalOnBroto() {
+  // FIX (bug real relatado pelo usuário: "a IA do druída mal joga direito") -
+  // decideHorizontalPlacement excluía slots de Torre (`!isTowerSlot`) mas
+  // esquecia de excluir slots de Broto - um Broto TEM `faceDownCard` (o
+  // topo) e TAMBÉM nunca aceita reforço horizontal, então a IA propunha
+  // "reforçar o Broto" a cada ciclo de decisão, sempre recusada em silêncio
+  // pelo motor, sem NUNCA desistir (nenhum outro slot preenchido "usava" a
+  // tentativa) - uma partida real travou ~3000 passos sem sair do Turno 3,
+  // com o log inteiro cheio de "Não é possível posicionar carta horizontal
+  // sobre o Broto!" repetido. Reprodução direta: único slot preenchido é um
+  // Broto, mão com sobra de cartas elegíveis (isFieldEligible) - antes do
+  // fix, decideAiAction devolvia a mesma PLAY_CARD (asHorizontal: true)
+  // indefinidamente.
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const brotoTop = makeCard('druida-ai-horiz-broto', 'J');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [makeCard('druida-ai-horiz-extra1', '5'), makeCard('druida-ai-horiz-extra2', '6')],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 3, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  let sawRejectedHorizontalAttempt = false;
+  for (let i = 0; i < 20; i++) {
+    const decision = decideAiAction(state, 1);
+    if (decision.type !== 'action') break;
+    if (decision.action.type === 'PLAY_CARD' && decision.action.slotIndex === 0 && decision.action.asHorizontal) {
+      sawRejectedHorizontalAttempt = true;
+      break;
+    }
+    state = gameReducer(state, decision.action);
+  }
+  assert(!sawRejectedHorizontalAttempt, 'FIX Druida IA: nunca propõe reforçar o próprio Broto com uma carta horizontal (sempre recusado pelo motor)');
+})();
+
+(function testDruidaTowerCannotAbsorbBroto() {
+  // FIX (bug real achado numa auditoria, mesma classe do teste acima): sem
+  // excluir `isBrotoSlot`, um Broto cujo valor atual coincidisse com o valor
+  // de cartas numerais na mão podia ser "absorvido" numa torre - as cartas
+  // empilhadas do Broto (brotoReserve) ficariam presas no slot pra sempre
+  // (handleFormOrReinforceTower preserva o resto do spread do slot, só
+  // sobrescreve faceDownCard/towerReserve), e o slot resultante seria torre
+  // E broto ao mesmo tempo - uma combinação que nada no motor espera.
+  const towersConfig: GameConfig = { ...DEFAULT_GAME_CONFIG, towersMode: true };
+  let state = createInitialState('druida', 'mago', towersConfig);
+  const brotoTop = makeCard('druida-tower-absorb-broto', 'J');
+  const numeral1 = makeCard('druida-tower-absorb-n1', '5');
+  const numeral2 = makeCard('druida-tower-absorb-n2', '5');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [numeral1, numeral2],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 5, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  assert(
+    !canFormOrReinforceTower(state, 1, 0, [numeral1.id, numeral2.id]),
+    'FIX Druida+Towers: um Broto nunca pode ser absorvido numa torre, mesmo com o valor batendo'
+  );
+  const rejectedState = gameReducer(state, { type: 'FORM_OR_REINFORCE_TOWER', player: 1, slotIndex: 0, cardIds: [numeral1.id, numeral2.id] });
+  assert(Boolean(rejectedState.player1.field[0].brotoReserve), 'O Broto continua intacto (a tentativa de formar torre foi rejeitada por completo)');
+  assert(!rejectedState.player1.field[0].towerReserve, 'Nenhuma reserva de torre foi criada em cima do Broto');
+  assert(rejectedState.player1.hand.length === 2, 'As 2 cartas numerais continuam na mão (nunca foram consumidas)');
+})();
+
+(function testPiromanteFireballObliterateNeverLosesBrotoReserve() {
+  // FIX (bug real de perda de cartas achado numa auditoria - "druida vs
+  // piromante" perdia 1 carta por partida em simulação IA vs IA):
+  // executeFireballLaunch coletava `slot.towerReserve` mas esquecia
+  // `slot.brotoReserve` ao montar as cartas a descartar - um Broto
+  // empilhado (2+ Valetes) atingido pela Bola de Fogo perdia as cartas da
+  // reserva pra sempre (nem campo, nem mão, nem descarte), tanto no caso de
+  // obliteração quanto no de redução a carta-token.
+  let state = createInitialState('piromante', 'druida', DEFAULT_GAME_CONFIG);
+  const brotoTop = makeCard('fireball-broto-top', 'J');
+  const brotoReserveCard = makeCard('fireball-broto-reserve', 'J');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: { ...state.player1, fireballValue: 20 },
+    player2: {
+      ...state.player2,
+      field: [
+        {
+          faceDownCard: { ...brotoTop, transformedValue: 3, revealed: true },
+          revealed: true,
+          horizontalCards: [],
+          brotoReserve: [{ ...brotoReserveCard, revealed: true }],
+        },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  const jCard = makeCard('fireball-obliterate-j', 'J');
+  state = { ...state, player1: { ...state.player1, hand: [...state.player1.hand, jCard] } };
+  const totalBefore = countAllCards(state);
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: jCard.id,
+    character: 'piromante',
+    magicType: 'J',
+    selection: { fireballLaunch: true, selectedTargetSlot: 0 },
+  });
+
+  assert(!state.player2.field[0].faceDownCard, 'FIX: a Bola de Fogo (20) obliterou o Broto (valor 3) por completo');
+  assert(
+    [brotoTop.id, brotoReserveCard.id].every((id) => state.discardPile.some((c) => c.id === id)),
+    'FIX Druida+Piromante: o topo E a reserva do Broto foram pro descarte, nenhuma carta perdida'
+  );
+  assert(countAllCards(state) === totalBefore, `FIX: conservação de cartas mantida (${totalBefore} -> ${countAllCards(state)})`);
 })();
 
 // ---------------------------------------------------------------------------

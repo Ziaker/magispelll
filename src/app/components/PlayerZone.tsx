@@ -13,7 +13,7 @@ import { MagicCalloutLabel } from './MagicCalloutLabel';
 import { HandCardView } from './HandCardView';
 import { getCharacterTheme, getCharacterIconBackground, getCharacterPanelBackground } from '../lib/characterThemes';
 import type { PlayerState, CharacterId, Phase, PendingReaction } from '../lib/gameEngine';
-import { getEffectiveDiscardLimit, getEffectiveDrawLimit } from '../lib/gameEngine';
+import { getEffectiveDiscardLimit, getEffectiveDrawLimit, isBrotoSlot } from '../lib/gameEngine';
 import { useEffect, useRef, useState } from 'react';
 import { canActivateMagic, getMagicCardInfo, type MagicActivationContext } from '../lib/magicCards';
 import { canActivateNumeralSpell, getNumeralSpellInfo, formatNumeralRequirement } from '../lib/numeralSpells';
@@ -868,6 +868,34 @@ export function PlayerZone({
                           a carta é sempre "virada" (o que não é verdade para
                           uma já revelada). */}
                       <span className="text-[10px]">Posicionar</span>
+                    </div>
+                  </button>
+                )}
+                {/* FIX (Druida, personagem novo, bug relatado pelo usuário:
+                    "não to conseguindo empilhar os Brotos") - o botão
+                    "Posicionar" acima só aparece pra slot VAZIO, e "Troca"
+                    (mais abaixo) é bloqueada pelo motor pra um slot de Broto
+                    (ver isBrotoSlot em handleSwapFieldCard, gameEngine.ts) -
+                    sem este botão, empilhar outro Valete no Broto já existente
+                    não tinha NENHUM jeito de clicar (só via arrastar,
+                    ver PlayingCard.tsx/isDraggable). Aparece só quando a
+                    carta selecionada é um Valete do Druida e o slot já tem
+                    um Broto ativo - despacha exatamente o mesmo PLAY_CARD
+                    (asHorizontal: false) que handlePlayFaceDown, o motor já
+                    sabe empilhar em vez de rejeitar (ver handlePlayCard).
+                */}
+                {character === 'druida' && selectedCard?.value === 'J' && isBrotoSlot(playerState.field[selectedSlot.slot]) && (
+                  <button
+                    onClick={handlePlayFaceDown}
+                    className="px-3 py-1 rounded-lg transition-all hover:scale-105 shadow-lg"
+                    style={{
+                      backgroundColor: theme.primary,
+                      color: '#0F1113',
+                    }}
+                  >
+                    <div className="flex items-center gap-1">
+                      <span className="text-[14px]">🌱</span>
+                      <span className="text-[10px]">Empilhar</span>
                     </div>
                   </button>
                 )}

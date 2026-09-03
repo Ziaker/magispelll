@@ -375,13 +375,23 @@ export function FieldSlotView({
   // nem chegava a ser arrastável.
   const isMagicDrop = (item: CardDragItem) => Boolean(item.card && isMagicDropTarget?.(playerNumber, i, item.card));
 
+  // FIX (Druida, personagem novo, bug relatado pelo usuário: "é pra ser
+  // capaz de fazer drag & drop de um J encima de outro também") - soltar
+  // QUALQUER carta na área principal de um slot já ocupado normalmente vira
+  // reforço horizontal (`Boolean(slot.faceDownCard)`), a regra certa pra
+  // todo o resto do jogo. Mas soltar um Valete do Druida em cima do próprio
+  // Broto já plantado é o gesto natural de EMPILHAR (handlePlayCard,
+  // gameEngine.ts, já sabe fazer isso com `asHorizontal: false` - rejeita se
+  // vier `true`, que é exatamente o bug: nenhum caminho de UI conseguia
+  // disparar o `false` certo num slot ocupado, nem clique nem arrastar).
+  const isDruidaBrotoStackDrop = (item: CardDragItem) => item.card?.value === 'J' && isBrotoSlot(slot);
   const dropOnMain = (item: CardDragItem) => {
     lastDropSpinRef.current = item.spinAngle ?? 0;
     if (isMagicDrop(item)) {
       onMagicCardDrop?.(playerNumber, i, item.cardId);
       return;
     }
-    onCardDrop?.(playerNumber, i, item.cardId, Boolean(slot.faceDownCard));
+    onCardDrop?.(playerNumber, i, item.cardId, isDruidaBrotoStackDrop(item) ? false : Boolean(slot.faceDownCard));
   };
   const dropOnHorizontal = (item: CardDragItem) => {
     lastDropSpinRef.current = item.spinAngle ?? 0;

@@ -1766,7 +1766,17 @@ function decideHorizontalPlacement(state: GameState, ai: PlayerNumber, character
   // preenchido e tentava reforçá-la a cada turno, sendo sempre recusada pelo
   // motor e nunca desistindo (nenhum outro slot preenchido "usava" a
   // tentativa, então ela repetia a cada ciclo de decisão).
-  const eligibleSlots = me.field.map((slot, i) => ({ slot, i })).filter(({ slot }) => slot.faceDownCard && !isTowerSlot(slot));
+  //
+  // FIX (Druida, personagem novo - MESMA classe de bug, achada com um
+  // diagnóstico dedicado depois do usuário relatar "a IA do druída mal joga
+  // direito"): um Broto TAMBÉM tem `faceDownCard` (o topo) e TAMBÉM nunca
+  // aceita reforço horizontal ("Não recebe horizontais" - ver isBrotoSlot/
+  // handlePlayCard, gameEngine.ts), mas não estava excluído aqui - a IA
+  // ficava tentando reforçar o próprio Broto pra sempre, do mesmo jeito que
+  // já acontecia com Torres antes do FIX acima: uma partida Druida vs Mago
+  // travou em ~3000 passos sem sair do Turno 3, com o log inteiro cheio de
+  // "Não é possível posicionar carta horizontal sobre o Broto!" repetido.
+  const eligibleSlots = me.field.map((slot, i) => ({ slot, i })).filter(({ slot }) => slot.faceDownCard && !isTowerSlot(slot) && !isBrotoSlot(slot));
   if (eligibleSlots.length === 0) return null;
   const target = eligibleSlots.reduce((best, cur) => (cur.slot.horizontalCards.length < best.slot.horizontalCards.length ? cur : best));
   const targetSlotIndex = target.i;
@@ -2237,7 +2247,12 @@ function decideTowerAction(state: GameState, ai: PlayerNumber, character: Charac
   const [bestValue, bestCards] = candidateGroups.reduce((best, cur) => (cur[0] * cur[1].length > best[0] * best[1].length ? cur : best));
 
   const emptySlotIndex = me.field.findIndex((s) => !s.faceDownCard);
-  const absorbSlotIndex = me.field.findIndex((s) => s.faceDownCard && !isTowerSlot(s) && getEffectiveCardValue(s.faceDownCard) === bestValue);
+  // FIX (Druida, personagem novo - mesma classe de bug de decideHorizontalPlacement
+  // acima): um Broto nunca pode ser absorvido numa torre (ver isBrotoSlot/
+  // canFormOrReinforceTower, gameEngine.ts) - sem excluir aqui, a IA podia
+  // repetidamente propor absorver o próprio Broto sempre que o valor
+  // coincidisse por acaso, sempre recusada pelo motor.
+  const absorbSlotIndex = me.field.findIndex((s) => s.faceDownCard && !isTowerSlot(s) && !isBrotoSlot(s) && getEffectiveCardValue(s.faceDownCard) === bestValue);
   const targetSlot = emptySlotIndex !== -1 ? emptySlotIndex : absorbSlotIndex;
   if (targetSlot === -1) return null;
 

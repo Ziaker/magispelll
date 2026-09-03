@@ -2229,7 +2229,18 @@ export function canFormOrReinforceTower(state: GameState, player: PlayerNumber, 
   if (slot.horizontalCards.length > 0) return false;
   if (!slot.faceDownCard) return true; // slot vazio
   // Slot com carta comum (não torre) de valor igual - absorvível.
-  return !isTowerSlot(slot) && getEffectiveCardValue(slot.faceDownCard) === targetValue;
+  // FIX (Druida, personagem novo, achado numa auditoria depois do usuário
+  // relatar "a IA do druída mal joga direito"): sem excluir `isBrotoSlot`
+  // aqui, um Broto cujo valor atual (transformedValue) coincidisse com o
+  // valor das cartas numerais sendo jogadas seria "absorvido" numa torre -
+  // `handleFormOrReinforceTower` preserva `brotoReserve` no spread do slot
+  // (só sobrescreve `faceDownCard`/`towerReserve`), deixando as cartas
+  // empilhadas do Broto (se houver) permanentemente presas ali, invisíveis
+  // pro jogo (nunca descartáveis, nunca jogáveis de novo) - e o slot
+  // resultante seria as DUAS coisas ao mesmo tempo (`isTowerSlot` E
+  // `isBrotoSlot`), uma combinação que nenhum código deste projeto (erosão
+  // de combate, crescimento por turno, sweep de sobrevivência) espera ver.
+  return !isTowerSlot(slot) && !isBrotoSlot(slot) && getEffectiveCardValue(slot.faceDownCard) === targetValue;
 }
 
 function handleFormOrReinforceTower(state: GameState, player: PlayerNumber, slotIndex: number, cardIds: string[]): GameState {
@@ -2496,7 +2507,16 @@ function executeFireballLaunch(state: GameState, player: PlayerNumber, targetSlo
     }
     if (perTargetValue <= 0) continue;
     const slot = newField[slotIndex];
-    const slotCards = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...(slot.towerReserve ?? []), ...slot.horizontalCards];
+    // FIX (Druida, personagem novo, bug real de perda de cartas achado numa
+    // auditoria - Piromante vs Druida perdia 1 carta por partida): faltava
+    // `slot.brotoReserve` aqui, mesmo padrão de `towerReserve` na mesma
+    // linha - sem isso, as cartas empilhadas por baixo do topo de um Broto
+    // atingido pela Bola de Fogo nunca eram coletadas nem por
+    // `pushToDiscard` (abaixo) nem pelo `newField[slotIndex] = {...}` que
+    // substitui o slot inteiro (obliteração) ou vira um token (redução) -
+    // ficavam permanentemente fora do jogo (nem campo, nem mão, nem
+    // descarte), sem nenhum erro visível.
+    const slotCards = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...(slot.towerReserve ?? []), ...(slot.brotoReserve ?? []), ...slot.horizontalCards];
     if (slotCards.length === 0) continue;
     const slotTotal = slotCards.reduce((sum, c) => sum + getEffectiveCardValue(c), 0);
 
