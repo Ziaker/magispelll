@@ -304,6 +304,22 @@ export function isPlainNumeralCard(card: Card): boolean {
  * reapareceu neste caminho irmão.
  */
 export function isFieldEligible(card: Card): boolean {
+  // FIX (Druida - "IA do Druída não faz nada", achado via stress-test
+  // dedicado no modo Spotlight): uma carta Monstro nunca é elegível aqui -
+  // o doc acima já dizia isso, mas a implementação só excluía Monstro por
+  // COINCIDÊNCIA (isNumeralCard checa getEffectiveCardValue, que só cai fora
+  // de 2-10 enquanto o Monstro não tem transformedValue). O Monstro do
+  // Druida GANHA um transformedValue (snapshot do valor do Broto) no momento
+  // em que é jogado - se essa carta depois volta pra mão FORA do fluxo de
+  // descarte (ex.: handleActivateNumeralSpell devolvendo o campo inteiro do
+  // oponente pra mão dele, gameEngine.ts ~4104), o transformedValue antigo
+  // sobrevive e passa a bater com isNumeralCard, fazendo a IA tratá-lo como
+  // carta numeral comum - handlePlayCard sempre rejeita (o Monstro exige um
+  // Broto ativo), mas a IA nunca aprende disso e propõe a mesma jogada pra
+  // sempre. Excluir isMonster aqui explicitamente resolve na fonte, sem
+  // depender de transformedValue nunca vazar corretamente em todo caminho de
+  // retorno-à-mão do motor.
+  if (card.isMonster) return false;
   return (card.value === 'A' && card.transformedValue === undefined) || isNumeralCard(card);
 }
 
