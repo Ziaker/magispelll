@@ -7,15 +7,11 @@
  * resolva o hash/URL final do build automaticamente - o mesmo padrão que
  * qualquer outro asset estático do projeto.
  *
- * TODO (Druida, personagem novo, som pedido pelo usuário: "árvores
- * crescendo, troncos e plantas"): nenhum pacote CC0 já usado no projeto tem
- * tema natureza/madeira (mesma situação que o Piromante teve com fogo antes
- * do pacote Mixkit dedicado - ver comentário completo mais abaixo) - até um
- * pacote apropriado ser sourced e os 5 arquivos (`druida-{j,q,k,monster,
- * numeral}.ogg`) adicionados aqui, o Druida usa os sons GENÉRICOS de sempre
- * ('magic-activate'/'monster-anjo'/'numeral-anjo' - ver magicSoundFor/
- * monsterSoundFor/numeralSoundFor abaixo, que já tratam isso como fallback
- * intencional, sem aviso de console).
+ * Druida (personagem novo, som pedido pelo usuário: "árvores crescendo,
+ * troncos e plantas") - nenhum pacote CC0 já usado no projeto tinha tema
+ * natureza/madeira (mesma situação que o Piromante teve com fogo antes do
+ * pacote Mixkit dedicado), então os 5 sons vieram de um pacote Mixkit à
+ * parte (ver LICENSE.txt) - mesmo padrão de sourcing do Piromante.
  */
 import { Howl } from 'howler';
 import type { Settings } from './settings';
@@ -91,6 +87,15 @@ import piromanteQSrc from '../../assets/sfx/piromante-q.ogg';
 import piromanteKSrc from '../../assets/sfx/piromante-k.ogg';
 import piromanteMonsterSrc from '../../assets/sfx/piromante-monster.ogg';
 import piromanteNumeralSrc from '../../assets/sfx/piromante-numeral.ogg';
+// Druida (personagem novo) - Valete/Rainha/Rei + Monstro + Magia Numeral -
+// ver LICENSE.txt (5 sons novos, de um pacote Mixkit à parte, mesmo motivo
+// do Piromante acima: nenhum pacote CC0 já usado no projeto tem tema
+// natureza/madeira).
+import druidaJSrc from '../../assets/sfx/druida-j.ogg';
+import druidaQSrc from '../../assets/sfx/druida-q.ogg';
+import druidaKSrc from '../../assets/sfx/druida-k.ogg';
+import druidaMonsterSrc from '../../assets/sfx/druida-monster.ogg';
+import druidaNumeralSrc from '../../assets/sfx/druida-numeral.ogg';
 
 export type SoundEffectName =
   | 'card-play'
@@ -143,7 +148,13 @@ export type SoundEffectName =
   | 'magic-piromante-q'
   | 'magic-piromante-k'
   | 'monster-piromante'
-  | 'numeral-piromante';
+  | 'numeral-piromante'
+  /** Druida (personagem novo) - Valete/Rainha/Rei + Monstro + Magia Numeral. */
+  | 'magic-druida-j'
+  | 'magic-druida-q'
+  | 'magic-druida-k'
+  | 'monster-druida'
+  | 'numeral-druida';
 
 const SOUND_SOURCES: Record<SoundEffectName, string> = {
   'card-play': cardPlaySrc,
@@ -185,6 +196,11 @@ const SOUND_SOURCES: Record<SoundEffectName, string> = {
   'magic-piromante-k': piromanteKSrc,
   'monster-piromante': piromanteMonsterSrc,
   'numeral-piromante': piromanteNumeralSrc,
+  'magic-druida-j': druidaJSrc,
+  'magic-druida-q': druidaQSrc,
+  'magic-druida-k': druidaKSrc,
+  'monster-druida': druidaMonsterSrc,
+  'numeral-druida': druidaNumeralSrc,
 };
 
 /**
@@ -214,16 +230,20 @@ export function magicSoundFor(character: CharacterId, magicType: 'J' | 'Q' | 'K'
   if (character === 'piromante' && magicType === 'J') return 'magic-piromante-j';
   if (character === 'piromante' && magicType === 'Q') return 'magic-piromante-q';
   if (character === 'piromante' && magicType === 'K') return 'magic-piromante-k';
+  // Druida (personagem novo) - o Valete (Broto) nunca chega aqui na prática
+  // (não é uma magia "ativada" - ver handlePlayCard em gameEngine.ts, tocado
+  // via um gatilho próprio por texto de log, ver GameBoard.tsx), mas mapeado
+  // do mesmo jeito por completude/consistência com os outros 8 personagens.
+  if (character === 'druida' && magicType === 'J') return 'magic-druida-j';
+  if (character === 'druida' && magicType === 'Q') return 'magic-druida-q';
+  if (character === 'druida' && magicType === 'K') return 'magic-druida-k';
   // FIX (endurecimento, pedido do usuário: "está pronto para mais um
-  // personagem?") - os únicos fallbacks LEGÍTIMOS aqui são Mago K (Destruição
-  // de Reforço, comentário acima) e o Druida inteiro (som ainda não sourced -
-  // nenhum pacote CC0 já no projeto tem tema natureza/madeira, mesma situação
-  // que o Piromante teve com fogo antes de sourcing dedicado; ver TODO no
-  // topo do arquivo) - qualquer OUTRA combinação chegando até aqui é um
-  // personagem/magia esquecido de verdade neste mapeamento, tocando o som
-  // genérico errado em silêncio. Avisa no console (dev only, nunca muda o
-  // som tocado) só nesse caso.
-  if (!(character === 'mago' && magicType === 'K') && character !== 'druida' && import.meta.env.DEV) {
+  // personagem?") - o único fallback LEGÍTIMO aqui é Mago K (Destruição de
+  // Reforço, comentário acima) - qualquer outra combinação chegando até
+  // aqui é um personagem/magia esquecido de verdade neste mapeamento,
+  // tocando o som genérico errado em silêncio. Avisa no console (dev only,
+  // nunca muda o som tocado) só nesse caso.
+  if (!(character === 'mago' && magicType === 'K') && import.meta.env.DEV) {
     console.warn(`magicSoundFor: combinação não mapeada (${character}, ${magicType}) - tocando som genérico`);
   }
   return 'magic-activate';
@@ -236,10 +256,10 @@ export function monsterSoundFor(character: CharacterId): SoundEffectName {
   if (character === 'mosqueteiro') return 'monster-mosqueteiro';
   if (character === 'coringa') return 'monster-coringa';
   if (character === 'piromante') return 'monster-piromante';
-  // FIX (endurecimento): Anjo e Druida (som ainda não sourced, ver
-  // magicSoundFor acima) são os fallbacks legítimos - avisa pra qualquer
-  // OUTRO personagem não reconhecido.
-  if (character !== 'anjo' && character !== 'druida' && import.meta.env.DEV) {
+  if (character === 'druida') return 'monster-druida';
+  // FIX (endurecimento): Anjo é o único fallback legítimo - avisa pra
+  // qualquer OUTRO personagem não reconhecido.
+  if (character !== 'anjo' && import.meta.env.DEV) {
     console.warn(`monsterSoundFor: personagem não mapeado (${character}) - tocando som do Anjo`);
   }
   return 'monster-anjo';
@@ -252,8 +272,9 @@ export function numeralSoundFor(character: CharacterId): SoundEffectName {
   if (character === 'mosqueteiro') return 'numeral-mosqueteiro';
   if (character === 'coringa') return 'numeral-coringa';
   if (character === 'piromante') return 'numeral-piromante';
+  if (character === 'druida') return 'numeral-druida';
   // FIX (endurecimento): mesma ideia de monsterSoundFor acima.
-  if (character !== 'anjo' && character !== 'druida' && import.meta.env.DEV) {
+  if (character !== 'anjo' && import.meta.env.DEV) {
     console.warn(`numeralSoundFor: personagem não mapeado (${character}) - tocando som do Anjo`);
   }
   return 'numeral-anjo';

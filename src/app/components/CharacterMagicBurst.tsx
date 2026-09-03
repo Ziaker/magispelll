@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Orbit, Feather, Sparkles, Zap, Flame } from 'lucide-react';
+import { Orbit, Feather, Sparkles, Zap, Flame, Sprout, Leaf } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import type { CharacterId } from '../lib/gameEngine';
 
@@ -250,6 +250,66 @@ export function CharacterMagicBurst({ active, character }: { active: boolean; ch
                   transition={{ duration: 0.9, ease: 'easeOut' }}
                 >
                   <Flame className="w-14 h-14" style={{ color, filter: `drop-shadow(0 0 10px ${color})` }} />
+                </motion.div>
+              </>
+            )}
+
+            {/* Druida (personagem novo) - Broto/Simbiose/Urtiga/Fotossíntese:
+                gavinhas (vinhas) curvando e crescendo das bordas pra dentro,
+                folhas subindo em espiral (mesmo papel dos embers do
+                Piromante, mas orgânico em vez de fagulha reta), e um anel de
+                "crescimento" (tronco de árvore) pulsando no centro em vez do
+                anel de choque reto que os outros personagens usam. */}
+            {character === 'druida' && (
+              <>
+                {/* Gavinhas curvando a partir dos 4 cantos, se esticando pra dentro. */}
+                {[
+                  { corner: 'top-0 left-0', rotate: 25 },
+                  { corner: 'top-0 right-0', rotate: -25 },
+                  { corner: 'bottom-0 left-0', rotate: -25 },
+                  { corner: 'bottom-0 right-0', rotate: 25 },
+                ].map(({ corner, rotate }, idx) => (
+                  <motion.div
+                    key={idx}
+                    className={`absolute ${corner} rounded-full origin-center`}
+                    style={{
+                      width: 3,
+                      height: 46,
+                      background: `linear-gradient(to top, transparent, ${color})`,
+                      transformOrigin: corner.includes('top') ? 'top' : 'bottom',
+                    }}
+                    initial={{ opacity: 0, scaleY: 0, rotate: rotate * 2.2 }}
+                    animate={{ opacity: [0, 1, 0], scaleY: [0, 1, 0.7], rotate: rotate }}
+                    transition={{ duration: 0.9, delay: idx * 0.05, ease: 'easeOut' }}
+                  />
+                ))}
+                {/* Folhas subindo em espiral pelo centro (mesmo papel das brasas do Piromante). */}
+                {[-16, -6, 4, 14].map((x, idx) => (
+                  <motion.div
+                    key={`leaf-${idx}`}
+                    className="absolute"
+                    style={{ left: `calc(50% + ${x}px)`, bottom: '25%' }}
+                    initial={{ opacity: 0, y: 0, rotate: 0, scale: 0.5 }}
+                    animate={{ opacity: [0, 1, 0], y: [0, -46, -64], rotate: [0, idx % 2 === 0 ? 140 : -140], scale: [0.5, 0.9, 0.7] }}
+                    transition={{ duration: 1.1, delay: idx * 0.08, ease: 'easeOut' }}
+                  >
+                    <Leaf className="w-4 h-4" style={{ color, filter: `drop-shadow(0 0 4px ${color})` }} />
+                  </motion.div>
+                ))}
+                {/* Anel de crescimento (tronco de árvore) pulsando, no lugar do anel de choque reto. */}
+                <motion.div
+                  className="absolute rounded-full"
+                  style={{ border: `3px solid ${color}`, width: 40, height: 40 }}
+                  initial={{ opacity: 0.9, scale: 0.6 }}
+                  animate={{ opacity: 0, scale: 7 }}
+                  transition={{ duration: 1.3, ease: 'easeOut' }}
+                />
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.3, y: 6 }}
+                  animate={{ opacity: [0, 1, 0], scale: [0.3, 2, 1.4], y: [6, -4, 0] }}
+                  transition={{ duration: 1, ease: 'easeOut' }}
+                >
+                  <Sprout className="w-14 h-14" style={{ color, filter: `drop-shadow(0 0 8px ${color})` }} />
                 </motion.div>
               </>
             )}

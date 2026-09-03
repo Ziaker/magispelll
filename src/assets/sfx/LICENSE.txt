@@ -201,3 +201,37 @@ arquivo Mixkit, só reduzido) - nenhum download novo. piromante-monster.ogg
     piromante-q.ogg        0.85s (era ~8.6s)
     piromante-k.ogg        0.85s (era ~8.3s)
     piromante-numeral.ogg  0.80s (era ~2.7s)
+
+---
+
+Druida (personagem novo, pedido do usuário: "árvores crescendo, troncos e
+plantas") - 5 sons novos (Valete/Rainha/Rei + Monstro + Magia Numeral).
+Mesmo motivo do Piromante acima: nenhum pacote CC0 já usado no projeto
+(Kenney, opengameart.org) tem tema natureza/madeira de verdade - pesquisados
+e baixados de https://mixkit.co (Mixkit License - Sound Effects Free
+License, mesma já usada nos sons do Piromante), das categorias Wood/Garden/
+Magic. Cada clipe foi recortado com ffmpeg (silencedetect, mesma técnica dos
+sons do Piromante) pro trecho de ~0.5-1.45s que contém o som de verdade, com
+um fade-out curto no final:
+
+    druida-j.ogg        <- "Handling grass" (Broto - plantio; recortado de
+                            0.15s a 1.0s de um clipe de ~26s, o trecho com
+                            manuseio de grama contínuo)
+    druida-q.ogg        <- "Magic bubbles spell" (Simbiose)
+    druida-k.ogg        <- "Tree branch brake"/"Twig breaking" - escolhido
+                            "Twig breaking" (Urtiga - estalo seco, combina
+                            com o efeito negativo/agressivo)
+    druida-monster.ogg  <- "Magical stone slide" (Broto Espelhado)
+    druida-numeral.ogg  <- "Fantasy game success notification" (Fotossíntese
+                            - tom de conquista/permanência, mesmo espírito
+                            do jingle usado em coringa-numeral.ogg acima)
+
+FIX (Druida, achado testando ao vivo no navegador): diferente dos outros 8
+personagens, o Valete (Broto) e o Monstro do Druida nunca disparam via
+EXECUTE_MAGIC/ACTIVATE_MONSTER_EFFECT_SIMPLE (são posicionados no campo via
+PLAY_CARD, não ativados - ver handlePlayCard/handlePlaceMonsterCard em
+gameEngine.ts) - magicSoundFor('druida', 'J')/monsterSoundFor('druida') só
+tocam de verdade a partir de um gatilho dedicado por texto de log em
+GameBoard.tsx (mesmo padrão já usado pelas armadilhas reveladas do Coringa),
+não do caminho genérico applyMagicEffectPresentation que cobre os outros
+personagens.

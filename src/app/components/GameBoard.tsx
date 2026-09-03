@@ -732,6 +732,17 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         if (entry.player && entry.slotIndex !== undefined) triggerSmokeBurst({ player: entry.player, slotIndex: entry.slotIndex });
       } else if (entry.type === 'magic' && entry.text.startsWith('O Monstro') && entry.text.includes('voltou oculto')) {
         soundManager.play(monsterSoundFor('coringa'));
+      } else if (entry.type === 'field' && entry.player && (entry.text.includes('plantou um Broto') || entry.text.includes('empilhou o Broto'))) {
+        // Druida (personagem novo) - o Broto nunca ativa como magia (ver
+        // comentário completo em handlePlayCard, gameEngine.ts) - mesmo
+        // padrão das armadilhas do Coringa acima, o único jeito de saber
+        // "isto aconteceu" é o texto de log distintivo, não um dispatch
+        // dedicado de EXECUTE_MAGIC que applyMagicEffectPresentation cobriria.
+        soundManager.play(magicSoundFor('druida', 'J'));
+      } else if (entry.type === 'monster' && entry.player && entry.text.includes('posicionou o Monstro') && characterOf(gameState, entry.player) === 'druida') {
+        // Druida - o Monstro também nunca usa a Zona Monstro/ACTIVATE_MONSTER_EFFECT_SIMPLE
+        // (ver handlePlaceMonsterCard) - mesmo motivo do Broto acima.
+        soundManager.play(monsterSoundFor('druida'));
       }
 
       const isNumeralSpellActivation = entry.type === 'numeral-spell' && entry.cardValue !== undefined;
@@ -1669,6 +1680,43 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       } else if (pm.selectedCards?.[0]) {
         cardIds.push(pm.selectedCards[0]);
       }
+    } else if (pm.character === 'druida' && !pm.druidaGrowBroto) {
+      // Druida (personagem novo) - Simbiose/Urtiga na opção "marcador" miram
+      // uma carta concreta (própria, na Simbiose; do oponente, na Urtiga - ver
+      // selection.selectedCards em handleExecuteMagic). A opção "aumentar o
+      // Broto" não tem alvo nenhum e usa flashSelfEffect em vez disso (ver
+      // applyMagicEffectPresentation).
+      //
+      // FIX (achado testando ao vivo no navegador): diferente de Mago J/
+      // Mosqueteiro K/etc. (que só miram carta de MÃO, sempre destacada via
+      // `cardIds`), o alvo de Simbiose/Urtiga é uma carta já em CAMPO - o
+      // burst da carta PRINCIPAL de um slot é acionado por `effectFlashSlots`
+      // (ver `isEffectFlashing` em FieldSlotView.tsx/BattleField.tsx), não
+      // por `effectFlashCardIds` (esse só cobre cartas horizontais e cartas
+      // de mão - ver o mesmo arquivo). Sem procurar o slot certo, o burst
+      // nunca aparecia pra nenhuma das duas opções de alvo (o motor aplicava
+      // o marcador certinho, só a apresentação visual ficava muda).
+      const targetId = pm.selectedCards?.[0];
+      if (targetId) {
+        const ownField = gameState[playerKeyOf(pm.playerNumber)].field;
+        const opponentField = gameState[opponentKeyOf(pm.playerNumber)].field;
+        let foundSlot = false;
+        [
+          { player: pm.playerNumber, field: ownField },
+          { player: opponentOf(pm.playerNumber), field: opponentField },
+        ].forEach(({ player, field }) => {
+          field.forEach((slot, slotIndex) => {
+            if (slot.faceDownCard?.id === targetId) {
+              slots.push({ player, slotIndex });
+              foundSlot = true;
+            } else if (slot.horizontalCards.some((c) => c.id === targetId)) {
+              cardIds.push(targetId);
+              foundSlot = true;
+            }
+          });
+        });
+        if (!foundSlot) cardIds.push(targetId); // fallback defensivo - nunca deveria faltar um slot/horizontal correspondente
+      }
     }
     return { slots, cardIds };
   };
@@ -1684,6 +1732,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const applyMagicEffectPresentation = (pm: PendingMagic) => {
     const { character, type } = pm;
     const targets = computeMagicEffectTargets(pm);
+    // Druida (personagem novo) - a opção "aumentar o Broto" de Simbiose/
+    // Urtiga não mira carta nem slot nenhum (computeMagicEffectTargets
+    // devolve os dois arrays vazios pra ela de propósito) - sem isto,
+    // flashEffectTargets abaixo não teria em QUEM disparar o burst, e
+    // CharacterMagicBurst nunca chegaria a montar com `active=true`. Mesmo
+    // padrão de Bênção Divina/Reforço Angelical do Anjo (flashSelfEffect no
+    // próprio retrato do jogador, ver PlayerZone.tsx).
+    if (character === 'druida' && pm.druidaGrowBroto) {
+      flashSelfEffect(pm.playerNumber, character, getMagicCardInfo(character, type).name);
+    }
     flashEffectTargets(targets, character, getMagicCardInfo(character, type).name);
     // FIX (pedido do usuário, item 5: "cartas destruídas se estilhaçando") -
     // só a Destruição de Reforço do Mago (K) realmente DESTRÓI uma carta (as
