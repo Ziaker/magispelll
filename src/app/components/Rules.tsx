@@ -162,7 +162,7 @@ Jogador 2: Carta K (13) + horizontal 3 = 16
 ═══════════════════════════════════════
 🔵 MAGO - Controle e Informação
 ═══════════════════════════════════════
-VALETE (Fase de Compra):
+VALETE (Fase de Estratégia):
 • Revelação Forçada
 • Escolha e revele 1 carta da mão do oponente
 • Se todas já reveladas, descarte 1
@@ -231,7 +231,8 @@ RAINHA (Fase de Estratégia):
 
 REI (Fase de Combate):
 • Tiro Certeiro
-• 1 carta sua no campo recebe +1 de valor pra cada carta que suas magias descartaram neste turno e no anterior`,
+• 1 carta sua no campo recebe +1 de valor pra cada carta que suas magias descartaram neste turno e no anterior
+• Reativar mirando a MESMA carta soma ao marcador já ali; mirando outra carta, cria um marcador independente - dá pra ter mais de 1 carta reforçada ao mesmo tempo`,
     },
     {
       id: 'coringa-armadilhas',
@@ -271,7 +272,7 @@ DICA: nada impede posicionar uma carta-armadilha do lado de cartas numerais norm
 COMO ACUMULAR:
 • Toda vez que você ativa uma das 3 magias (Valete/Rainha/Rei), escolhe entre o efeito próprio (alimenta a Bola de Fogo) OU lançar a Bola já acumulada (ver abaixo)
 • VALETE - Combustão (Fase de Compra): suas cartas de valor menor que 5 (2, 3, 4) na mão se juntam - a soma vira combustível e elas são descartadas
-• RAINHA - Roubo Flamejante (Fase de Estratégia): escolha uma carta revelada do oponente (2 a 10) - ela é queimada e seu valor vira combustível
+• RAINHA - Roubo Flamejante (Fase de Compra): escolha uma carta revelada do oponente (2 a 10) - ela é queimada e seu valor vira combustível
 • REI - Queima do Reforço (Fase de Combate): queime uma carta horizontal do oponente - seu valor vira combustível
 • Teto: 20 (ou 30 com a variante Towers ligada)
 
@@ -284,6 +285,27 @@ COMO LANÇAR:
 
 CHAMA REPARTIDA (Magia Numeral, 6, 6, 6):
 • Não altera a Bola de Fogo em si - arma o PRÓXIMO lançamento pra se espalhar pelos 3 slots do oponente de uma vez, com o valor DIVIDIDO entre eles em vez do total mirando 1 slot só`,
+    },
+    {
+      id: 'mosqueteiro-discard-counter',
+      title: 'Mosqueteiro - Contador de Descarte',
+      characters: ['mosqueteiro'],
+      content: `O contador de descarte é o recurso próprio do Mosqueteiro: quantas cartas as PRÓPRIAS magias (nunca uma compra/descarte manual) mandaram pro descarte recentemente - só ele tem isso, e ele alimenta 2 efeitos diferentes, cada um com sua própria janela de tempo.
+
+COMO ACUMULAR:
+• VALETE - Tiro de Cobertura (Fase de Estratégia): descarta 1 carta (sua, ou do oponente às cegas se "Recarga Rápida" estiver ativa) - conta 1 pro contador
+• RAINHA - Rajada Reveladora (Fase de Estratégia): descarta até 3 cartas de uma vez - cada uma conta pro contador
+• O contador NUNCA soma por descarte manual (fase de Compra) nem por efeito de outro personagem - só Valete/Rainha do próprio Mosqueteiro
+
+REI - TIRO CERTEIRO (Fase de Combate):
+• Usa uma janela de 2 turnos: cartas descartadas NESTE turno + no ANTERIOR
+• Reforça uma carta do seu campo em +1 por carta contada nessa janela
+• Reativar mirando a mesma carta ACUMULA no marcador; mirando outra, cria um marcador independente (dá pra reforçar mais de 1 carta ao mesmo tempo)
+
+MUNIÇÃO INFINITA (Magia Numeral, 9, 9, 9):
+• Usa uma janela maior, de 3 turnos: cartas descartadas neste turno + nos 2 anteriores
+• No PRÓXIMO turno, aumenta seu limite de mão em 1 pra cada carta contada nessa janela de 3 turnos
+• Com poucas cartas acumuladas (menos de 3), o bônus (0-2) raramente compensa gastar as 3 cartas numerais (Ás, 9, 9) - vale segurar a ativação até acumular mais`,
     },
     {
       id: 'druida-broto',

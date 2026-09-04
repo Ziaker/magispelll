@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import party from 'party-js';
+import { useSettings } from '../context/SettingsContext';
 
 /** Ângulos (radianos) dos 10 estilhaços, distribuídos em círculo com um pouco de variação. */
 const SHARD_ANGLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (i / 10) * Math.PI * 2 + (i % 2 === 0 ? 0.15 : -0.15));
@@ -17,6 +18,7 @@ const SHARD_ANGLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (i / 10) * Math.P
  */
 export function CardShatterBurst({ active }: { active: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { settings } = useSettings();
 
   useEffect(() => {
     if (!active) return;
@@ -29,6 +31,15 @@ export function CardShatterBurst({ active }: { active: boolean }) {
     // (a ÚNICA das 9 combinações que realmente destrói uma carta), então
     // continua sendo a única fonte de partículas físicas nesse caso
     // específico - bem menos frequente, mantido como está.
+    // FIX (pedido do usuário: "desconfio que a opção de reduzir efeitos e
+    // partículas não funciona como deveria") - `settings.particleEffects`
+    // só desligava as partículas decorativas de fundo (RuneParticles.tsx,
+    // Home/Splash) - nunca chegava perto de NENHUM burst de combate, esta
+    // sendo a chamada de `party.confetti` mais pesada real de uma partida
+    // (Destruição de Reforço do Mago). Agora respeita o mesmo switch -
+    // desligado, a carta ainda racha/encolhe/estilhaça (Framer Motion, CSS,
+    // barato), só sem a nuvem de partículas via canvas.
+    if (!settings.particleEffects) return;
     party.confetti(el, {
       count: party.variation.range(18, 24),
       spread: party.variation.range(100, 140),
@@ -37,7 +48,7 @@ export function CardShatterBurst({ active }: { active: boolean }) {
       shapes: ['square', 'rectangle'],
       color: () => party.Color.fromHex(['#EFE7D6', '#8F6A30', '#D45D4A'][Math.floor(Math.random() * 3)]),
     });
-  }, [active]);
+  }, [active, settings.particleEffects]);
 
   return (
     <div ref={containerRef} className="absolute inset-0 pointer-events-none">

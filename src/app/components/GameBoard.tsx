@@ -859,6 +859,18 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [fireballProjectiles, setFireballProjectiles] = useState<FireballProjectileSpec[]>([]);
   /** Duração (s) do voo da Bola de Fogo - ver fireballProjectiles acima. */
   const FIREBALL_TRAVEL_MS = 550;
+  /**
+   * FIX (pedido do usuário: "o som dos disparos... [deve] ocorrer quando
+   * seus efeitos atingem as cartas do inimigo, não quando são ativados" -
+   * mesmo pedido pro Piromante) - Combustão/Roubo Flamejante/Queima do
+   * Reforço esperam este tempo (ver comentário completo em
+   * dispatchMagicAction) antes da carta realmente sumir de campo/mão -
+   * usado AQUI TAMBÉM (applyMagicEffectPresentation) pra atrasar o som de
+   * queimar até o mesmo instante, em vez do literal 450 duplicado em dois
+   * lugares (a mesma classe de risco de "duas fontes da verdade" já
+   * documentada em outros pontos do projeto).
+   */
+  const PIROMANTE_BURN_PRESENTATION_DELAY_MS = 450;
 
   /**
    * `player` usa `cardId` (uma carta mágica própria do mesmo valor da
@@ -1818,15 +1830,31 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           setBurningSlots(hitSlots);
           setTimeout(() => setBurningSlots((prev) => (prev === hitSlots ? [] : prev)), delay(EFFECT_FLASH_DURATION_MS));
         }
+        // FIX (pedido do usuário: "o som dos disparos... [deve] ocorrer
+        // quando seus efeitos atingem as cartas do inimigo, não quando são
+        // ativados") - toca no mesmo instante em que a Bola de Fogo
+        // VISIVELMENTE chega (mesmo scaledTravelMs do projétil acima), não
+        // no clique/dispatch inicial.
+        soundManager.play(magicSoundFor(character, type));
       }, scaledTravelMs);
+    } else if (character === 'piromante' && !pm.fireballLaunch) {
+      // Combustão/Roubo Flamejante/Queima do Reforço: mesmo raciocínio acima
+      // - o som de queimar só toca quando a carta realmente pega fogo e some
+      // (mesmo atraso de dispatchMagicAction), não no instante da ativação.
+      setTimeout(() => soundManager.play(magicSoundFor(character, type)), delay(PIROMANTE_BURN_PRESENTATION_DELAY_MS));
+    } else if (character !== 'mosqueteiro' || targets.cardIds.length === 0) {
+      // FIX (pedido do usuário: "som") - a Destruição de Reforço toca um som
+      // de vidro quebrando (card-shatter) em vez do zap genérico de magia,
+      // pra combinar com o CardShatterBurst.tsx visual. FIX (pedido do
+      // usuário: "o áudio [deve ser] diferente para cada magia e para cada
+      // magia de personagem") - as outras combinações tocam o som próprio de
+      // personagem+tipo (ver magicSoundFor em soundManager.ts). Mosqueteiro
+      // COM alvo fica de fora daqui - toca por tiro, junto do impacto de
+      // cada bala (ver abaixo) - mas sem nenhum alvo válido (não deveria
+      // acontecer na prática, guarda defensiva) cai aqui como fallback, pra
+      // nunca ficar mudo.
+      soundManager.play(isShatterEffect ? 'card-shatter' : magicSoundFor(character, type));
     }
-    // FIX (pedido do usuário: "som") - a Destruição de Reforço toca um som de
-    // vidro quebrando (card-shatter) em vez do zap genérico de magia, pra
-    // combinar com o CardShatterBurst.tsx visual. FIX (pedido do usuário: "o
-    // áudio [deve ser] diferente para cada magia e para cada magia de
-    // personagem") - as outras 8 combinações tocam o som próprio de
-    // personagem+tipo (ver magicSoundFor em soundManager.ts).
-    soundManager.play(isShatterEffect ? 'card-shatter' : magicSoundFor(character, type));
 
     // Mosqueteiro (pedido do usuário: "efeitos visuais de balas sendo
     // disparadas nas cartas que as magias do mosqueteiro utiliza") - um
@@ -1859,6 +1887,29 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       if (specs.length > 0) {
         setBulletImpacts(specs);
         setTimeout(() => setBulletImpacts((prev) => (prev === specs ? [] : prev)), delay(900 + specs.length * 120));
+        // FIX (pedido do usuário: "o som dos disparos do mosqueteiro
+        // [deve] ocorrer quando seus efeitos atingem as cartas do
+        // inimigo, não quando são ativados") - um som de tiro por bala,
+        // agendado pro MESMO instante em que ela chega (mesma fórmula de
+        // `travelDuration` usada dentro de SingleBulletImpact,
+        // BulletImpactBurst.tsx - nunca escalado por `delay()`/velocidade
+        // de animação, já que o tiro do Mosqueteiro sempre roda em tempo
+        // real, sem depender dessa preferência).
+        specs.forEach((spec) => {
+          const targetX = spec.rect.left + spec.rect.width / 2;
+          const targetY = spec.rect.top + spec.rect.height / 2;
+          const startX = spec.from ? spec.from.left + spec.from.width / 2 : -60;
+          const startY = spec.from ? spec.from.top + spec.from.height / 2 : targetY;
+          const distance = Math.hypot(targetX - startX, targetY - startY) || 1;
+          const travelDuration = spec.from ? Math.min(0.4, Math.max(0.18, distance / 2200)) : 0.22;
+          const impactMs = ((spec.delay ?? 0) + travelDuration) * 1000;
+          setTimeout(() => soundManager.play(magicSoundFor(character, type)), impactMs);
+        });
+      } else {
+        // Guarda defensiva: nenhuma posição de carta-alvo encontrada (raro -
+        // ex.: card recém-renderizado sem posição medida ainda) - toca o som
+        // na hora em vez de ficar mudo.
+        soundManager.play(magicSoundFor(character, type));
       }
     }
   };
@@ -1891,7 +1942,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // completo acima da definição desta função (a carta queimada some do
       // estado no MESMO dispatch que dispara o flash - sem este atraso, o
       // burst nunca teria um quadro pra aparecer antes da carta sumir).
-      setTimeout(() => dispatch(action), delay(450));
+      setTimeout(() => dispatch(action), delay(PIROMANTE_BURN_PRESENTATION_DELAY_MS));
     } else if (isPiromante && action.selection.fireballLaunch) {
       // Lançamento da Bola de Fogo: pedido explícito do usuário ("projéteis
       // visualmente indo em direção aos seus alvos") - a mudança de verdade

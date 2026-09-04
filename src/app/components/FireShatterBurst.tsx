@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import party from 'party-js';
+import { useSettings } from '../context/SettingsContext';
 
 /** Ângulos (radianos) dos estilhaços, distribuídos em círculo com um pouco de variação - mesmo esquema de CardShatterBurst.tsx. */
 const SHARD_ANGLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (i / 10) * Math.PI * 2 + (i % 2 === 0 ? 0.15 : -0.15));
@@ -19,11 +20,22 @@ const FLAME_LICKS = [0, 1, 2, 3, 4, 5];
  */
 export function FireShatterBurst({ active }: { active: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { settings } = useSettings();
 
   useEffect(() => {
     if (!active) return;
     const el = containerRef.current;
     if (!el) return;
+    // FIX (pedido do usuário: "desconfio que a opção de reduzir efeitos e
+    // partículas não funciona como deveria" + "cheque desempenho... nas
+    // magias do piromante") - `settings.particleEffects` antes só desligava
+    // as partículas decorativas de fundo (RuneParticles.tsx) - nunca as
+    // chamadas reais de `party.confetti` em combate. Esta é a MAIS pesada
+    // (Chama Repartida pode acionar até 3 destas ao mesmo tempo, uma por
+    // slot atingido) - agora respeita o mesmo switch. Desligado, o slot
+    // ainda pega fogo/racha/estilhaça (Framer Motion, CSS, barato), só sem a
+    // nuvem de partículas via canvas em cada uma.
+    if (!settings.particleEffects) return;
     party.confetti(el, {
       count: party.variation.range(20, 28),
       spread: party.variation.range(110, 150),
@@ -32,7 +44,7 @@ export function FireShatterBurst({ active }: { active: boolean }) {
       shapes: ['square', 'circle'],
       color: () => party.Color.fromHex(['#FFE0B3', '#FF8033', '#CC5500', '#D45D4A'][Math.floor(Math.random() * 4)]),
     });
-  }, [active]);
+  }, [active, settings.particleEffects]);
 
   return (
     <div ref={containerRef} className="absolute inset-0 pointer-events-none">
@@ -54,20 +66,26 @@ export function FireShatterBurst({ active }: { active: boolean }) {
               transition={{ duration: 0.45, ease: 'easeOut' }}
               style={{ backgroundColor: '#FF8033', mixBlendMode: 'overlay' }}
             />
-            {/* Línguas de fogo subindo pelas bordas antes da carta se partir. */}
+            {/* Línguas de fogo subindo pelas bordas antes da carta se partir.
+                FIX (pedido do usuário: "o fogo... mal é perceptível, aumente
+                seu tamanho") - quase dobrado (18x40, era 10x22), mais alto
+                (sobe até -60px, era -30px), mais opaco no pico (1 -> mantém,
+                mas dura mais - 0.9s, era 0.6s) e um brilho (boxShadow) extra
+                pra ler como chama de verdade, não uma risca fina. */}
             {FLAME_LICKS.map((i) => (
               <motion.div
                 key={`flame-${i}`}
                 className="absolute bottom-0 rounded-full"
                 style={{
-                  left: `${10 + i * 15}%`,
-                  width: 10,
-                  height: 22,
+                  left: `${6 + i * 15}%`,
+                  width: 18,
+                  height: 40,
                   background: 'linear-gradient(to top, #FF8033, #FFE0B3, transparent)',
+                  boxShadow: '0 0 14px 4px rgba(255, 128, 51, 0.65)',
                 }}
                 initial={{ opacity: 0, scaleY: 0.3, y: 0 }}
-                animate={{ opacity: [0, 1, 0], scaleY: [0.3, 1.2, 0.6], y: [0, -18, -30] }}
-                transition={{ duration: 0.6, delay: i * 0.04, ease: 'easeOut' }}
+                animate={{ opacity: [0, 1, 1, 0], scaleY: [0.3, 1.4, 1.1, 0.7], y: [0, -30, -48, -60] }}
+                transition={{ duration: 0.9, delay: i * 0.04, ease: 'easeOut' }}
               />
             ))}
             {/* A "carta" carboniza e encolhe rápido, dando lugar aos estilhaços em brasa. */}

@@ -9,7 +9,16 @@
  * - highContrast: aplica uma classe CSS global que aumenta contraste de texto e bordas.
  * - animations / animationSpeed: controla se e quão rápido as animações de
  *   transição de fase, resultado de combate e partículas decorativas rodam.
- * - particleEffects: liga/desliga as partículas decorativas (RuneParticles).
+ * - particleEffects: liga/desliga as partículas decorativas de fundo
+ *   (RuneParticles, Home/Splash) E as nuvens de partículas via `party-js` dos
+ *   bursts de combate (CardShatterBurst.tsx - Destruição de Reforço do Mago;
+ *   FireShatterBurst.tsx - impacto da Bola de Fogo do Piromante, a fonte mais
+ *   pesada real de uma partida já que Chama Repartida pode acionar até 3 de
+ *   uma vez). FIX (pedido do usuário: "desconfio que a opção de reduzir
+ *   efeitos e partículas não funciona como deveria") - antes só cobria as
+ *   partículas de fundo, que nem aparecem durante uma partida de verdade
+ *   (só no menu/splash) - por isso parecia não fazer nada quando ligado/
+ *   desligado durante o jogo.
  * - screenReader: adiciona reforços de acessibilidade (aria-live no log de
  *   ações, rótulos extras) além do que o HTML semântico já oferece.
  * - soundEffects / volume: controlam de verdade os efeitos sonoros (9 sons CC0
