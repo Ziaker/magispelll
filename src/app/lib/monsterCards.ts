@@ -68,8 +68,8 @@ export const MONSTER_EFFECTS: Record<MonsterCharacter, MonsterEffect> = {
   },
   anjo: {
     name: 'Proteção Divina',
-    description: 'Protege todo o seu campo contra magias do oponente',
-    detailedDescription: 'Ativa direto (sem escolher slot) e protege todas as cartas do seu campo contra magias do oponente (Valete, Rainha ou Rei) até o fim do turno.',
+    description: 'Protege um slot escolhido do seu campo contra magias do oponente',
+    detailedDescription: 'Escolhe um slot do seu campo e o protege contra magias do oponente (Valete, Rainha ou Rei) até o fim do turno. Pode ser ativada mais de uma vez no mesmo turno, cada vez protegendo um slot diferente, enquanto durar a carga da carta.',
   },
   mosqueteiro: {
     name: 'Recarga Rápida',
@@ -91,7 +91,8 @@ export const MONSTER_EFFECTS: Record<MonsterCharacter, MonsterEffect> = {
   },
   // Piromante (personagem novo) - efeito mais simples dos 6: soma um valor
   // fixo direto na Bola de Fogo, sem exigir nenhum alvo (ativa direto, igual
-  // à Proteção Divina do Anjo/Recarga Rápida do Mosqueteiro).
+  // à Recarga Rápida do Mosqueteiro - a Proteção Divina do Anjo, diferente
+  // dessas duas, pede a escolha de um slot).
   piromante: {
     name: 'Brasa',
     description: 'Adiciona 5 à sua Bola de Fogo',

@@ -423,8 +423,9 @@ EFEITOS POR PERSONAGEM:
 ═══════════════════════════════════════
 🟡 ANJO - Proteção Divina
 ═══════════════════════════════════════
-• Ativa direto, sem escolher slot nenhum
-• Protege TODO O SEU CAMPO (os 3 slots de uma vez) contra magias (J, Q, K) do oponente
+• Escolha 1 slot do seu campo
+• Esse slot fica protegido contra magias (J, Q, K) do oponente até o fim do turno
+• Pode ativar MAIS DE UMA VEZ no mesmo turno, cada vez protegendo um slot diferente, enquanto durar a carga da carta (até 3 usos no total)
 • Precisa ativar (não é passiva)
 
 ═══════════════════════════════════════

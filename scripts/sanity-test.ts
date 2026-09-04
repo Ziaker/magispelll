@@ -381,17 +381,17 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
 
   const protectedMonster = makeCard('protector', 'JOKER', '🃏');
   protectedMonster.isMonster = true;
-  protectedMonster.monsterUsed = true; // efeito de Proteção Divina já ativo
 
   const magoKCard = makeCard('mago-k-card', 'K');
   const mainCard = makeCard('protected-main', '7');
   const horizontalCard = makeCard('horizontal-target', '4');
 
-  // FIX (itens 4 e 7 da 3ª rodada): a Proteção Divina do Anjo agora vem da
-  // zona própria (monsterCard/monsterUsed) apontando um slot ALVO
-  // (monsterTargetSlot) - o slot em si só tem as cartas normais que estariam
-  // de fato em disputa (faceDownCard + horizontalCards), sem o Monstro
-  // "dentro" dele (arquitetura antiga).
+  // FIX (pedido do usuário: "o monstro do anjo agora só protege 1 slot
+  // selecionado... mas pode ser ativado múltiplas vezes") - a Proteção
+  // Divina agora vem de `monsterProtectedSlots` (lista de slots já
+  // escolhidos), não mais de `monsterUsed`/`monsterTargetSlot` sozinhos - o
+  // Monstro pode continuar pronto (`monsterUsed: false`) mesmo com um slot
+  // já protegido, já que reativar é permitido no mesmo turno.
   state = {
     ...state,
     phase: 'combat',
@@ -400,6 +400,7 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
       ...state.player2,
       monsterCard: protectedMonster,
       monsterTargetSlot: 0,
+      monsterProtectedSlots: [0],
       field: [{ faceDownCard: mainCard, horizontalCards: [horizontalCard], revealed: false }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
     },
   };
@@ -418,6 +419,48 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
     'FIX: Proteção Divina impede que Mago K destrua a carta horizontal de um slot protegido'
   );
   assert(stateAfter.player1.hand.some((c) => c.id === magoKCard.id), 'A carta K não é gasta quando a magia é bloqueada pela proteção');
+})();
+
+// ---------------------------------------------------------------------------
+// 9b. FIX (pedido do usuário: "permita que o mago possa destruir marcadores
+//     em sua magia do rei") - Destruição de Reforço agora também mira um
+//     CombatModifier ativo (Tiro Certeiro/Fúria Selvagem) mesmo SEM nenhuma
+//     carta horizontal no slot.
+// ---------------------------------------------------------------------------
+(function testMagoKDestroysMarkerWithoutHorizontal() {
+  let state = createInitialState('mago', 'mosqueteiro', DEFAULT_GAME_CONFIG);
+  const magoKCard = makeCard('mago-k-marker-test', 'K');
+  const markedCard = makeCard('marked-main-card', '7');
+
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: { ...state.player1, hand: [magoKCard, ...state.player1.hand] },
+    player2: {
+      ...state.player2,
+      field: [{ faceDownCard: markedCard, horizontalCards: [], revealed: true }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+      combatModifiers: [{ cardId: markedCard.id, kind: 'add', amount: 4, source: 'mosqueteiro', label: 'Tiro Certeiro' }],
+    },
+  };
+
+  // Sem nenhuma horizontal no slot, mas COM o marcador - a ativação precisa ser aceita.
+  assert(
+    canActivateMagic('combat', 'mago', 'K', getMagicActivationContext(state, 1)),
+    'Pré-condição: canActivateMagic aceita quando há um marcador destruível, mesmo sem horizontal nenhuma'
+  );
+
+  const stateAfter = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: magoKCard.id,
+    character: 'mago',
+    magicType: 'K',
+    selection: { selectedSlot: 0 },
+  });
+
+  assert(stateAfter.player2.combatModifiers.length === 0, 'FIX: Mago K destrói o marcador do Mosqueteiro mesmo sem carta horizontal no slot');
+  assert(stateAfter.player2.field[0].faceDownCard?.id === markedCard.id, 'A carta principal marcada continua no campo - só o marcador é destruído, não a carta');
+  assert(!stateAfter.player1.hand.some((c) => c.id === magoKCard.id), 'A carta K é consumida ao destruir o marcador');
 })();
 
 // ---------------------------------------------------------------------------
@@ -1050,12 +1093,14 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
   assert(state.player1.monsterCard === undefined, 'FIX (pedido do usuário): a carta Monstro se descarta somente depois do 3º uso no total');
 })();
 
-// 22. FIX (pedido do usuário, rodada de correções): Proteção Divina do Anjo
-//     agora protege O CAMPO INTEIRO de uma vez ao ativar (sem precisar
-//     escolher um slot) - não mais "onde o Monstro está fisicamente" (ele
-//     não está mais em nenhum slot de combate), nem "só o slot escolhido"
-//     (mecânica antiga substituída nesta rodada).
-(function testAnjoMonsterEffectProtectsWholeField() {
+// 22. FIX (pedido do usuário: "o monstro do anjo agora só protege 1 slot
+//     selecionado do campo ao invés dos 3, mas pode ser ativado múltiplas
+//     vezes no mesmo turno ao invés de 1 vez só") - reversão do FIX anterior
+//     (campo inteiro de uma vez): volta a exigir a escolha de 1 slot por
+//     ativação, mas agora `monsterUsed` nunca bloqueia o Anjo - só o
+//     orçamento vitalício (`monsterUseCount`, MAX_MONSTER_USES) limita
+//     quantas vezes ele pode reativar, inclusive várias no MESMO turno.
+(function testAnjoMonsterEffectProtectsOnlyChosenSlot() {
   let state = createInitialState('mago', 'anjo', DEFAULT_GAME_CONFIG);
   const joker = makeCard('anjo-zone-joker', 'JOKER', '🃏');
   joker.isMonster = true;
@@ -1066,12 +1111,24 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
   assert(isSlotProtected(state, 2, 1) === false, 'Nenhum slot está protegido antes de ativar o efeito (slot 1)');
   assert(isSlotProtected(state, 2, 2) === false, 'Nenhum slot está protegido antes de ativar o efeito (slot 2)');
 
-  // Ativa SEM targetSlotIndex nenhum - o Anjo não precisa mais escolher slot.
-  state = gameReducer(state, { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: 2 });
-  assert(isSlotProtected(state, 2, 0) === true, 'FIX: Proteção Divina protege TODO o campo ao ativar (slot 0)');
-  assert(isSlotProtected(state, 2, 1) === true, 'FIX: Proteção Divina protege TODO o campo ao ativar (slot 1)');
-  assert(isSlotProtected(state, 2, 2) === true, 'FIX: Proteção Divina protege TODO o campo ao ativar (slot 2)');
+  // Ativa protegendo só o slot 0 - os outros 2 continuam desprotegidos.
+  state = gameReducer(state, { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: 2, targetSlotIndex: 0 });
+  assert(isSlotProtected(state, 2, 0) === true, 'FIX: Proteção Divina protege só o slot escolhido (0)');
+  assert(isSlotProtected(state, 2, 1) === false, 'FIX: os outros slots continuam desprotegidos (1)');
+  assert(isSlotProtected(state, 2, 2) === false, 'FIX: os outros slots continuam desprotegidos (2)');
   assert(isSlotProtected(state, 1, 0) === false, 'A proteção nunca se aplica ao campo do OUTRO jogador');
+  assert(state.player2.monsterCard?.monsterUsed === false, 'FIX: monsterUsed nunca trava o Anjo - pode reativar no mesmo turno');
+
+  // Reativa no MESMO turno, protegendo o slot 1 também - o slot 0 continua protegido (acumula).
+  state = gameReducer(state, { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: 2, targetSlotIndex: 1 });
+  assert(isSlotProtected(state, 2, 0) === true, 'FIX: a 2ª ativação não remove a proteção da 1ª (slot 0)');
+  assert(isSlotProtected(state, 2, 1) === true, 'FIX: a 2ª ativação protege o novo slot escolhido (1)');
+  assert(isSlotProtected(state, 2, 2) === false, 'FIX: o 3º slot continua desprotegido');
+  assert(state.player2.monsterCard?.monsterUseCount === 2, 'FIX: cada ativação consome 1 carga do orçamento vitalício');
+
+  // Reativar o MESMO slot já protegido é um no-op (nenhuma carga extra gasta).
+  state = gameReducer(state, { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: 2, targetSlotIndex: 0 });
+  assert(state.player2.monsterCard?.monsterUseCount === 2, 'FIX: reativar um slot já protegido não gasta carga extra');
 })();
 
 // 23. FIX item 7: Ilusão Arcana do Mago agora copia o valor para uma carta já
@@ -3689,7 +3746,9 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   targetCard.revealed = true;
   state = {
     ...state,
-    phase: 'strategy',
+    // FIX (pedido do usuário: "troque a fase da rainha do piromante de
+    // estratégia para compra") - o efeito próprio agora é de Compra.
+    phase: 'draw',
     player1: { ...state.player1, hand: [qCard], fireballValue: 0 },
     player2: { ...state.player2, hand: [targetCard] },
   };
@@ -3972,8 +4031,8 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
       field: [{ faceDownCard: targetCard, revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
     },
   };
-  // Ativa a Proteção Divina do Anjo (protege o campo inteiro) ANTES do lançamento.
-  state = gameReducer(state, { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: 2 });
+  // Ativa a Proteção Divina do Anjo protegendo o slot 0 ANTES do lançamento.
+  state = gameReducer(state, { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: 2, targetSlotIndex: 0 });
   assert(isSlotProtected(state, 2, 0) === true, 'Pré-condição: o slot alvo está protegido pela Proteção Divina');
 
   state = gameReducer(state, {

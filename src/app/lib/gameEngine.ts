@@ -186,6 +186,19 @@ export interface PlayerState {
    */
   monsterTargetSlot?: number;
   /**
+   * Anjo (Proteção Divina) - FIX (pedido do usuário: "o monstro do anjo agora
+   * só protege 1 slot selecionado do campo ao invés dos 3, mas pode ser
+   * ativado múltiplas vezes no mesmo turno ao invés de 1 vez só") - volta a
+   * proteger só o(s) slot(s) ESCOLHIDO(S) em vez do campo inteiro, mas como
+   * agora pode ativar de novo no mesmo turno (`monsterUsed` nunca vira
+   * `true` pro Anjo - só `monsterUseCount`, o orçamento de 3 usos VITALÍCIO,
+   * limita), cada ativação pode mirar um slot DIFERENTE, acumulando aqui em
+   * vez de sobrescrever um único `monsterTargetSlot`. Zerado a cada turno
+   * (ver `resetForNewTurn`) - a proteção nunca sobrevive pro turno seguinte,
+   * mesmo espírito de sempre.
+   */
+  monsterProtectedSlots: number[];
+  /**
    * Modificadores de valor de combate ativos, cada um preso a UMA carta por
    * id - substitui os campos ad hoc que existiam antes (`monsterTargetCardId`
    * da Besta, `mosqueteiroBoostedCardId`+`mosqueteiroBoostAmount` do
@@ -691,6 +704,7 @@ function createPlayerState(hand: Card[], handLimit: number): PlayerState {
     fusesThisTurn: 0,
     monsterCard: undefined,
     monsterTargetSlot: undefined,
+    monsterProtectedSlots: [],
     combatModifiers: [],
     towerSlotThisTurn: undefined,
     mosqueteiroDiscardsThisTurn: 0,
@@ -1277,27 +1291,25 @@ function computeLoneTowerForCombat(state: GameState): { towerOwner: PlayerNumber
 
 /**
  * Um slot está protegido (Proteção Divina do Anjo) quando seu dono é o Anjo E
- * o Monstro dele (na zona própria - ver PlayerState.monsterCard) já foi
- * ativado (monsterUsed:true) neste turno. Slots protegidos não podem ser alvo
- * de magias (J/Q/K) do oponente.
+ * este slot específico está em `monsterProtectedSlots` (ver PlayerState).
+ * Slots protegidos não podem ser alvo de magias (J/Q/K) do oponente.
  *
- * FIX (pedido do usuário): antes só o slot ESCOLHIDO ao ativar
- * (monsterTargetSlot === slotIndex) ficava protegido - agora o efeito
- * protege TODO O CAMPO do Anjo de uma vez (os 3 slots), então não depende
- * mais de qual slot foi "escolhido" (a ativação nem pede mais essa escolha -
- * ver handleActivateMonsterEffectSimple). O parâmetro `slotIndex` continua
- * aqui só para manter a mesma assinatura usada por todos os pontos que já
- * chamam esta função slot a slot (Besta/Mago continuam sem proteção nenhuma,
- * já que só o Anjo tem este efeito).
+ * FIX (pedido do usuário: "o monstro do anjo agora só protege 1 slot
+ * selecionado do campo ao invés dos 3, mas pode ser ativado múltiplas vezes
+ * no mesmo turno ao invés de 1 vez só") - volta a proteger só o(s) slot(s)
+ * ESCOLHIDO(S) ao ativar em vez do campo inteiro de uma vez (reversão de um
+ * FIX anterior que tinha feito o oposto) - agora com a ativação liberada pra
+ * repetir no mesmo turno, cada uma pode escolher um slot diferente (ver
+ * handleActivateMonsterEffectSimple).
  *
  * FIX (itens 4 e 7 da 3ª rodada, histórico): antes checava
  * `slot.faceDownCard.isMonster` - válido só na arquitetura antiga, onde o
  * Monstro ocupava fisicamente um dos 3 slots de combate.
  */
-export function isSlotProtected(state: GameState, ownerPlayer: PlayerNumber, _slotIndex: number): boolean {
+export function isSlotProtected(state: GameState, ownerPlayer: PlayerNumber, slotIndex: number): boolean {
   if (characterOf(state, ownerPlayer) !== 'anjo') return false;
   const playerState = state[playerKeyOf(ownerPlayer)];
-  return Boolean(playerState.monsterCard?.monsterUsed);
+  return playerState.monsterProtectedSlots.includes(slotIndex);
 }
 
 /**
@@ -1326,6 +1338,25 @@ export function isSlotProtected(state: GameState, ownerPlayer: PlayerNumber, _sl
 export function getUnbattledHorizontalSlots(field: [FieldSlot, FieldSlot, FieldSlot]): number[] {
   return field.reduce<number[]>((acc, slot, i) => {
     if (slot.horizontalCards.length > 0 && slot.horizontalCards.every((c) => !c.battled)) acc.push(i);
+    return acc;
+  }, []);
+}
+
+/**
+ * Índices de slots atingíveis por Mago K (Destruição de Reforço): mesmo
+ * critério de `getUnbattledHorizontalSlots` (pilha de horizontais inteira
+ * não batalhada) OU um `CombatModifier` ainda ativo sobre uma carta AINDA
+ * NÃO batalhada do slot (principal ou horizontal) - FIX (pedido do usuário:
+ * "permita que o mago possa destruir marcadores em sua magia do rei").
+ */
+export function getDestroyableReinforcementSlots(field: [FieldSlot, FieldSlot, FieldSlot], combatModifiers: CombatModifier[]): number[] {
+  return field.reduce<number[]>((acc, slot, i) => {
+    const hasUnbattledHorizontal = slot.horizontalCards.length > 0 && slot.horizontalCards.every((c) => !c.battled);
+    const unbattledCardIds = new Set<string>();
+    if (slot.faceDownCard && !slot.faceDownCard.battled) unbattledCardIds.add(slot.faceDownCard.id);
+    slot.horizontalCards.filter((c) => !c.battled).forEach((c) => unbattledCardIds.add(c.id));
+    const hasDestroyableModifier = combatModifiers.some((m) => unbattledCardIds.has(m.cardId));
+    if (hasUnbattledHorizontal || hasDestroyableModifier) acc.push(i);
     return acc;
   }, []);
 }
@@ -1366,10 +1397,23 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
     hasRevealedUnprotectedCardInOpponentField: opponentState.field.some(
       (slot, i) => slot.faceDownCard && slot.revealed && !isSlotProtected(state, opponent, i)
     ),
+    // FIX (pedido do usuário: "a rainha do anjo impede a ativação de um
+    // efeito... até o fim do turno") - ver Card.magicLocked (cardUtils.ts) e
+    // o guard de topo em canActivateMagic. Só entra na lista quando EXISTE
+    // pelo menos 1 carta daquele valor na mão e TODAS estão trancadas -
+    // havendo uma cópia alternativa destrancada, a ativação continua livre.
+    lockedMagicValues: (['J', 'Q', 'K'] as const).filter((v) => {
+      const cardsOfValue = playerState.hand.filter((c) => c.value === v);
+      return cardsOfValue.length > 0 && cardsOfValue.every((c) => c.magicLocked);
+    }),
     // FIX (auditoria completa do Mago - bug real encontrado): agora também
     // exclui slots protegidos - único consumidor deste campo é o gate da
     // Destruição de Reforço (Rei) do Mago, que precisa exatamente disso.
-    hasUnbattledHorizontalCardsInOpponentField: getUnbattledHorizontalSlots(opponentState.field).some(
+    // FIX (pedido do usuário: "permita que o mago possa destruir marcadores
+    // em sua magia do rei") - agora também considera slots sem horizontal
+    // nenhuma mas com um CombatModifier destruível (ver
+    // getDestroyableReinforcementSlots acima).
+    hasUnbattledHorizontalCardsInOpponentField: getDestroyableReinforcementSlots(opponentState.field, opponentState.combatModifiers).some(
       (i) => !isSlotProtected(state, opponent, i)
     ),
     handSize: playerState.hand.length,
@@ -2573,6 +2617,14 @@ function handleExecuteMagic(
   const card = playerState.hand.find((c) => c.id === cardId);
   if (!card || card.value !== magicType) return state;
 
+  // FIX (pedido do usuário: "a rainha do anjo agora impede a ativação de um
+  // efeito caso a carta revelada por ela seja uma carta mágica até o fim do
+  // turno") - guarda de topo, vale pra QUALQUER personagem/carta (ver
+  // Card.magicLocked em cardUtils.ts e o efeito de Visão Celestial abaixo).
+  if (card.magicLocked) {
+    return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta foi revelada pela Visão Celestial e está trancada até o fim do turno!`) };
+  }
+
   if (!canActivateMagic(state.phase, character, magicType, getMagicActivationContext(state, player))) {
     return { ...state, log: appendLog(state, state.log, 'warning', `Essa magia não pode ser ativada agora`) };
   }
@@ -2895,7 +2947,14 @@ function handleExecuteMagic(
 
     const oldCard = targetSlot.faceDownCard;
     const newTargetField = [...targetState.field] as [FieldSlot, FieldSlot, FieldSlot];
-    newTargetField[selectedSlot] = { ...newTargetField[selectedSlot], faceDownCard: { ...cardFromDiscard, revealed: true }, revealed: true };
+    // FIX (pedido do usuário: "a carta selecionada da rainha da besta vai
+    // para o campo oculta (mesmo se o alvo for uma carta do oponente)") -
+    // antes a carta trazida do descarte sempre entrava REVELADA (mesmo
+    // quando o slot alvo era o campo do PRÓPRIO jogador, sem motivo pra
+    // revelar algo que só ele veria de qualquer forma). Agora entra oculta,
+    // com a chance normal de ser revelada mais tarde como qualquer carta em
+    // campo.
+    newTargetField[selectedSlot] = { ...newTargetField[selectedSlot], faceDownCard: { ...cardFromDiscard, revealed: false }, revealed: false };
 
     const discardWithoutTaken = state.discardPile.filter((c) => c.id !== selectedCards[0]);
     // A carta removida do slot alvo vai para o descarte (mesmo quando o alvo
@@ -2944,9 +3003,23 @@ function handleExecuteMagic(
       const targetHandCard = opponentState.hand.find((c) => c.id === selectedCards[0]);
       if (!targetHandCard || targetHandCard.revealed) return state;
 
-      const newOpponentHand = opponentState.hand.map((c) => (c.id === selectedCards[0] ? { ...c, revealed: true } : c));
+      // FIX (pedido do usuário: "a rainha do anjo agora impede a ativação de
+      // um efeito caso a carta revelada por ela seja uma carta mágica até o
+      // fim do turno") - marca `magicLocked` quando a carta revelada é J/Q/K
+      // (ver guarda de topo em handleExecuteMagic e o reset em
+      // resetForNewTurn).
+      const isMagicValue = targetHandCard.value === 'J' || targetHandCard.value === 'Q' || targetHandCard.value === 'K';
+      const newOpponentHand = opponentState.hand.map((c) =>
+        c.id === selectedCards[0] ? { ...c, revealed: true, ...(isMagicValue ? { magicLocked: true } : {}) } : c
+      );
       const { deck, discardPile } = pushToDiscard(state, [card]);
-      const log = appendLog(state, state.log, 'magic', `Jogador ${player} revelou uma carta da mão de Jogador ${opponent}`, { player, cardValue: card.value });
+      const log = appendLog(
+        state,
+        state.log,
+        'magic',
+        `Jogador ${player} revelou uma carta da mão de Jogador ${opponent}${isMagicValue ? ' (trancada até o fim do turno)' : ''}`,
+        { player, cardValue: card.value }
+      );
       return {
         ...state,
         deck,
@@ -2967,11 +3040,22 @@ function handleExecuteMagic(
         return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
       }
 
+      const isMagicValue = targetSlot.faceDownCard.value === 'J' || targetSlot.faceDownCard.value === 'Q' || targetSlot.faceDownCard.value === 'K';
       const newField = [...opponentState.field] as [FieldSlot, FieldSlot, FieldSlot];
-      newField[selectedSlot] = { ...newField[selectedSlot], revealed: true, faceDownCard: { ...targetSlot.faceDownCard, revealed: true } };
+      newField[selectedSlot] = {
+        ...newField[selectedSlot],
+        revealed: true,
+        faceDownCard: { ...targetSlot.faceDownCard, revealed: true, ...(isMagicValue ? { magicLocked: true } : {}) },
+      };
 
       const { deck, discardPile } = pushToDiscard(state, [card]);
-      const log = appendLog(state, state.log, 'magic', `Jogador ${player} revelou carta do campo de Jogador ${opponent}`, { player, cardValue: card.value });
+      const log = appendLog(
+        state,
+        state.log,
+        'magic',
+        `Jogador ${player} revelou carta do campo de Jogador ${opponent}${isMagicValue ? ' (trancada até o fim do turno)' : ''}`,
+        { player, cardValue: card.value }
+      );
       const resultState: GameState = {
         ...state,
         deck,
@@ -2998,20 +3082,40 @@ function handleExecuteMagic(
     // Angelical do Anjo) - a magia destrói a pilha INTEIRA de reforços daquele
     // slot de uma vez (todas ainda não batalhadas), não só a primeira carta.
     const horizontalCards = targetSlot.horizontalCards;
-    if (horizontalCards.length === 0 || horizontalCards.some((c) => c.battled)) return state;
+    const hasUnbattledHorizontal = horizontalCards.length > 0 && horizontalCards.every((c) => !c.battled);
+    // FIX (pedido do usuário: "permita que o mago possa destruir marcadores
+    // em sua magia do rei") - "Destruição de Reforço" agora também mira
+    // qualquer CombatModifier (Fúria Selvagem da Besta, Tiro Certeiro do
+    // Mosqueteiro) ainda ativo sobre uma carta AINDA NÃO batalhada deste
+    // slot (principal ou horizontal) - um marcador é tão "reforço" quanto
+    // uma carta horizontal empilhada, e a magia já existe pra neutralizar
+    // exatamente esse tipo de ameaça antes da disputa.
+    const unbattledCardIds = new Set<string>();
+    if (targetSlot.faceDownCard && !targetSlot.faceDownCard.battled) unbattledCardIds.add(targetSlot.faceDownCard.id);
+    horizontalCards.filter((c) => !c.battled).forEach((c) => unbattledCardIds.add(c.id));
+    const destroyableModifiers = opponentState.combatModifiers.filter((m) => unbattledCardIds.has(m.cardId));
+    if (!hasUnbattledHorizontal && destroyableModifiers.length === 0) return state;
     if (isSlotProtected(state, opponent, selectedSlot)) {
       return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
     }
 
     const newField = [...opponentState.field] as [FieldSlot, FieldSlot, FieldSlot];
-    newField[selectedSlot] = { ...newField[selectedSlot], horizontalCards: [] };
+    if (hasUnbattledHorizontal) {
+      newField[selectedSlot] = { ...newField[selectedSlot], horizontalCards: [] };
+    }
+    const newCombatModifiers =
+      destroyableModifiers.length > 0 ? opponentState.combatModifiers.filter((m) => !unbattledCardIds.has(m.cardId)) : opponentState.combatModifiers;
 
-    const { deck, discardPile } = pushToDiscard(state, [card, ...horizontalCards]);
+    const { deck, discardPile } = pushToDiscard(state, hasUnbattledHorizontal ? [card, ...horizontalCards] : [card]);
+    const destroyedParts = [
+      ...(hasUnbattledHorizontal ? [horizontalCards.length > 1 ? 'as cartas horizontais' : 'a carta horizontal'] : []),
+      ...(destroyableModifiers.length > 0 ? ['o(s) marcador(es) de reforço'] : []),
+    ];
     const log = appendLog(
       state,
       state.log,
       'magic',
-      `Jogador ${player} destruiu ${horizontalCards.length > 1 ? 'as cartas horizontais' : 'a carta horizontal'} de Jogador ${opponent}`,
+      `Jogador ${player} destruiu ${destroyedParts.join(' e ')} de Jogador ${opponent}`,
       { player, cardValue: card.value }
     );
 
@@ -3021,7 +3125,7 @@ function handleExecuteMagic(
       discardPile,
       log,
       [playerKey]: { ...playerState, hand: handWithoutMagic },
-      [opponentKey]: { ...opponentState, field: newField },
+      [opponentKey]: { ...opponentState, field: newField, combatModifiers: newCombatModifiers },
     };
   }
 
@@ -3203,12 +3307,24 @@ function handleExecuteMagic(
     if (!targetCard || targetCard.isFireToken) return state;
 
     const boostAmount = playerState.mosqueteiroDiscardsThisTurn + playerState.mosqueteiroDiscardsTurnMinus1;
+    // FIX (pedido do usuário: "múltiplos usos da magia devem adicionar valor
+    // no mesmo marcador já posicionado"): antes, QUALQUER ativação removia o
+    // único marcador 'mosqueteiro' existente (não importa a carta) e criava
+    // um novo do zero com o `boostAmount` recém-calculado - reativar sobre a
+    // MESMA carta não acumulava nada (só recomputava o mesmo valor), e
+    // reativar sobre outra carta simplesmente MOVIA o bônus, nunca somava.
+    // Agora o marcador é procurado por `cardId`: reativar sobre a carta já
+    // marcada SOMA ao valor existente; mirar uma carta diferente cria um
+    // marcador independente, permitindo vários "Tiro Certeiro" simultâneos
+    // em cartas diferentes no mesmo campo.
+    const existingMarker = playerState.combatModifiers.find((m) => m.source === 'mosqueteiro' && m.cardId === targetId);
+    const newAmount = (existingMarker?.amount ?? 0) + boostAmount;
     const { deck, discardPile } = pushToDiscard(state, [card]);
     const log = appendLog(
       state,
       state.log,
       'magic',
-      `Jogador ${player} ativou Tiro Certeiro - a carta ${targetCard.value}${targetCard.suit} recebe +${boostAmount} de valor no combate`,
+      `Jogador ${player} ativou Tiro Certeiro - a carta ${targetCard.value}${targetCard.suit} recebe +${boostAmount} de valor no combate (total: +${newAmount})`,
       { player, cardValue: card.value }
     );
 
@@ -3221,8 +3337,8 @@ function handleExecuteMagic(
         ...playerState,
         hand: handWithoutMagic,
         combatModifiers: [
-          ...playerState.combatModifiers.filter((m) => m.source !== 'mosqueteiro'),
-          { cardId: targetId, kind: 'add', amount: boostAmount, source: 'mosqueteiro', label: 'Tiro Certeiro' },
+          ...playerState.combatModifiers.filter((m) => !(m.source === 'mosqueteiro' && m.cardId === targetId)),
+          { cardId: targetId, kind: 'add', amount: newAmount, source: 'mosqueteiro', label: 'Tiro Certeiro' },
         ],
       },
     };
@@ -3276,9 +3392,11 @@ function handleExecuteMagic(
       const midState: GameState = { ...state, deck, discardPile, [playerKey]: { ...playerState, hand: handWithoutMagic } };
       return executeFireballLaunch(midState, player, selectedTargetSlot);
     }
-    // Idem ao Valete: o efeito próprio é de Estratégia; a janela extra no
-    // Combate (ver canActivateMagic) só serve pra lançar a Bola de Fogo.
-    if (state.phase !== 'strategy') return state;
+    // FIX (pedido do usuário: "troque a fase da rainha do piromante de
+    // estratégia para compra") - o efeito próprio agora é de Compra (ver
+    // magicCards.ts, `phase: 'draw'`); a janela extra no Combate (ver
+    // canActivateMagic) só serve pra lançar a Bola de Fogo.
+    if (state.phase !== 'draw') return state;
     const targetId = selectedCards?.[0];
     if (!targetId) return state;
     const opponentState = state[opponentKey];
@@ -3837,20 +3955,23 @@ function handlePlaceMonsterCard(state: GameState, player: PlayerNumber, cardId: 
 
 /**
  * Besta (Fúria Selvagem) ativa escolhendo um slot alvo E uma carta
- * específica dentro dele. Anjo (Proteção Divina) ativa direto, sem escolher
- * nada - o efeito agora protege TODO o campo do Anjo de uma vez.
+ * específica dentro dele. Anjo (Proteção Divina) escolhe só um slot alvo.
  *
  * FIX (pedido do usuário): a Besta precisa de `targetCardId` - o efeito
  * dobra o valor de UMA carta específica do slot escolhido (a principal ou
  * uma horizontal), não mais "a soma de todas as horizontais do slot" (que
  * não fazia nada se o slot não tivesse nenhuma).
  *
- * FIX (pedido do usuário, rodada seguinte): a Proteção Divina do Anjo
- * deixou de proteger só "um slot selecionável" - agora protege TODAS as
- * cartas do próprio campo de uma vez (ver isSlotProtected, que agora ignora
- * qual slot é consultado para o Anjo). Por isso `targetSlotIndex` é
- * ignorado/opcional para o Anjo - a ativação nem pede mais essa escolha na
- * interface (ver handleMonsterZoneClick em GameBoard.tsx).
+ * FIX (pedido do usuário: "o monstro do anjo agora só protege 1 slot
+ * selecionado do campo ao invés dos 3, mas pode ser ativado múltiplas vezes
+ * no mesmo turno ao invés de 1 vez só") - reversão de um FIX anterior que
+ * tinha feito a Proteção Divina proteger o campo inteiro de uma vez, sem
+ * escolha de slot. Agora volta a exigir `targetSlotIndex` (mesmo padrão da
+ * Besta) E, diferente de todo o resto desta função, NUNCA marca
+ * `monsterUsed: true` pro Anjo - só `monsterUseCount` (o orçamento vitalício
+ * de 3 usos, via `canActivateMonsterEffect`) limita quantas vezes ele pode
+ * ativar, inclusive várias vezes no MESMO turno, cada uma protegendo um slot
+ * diferente (acumulado em `monsterProtectedSlots`, nunca sobrescrito).
  */
 function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumber, targetSlotIndex?: number, targetCardId?: string): GameState {
   const playerKey = playerKeyOf(player);
@@ -3870,14 +3991,26 @@ function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumbe
   // só de `type: 'monster'` + `player` (o personagem de cada jogador é fixo
   // pela partida inteira), então o motor só precisa registrar o texto puro.
   if (character === 'anjo') {
-    const log = appendLog(state, state.log, 'monster', `Jogador ${player} ativou - todo o campo protegido contra magias até o fim do turno`, { player });
+    if (targetSlotIndex === undefined) return state;
+    if (playerState.monsterProtectedSlots.includes(targetSlotIndex)) return state; // já protegido, nada a fazer
+    const log = appendLog(
+      state,
+      state.log,
+      'monster',
+      `Jogador ${player} ativou - slot ${targetSlotIndex + 1} protegido contra magias até o fim do turno`,
+      { player }
+    );
     return {
       ...state,
       log,
       [playerKey]: {
         ...playerState,
-        monsterCard: { ...monster, monsterUsed: true, monsterUseCount: (monster.monsterUseCount ?? 0) + 1 },
-        monsterTargetSlot: undefined,
+        // FIX: `monsterUsed` fica false de propósito - o Anjo pode reativar
+        // no mesmo turno (ver comentário completo acima); só o orçamento
+        // vitalício (`monsterUseCount`) limita.
+        monsterCard: { ...monster, monsterUsed: false, monsterUseCount: (monster.monsterUseCount ?? 0) + 1 },
+        monsterTargetSlot: targetSlotIndex,
+        monsterProtectedSlots: [...playerState.monsterProtectedSlots, targetSlotIndex],
       },
     };
   }
@@ -4175,7 +4308,17 @@ function handleActivateNumeralSpell(state: GameState, player: PlayerNumber): Gam
     discardPile: discardPileAfterMonsterDiscard,
     numeralSpellPending: { playerNumber: player, character },
     [playerKey]: { ...playerState, hand: newHand, field: newField },
-    [opponentKey]: { ...opponentState, hand: newOpponentHand, field: emptyField(), monsterCard: undefined, monsterTargetSlot: undefined },
+    [opponentKey]: {
+      ...opponentState,
+      hand: newOpponentHand,
+      field: emptyField(),
+      monsterCard: undefined,
+      monsterTargetSlot: undefined,
+      // FIX (pedido do usuário: Proteção Divina agora protege por slot) - o
+      // campo inteiro está sendo esvaziado aqui, então nenhuma proteção
+      // antiga faz sentido sobreviver a isso.
+      monsterProtectedSlots: [],
+    },
   };
 }
 
@@ -5099,6 +5242,12 @@ function advancePhaseState(state: GameState): GameState {
   // transição, mesmo dentro do mesmo turno).
   const resetForNewTurn = (p: PlayerState, monster: { kept: Card | undefined }): PlayerState => ({
     ...p,
+    // FIX (pedido do usuário: "a rainha do anjo agora impede a ativação de um
+    // efeito... até o fim do turno") - `magicLocked` (Card, cardUtils.ts) é
+    // zerado em TODA carta da mão na virada pra Compra, mesmo padrão de
+    // qualquer outro estado "até o fim do turno" já usado aqui (ex.:
+    // `mosqueteiroHandLimitBonusUntilTurn` acima).
+    hand: newPhase === 'draw' ? p.hand.map((c) => (c.magicLocked ? { ...c, magicLocked: false } : c)) : p.hand,
     // FIX (Modo Towers, pedido do usuário): "mão aumentada em 1".
     // Mosqueteiro - Munição Infinita: bônus recalculado do zero em TODA
     // transição de fase a partir de `mosqueteiroHandLimitBonusUntilTurn`
@@ -5128,6 +5277,7 @@ function advancePhaseState(state: GameState): GameState {
     field: newPhase === 'draw' ? growDruidaBrotoField(keepPersistentFieldSlots(p.field), p.druidaPhotosynthesisLevel) : p.field,
     monsterCard: newPhase === 'draw' ? monster.kept : p.monsterCard,
     monsterTargetSlot: newPhase === 'draw' ? undefined : p.monsterTargetSlot,
+    monsterProtectedSlots: newPhase === 'draw' ? [] : p.monsterProtectedSlots,
     combatModifiers: newPhase === 'draw' ? [] : p.combatModifiers,
     discardsThisTurn: newPhase === 'draw' ? 0 : p.discardsThisTurn,
     drawsThisTurn: newPhase === 'draw' ? 0 : p.drawsThisTurn,

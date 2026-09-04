@@ -242,7 +242,15 @@ export function PlayingCard({
   // própria lista de palavras-chave ativas a partir das MESMAS flags já
   // calculadas acima - uma única fonte de verdade por flag, várias listas
   // possíveis dependendo de qual variante da carta está sendo desenhada.
-  const magicKeywords: CardKeywordId[] = [...(isRevealed ? (['revealed'] as const) : []), ...(isFused ? (['fused'] as const) : [])];
+  // FIX (pedido do usuário: "a rainha do anjo impede a ativação de um efeito
+  // caso a carta revelada por ela seja mágica até o fim do turno") - ver
+  // Card.magicLocked (cardUtils.ts).
+  const isMagicLocked = card?.magicLocked === true;
+  const magicKeywords: CardKeywordId[] = [
+    ...(isRevealed ? (['revealed'] as const) : []),
+    ...(isFused ? (['fused'] as const) : []),
+    ...(isMagicLocked ? (['magicLocked'] as const) : []),
+  ];
   const aceKeywords: CardKeywordId[] = [
     ...(isRevealed ? (['revealed'] as const) : []),
     ...(hasTransformedValue ? (['transformedAce'] as const) : []),
@@ -270,8 +278,8 @@ export function PlayingCard({
               className={cn(
                 "w-28 h-40 bg-gradient-to-br from-[#1E1A16] to-[#0F1113] rounded-lg flex flex-col items-center justify-between p-3",
                 "border-2 shadow-lg transition-all relative overflow-hidden cursor-pointer",
-                winner ? "border-[#C59E4F] rune-glow animate-pulse" : "border-[#C59E4F]",
-                canActivateMagic && !hovering && "animate-pulse rune-glow",
+                isMagicLocked ? "border-[#9B6BD1]" : winner ? "border-[#C59E4F] rune-glow animate-pulse" : "border-[#C59E4F]",
+                canActivateMagic && !isMagicLocked && !hovering && "animate-pulse rune-glow",
                 className
               )}
               onMouseEnter={() => setHovering(true)}
@@ -295,6 +303,24 @@ export function PlayingCard({
                 <div className="absolute bottom-2 left-2 text-[#C59E4F] text-[16px] font-display">✦</div>
                 <div className="absolute bottom-2 right-2 text-[#C59E4F] text-[16px] font-display">✦</div>
               </div>
+
+              {/* FIX (pedido do usuário: "efeito visual de correntes... para
+                  indicar" a Visão Celestial do Anjo) - duas correntes em X
+                  cruzando a carta, por cima de tudo (z-20), com um véu
+                  violeta translúcido reforçando que a magia está trancada. */}
+              {isMagicLocked && (
+                <div className="absolute inset-0 z-20 pointer-events-none">
+                  <div className="absolute inset-0 bg-[#2A1A3D]/35" />
+                  <div
+                    className="absolute top-1/2 left-1/2 w-[135%] h-[3px] -translate-x-1/2 -translate-y-1/2 rotate-45"
+                    style={{ background: 'repeating-linear-gradient(90deg, #9B6BD1 0 8px, #6B4A96 8px 12px)', boxShadow: '0 0 6px #9B6BD1' }}
+                  />
+                  <div
+                    className="absolute top-1/2 left-1/2 w-[135%] h-[3px] -translate-x-1/2 -translate-y-1/2 -rotate-45"
+                    style={{ background: 'repeating-linear-gradient(90deg, #9B6BD1 0 8px, #6B4A96 8px 12px)', boxShadow: '0 0 6px #9B6BD1' }}
+                  />
+                </div>
+              )}
 
               <CardKeywords active={magicKeywords} />
 

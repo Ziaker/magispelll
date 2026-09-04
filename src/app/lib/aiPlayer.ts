@@ -39,6 +39,7 @@ import { random } from './rng';
 import {
   applyCombatModifiers,
   characterOf,
+  getDestroyableReinforcementSlots,
   getFilledFieldSlots,
   getMagicActivationContext,
   getUnbattledHorizontalSlots,
@@ -384,6 +385,25 @@ function trueSlotValue(
   return base + horizontal + towerValue;
 }
 
+/**
+ * Acha na mão uma carta de magia (J/Q/K) ATIVÁVEL - ou seja, ignorando
+ * qualquer cópia trancada por `magicLocked` (Visão Celestial do Anjo, ver
+ * Card em cardUtils.ts). FIX (pedido do usuário: "a rainha do anjo impede a
+ * ativação de um efeito... até o fim do turno") - o Modo Temático permite 2
+ * cópias da mesma carta de magia na mesma mão (ver `thematic` em
+ * generateDeck, cardUtils.ts); sem este helper, `.find()` podia pegar
+ * sempre a cópia TRANCADA (1ª no array) mesmo com uma destrancada disponível
+ * - `canActivateMagic` liberaria a ativação (nem toda cópia está trancada),
+ * mas o motor rejeitaria essa carta específica pra sempre, e a IA proporia a
+ * mesma ação recusada em loop (mesma classe de bug já corrigida várias vezes
+ * neste arquivo). Cai para a 1ª cópia (mesmo trancada) só se NENHUMA
+ * destrancada existir - nesse caso `canActivateMagic` já recusa a ativação
+ * de qualquer forma, então não há loop possível.
+ */
+function findActivatableMagicCard(hand: Card[], value: 'J' | 'Q' | 'K'): Card | undefined {
+  return hand.find((c) => c.value === value && !c.magicLocked) ?? hand.find((c) => c.value === value);
+}
+
 function pickHighestBy<T>(items: T[], score: (item: T) => number): T {
   return items.reduce((best, item) => (score(item) > score(best) ? item : best));
 }
@@ -503,59 +523,16 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   //    garante que só ativa quando há espaço na mão e um Ás de verdade
   //    alcançável (baralho ou descarte).
   if (character === 'anjo') {
-    const jCard = me.hand.find((c) => c.value === 'J');
+    const jCard = findActivatableMagicCard(me.hand, 'J');
     if (jCard && canActivateMagic('draw', 'anjo', 'J', ctx)) {
       return { type: 'action', action: { type: 'ACTIVATE_SIMPLE_MAGIC', player: ai, cardId: jCard.id } };
     }
   }
 
-  // 2. Mago J (Revelação Forçada) - revela uma carta ainda oculta da mão do
-  //    oponente (ganha informação), OU descarta uma carta JÁ revelada dela.
-  //
-  //    FIX (pedido do usuário: "você PODE descartar uma carta JÁ revelada,
-  //    não só quando tiver todas") - a regra mudou: descartar uma carta já
-  //    revelada não depende mais do resto da mão do oponente estar toda
-  //    revelada (ver handleExecuteMagic em gameEngine.ts). Isso abre uma
-  //    escolha real pra IA a cada ativação: continuar revelando cartas novas
-  //    (ganha informação) ou descartar uma carta já revelada que seja
-  //    perigosa (uma magia, um Ás, o Monstro, ou um numeral valioso -
-  //    reaproveitando cardPriority, a mesma régua já usada em outras
-  //    decisões de "quão valiosa é esta carta"). Só prioriza o descarte
-  //    quando a carta já revelada é claramente perigosa - caso contrário,
-  //    ganhar informação nova (revelar) vale mais a longo prazo.
-  if (character === 'mago') {
-    const jCard = me.hand.find((c) => c.value === 'J');
-    if (jCard && canActivateMagic('draw', 'mago', 'J', ctx)) {
-      const opponentHand = state[opponentKeyOf(ai)].hand;
-      const opponentCharacter = characterOf(state, opponentOf(ai));
-      const revealed = opponentHand.filter((c) => c.revealed);
-      const unrevealed = opponentHand.filter((c) => !c.revealed);
-
-      const bestRevealedTarget = revealed.length > 0 ? pickHighestBy(revealed, (c) => cardPriority(c, opponentCharacter, state.spotlight)) : null;
-      const DISCARD_WORTHY_PRIORITY = 80; // magias (J/Q/K), Ás e Monstro - ver cardPriority
-      const shouldDiscardRevealed = bestRevealedTarget !== null && cardPriority(bestRevealedTarget, opponentCharacter, state.spotlight) >= DISCARD_WORTHY_PRIORITY;
-
-      const target = shouldDiscardRevealed
-        ? bestRevealedTarget
-        : unrevealed.length > 0
-        ? unrevealed[Math.floor(random() * unrevealed.length)]
-        : bestRevealedTarget; // nada mais pra revelar - descarta a melhor carta já revelada, mesmo sem ser "perigosa"
-
-      if (target) {
-        return {
-          type: 'action',
-          action: {
-            type: 'EXECUTE_MAGIC',
-            player: ai,
-            cardId: jCard.id,
-            character: 'mago',
-            magicType: 'J',
-            selection: { selectedCards: [target.id] },
-          },
-        };
-      }
-    }
-  }
+  // 2. Mago J (Revelação Forçada) - FIX (pedido do usuário: "troque a fase do
+  //    valete do mago de compra para estratégia") - movido pra
+  //    decideMagoJ/decideStrategyMagic, já não decide mais nada aqui (ver
+  //    magicCards.ts, `phase: 'strategy'`).
 
   // 3. Besta J (Recuperação Selvagem) - pega as melhores cartas disponíveis
   //    na pilha de descarte (informação pública, não é "trapaça" usar isso).
@@ -565,7 +542,7 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   //    silêncio (ver isPlainNumeralCard em cardUtils.ts e o ramo Besta J de
   //    handleExecuteMagic em gameEngine.ts).
   if (character === 'besta') {
-    const jCard = me.hand.find((c) => c.value === 'J');
+    const jCard = findActivatableMagicCard(me.hand, 'J');
     if (jCard && canActivateMagic('draw', 'besta', 'J', ctx)) {
       const eligible = state.discardPile.filter((c) => isPlainNumeralCard(c));
       const ranked = [...eligible].sort((a, b) => cardPriority(b, 'besta', state.spotlight) - cardPriority(a, 'besta', state.spotlight));
@@ -618,7 +595,7 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   //     combustível). Só lança se não houver combustível NENHUM na mão
   //     agora - ver shouldLaunchFireball.
   if (character === 'piromante') {
-    const jCard = me.hand.find((c) => c.value === 'J');
+    const jCard = findActivatableMagicCard(me.hand, 'J');
     if (jCard && canActivateMagic('draw', 'piromante', 'J', getMagicActivationContext(state, ai))) {
       // FIX (achado por simulação real: uma mão só de numerais pequenos ficava
       // sem NENHUMA carta pra ocupar um slot vazio no mesmo turno, porque
@@ -658,6 +635,14 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
         }
       }
     }
+  }
+
+  // 3d. Piromante Q (Roubo Flamejante) - FIX (pedido do usuário: "troque a
+  //     fase da rainha do piromante de estratégia para compra") - decidida
+  //     aqui agora (ver decidePiromanteQ, magicCards.ts `phase: 'draw'`).
+  if (character === 'piromante') {
+    const qAction = decidePiromanteQ(state, ai);
+    if (qAction) return { type: 'action', action: qAction };
   }
 
   // 4. Fusão (pedido do usuário: "quero que a IA também funda cartas") - ver
@@ -1099,33 +1084,35 @@ function decideMonsterEffect(state: GameState, ai: PlayerNumber, character: Char
     return { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: ai, targetSlotIndex: best.slotIndex, targetCardId: best.cardId };
   }
 
-  // Anjo (Proteção Divina): FIX (pedido do usuário) - agora protege o campo
-  // INTEIRO de uma vez (não mais um slot escolhido), então não há mais
-  // "melhor slot" pra calcular - só vale a pena ativar se houver alguma
-  // carta no campo pra proteger (senão o efeito não protege nada de fato).
+  // Anjo (Proteção Divina): FIX (pedido do usuário: "o monstro do anjo agora
+  // só protege 1 slot selecionado do campo ao invés dos 3, mas pode ser
+  // ativado múltiplas vezes no mesmo turno ao invés de 1 vez só") - reversão
+  // do FIX anterior (campo inteiro de uma vez) - escolhe o slot ainda NÃO
+  // protegido de maior valor. Como `monsterUsed` nunca vira `true` pro Anjo
+  // agora (só `monsterUseCount` limita, via canActivateMonsterEffect no topo
+  // desta função), esta MESMA função roda de novo no próximo ciclo de
+  // decisão e pode proteger outro slot, até esgotar cargas ou slots.
   if (character === 'anjo') {
-    const filledSlots = me.field.filter((slot) => slot.faceDownCard);
-    if (filledSlots.length === 0) return null;
+    const alreadyProtected = new Set(me.monsterProtectedSlots);
+    const candidates = me.field.map((slot, i) => ({ i, slot })).filter(({ i, slot }) => slot.faceDownCard && !alreadyProtected.has(i));
+    if (candidates.length === 0) return null;
     // FIX (orçamento do Monstro + "contra-jogo específico por personagem do
-    // oponente"): a última carga só compensa protegendo um campo com valor
-    // real em risco (2+ cartas, ou soma alta) - EXCETO contra um oponente
-    // Mago ou Besta, que conseguem explorar um slot revelado e desprotegido
-    // (Substituição Arcana e Troca Predatória, respectivamente, ambas trocam
-    // uma carta do próprio campo por uma fraca) - contra esses personagens
-    // especificamente, a régua da última carga cai para "qualquer coisa a
-    // proteger já basta", igual sem restrição de carga nenhuma.
+    // oponente"): a última carga só compensa protegendo um slot com valor
+    // real em risco - EXCETO contra um oponente Mago ou Besta, que conseguem
+    // explorar um slot revelado e desprotegido (Substituição Arcana e Troca
+    // Predatória, respectivamente, ambas trocam uma carta do próprio campo
+    // por uma fraca) - contra esses personagens especificamente, a régua da
+    // última carga cai para "qualquer coisa a proteger já basta".
     const opponentCharacter = characterOf(state, opponentOf(ai));
     // FIX (auditoria completa do Anjo - bug real encontrado, mesma classe já
-    // corrigida no Mago e na Besta): estas cartas já estão EM CAMPO,
-    // comprometidas - `combatValue` desconta um Ás cru pra 6 (pensado só pra
-    // planejamento de cartas ainda na mão), subestimando um Ás cru já em
-    // campo e fazendo a IA recusar a última carga achando que o campo (na
-    // real 14+) não valia a pena proteger.
-    const totalFieldValue = filledSlots.reduce((sum, slot) => sum + getEffectiveCardValue(slot.faceDownCard!), 0);
-    const worthLastChargeAnyway =
-      opponentCharacter === 'mago' || opponentCharacter === 'besta' || filledSlots.length >= 2 || totalFieldValue >= 8;
+    // corrigida no Mago e na Besta): a carta já está EM CAMPO, comprometida -
+    // `combatValue` desconta um Ás cru pra 6 (pensado só pra planejamento de
+    // cartas ainda na mão), subestimando um Ás cru já em campo.
+    const best = pickHighestBy(candidates, ({ slot }) => getEffectiveCardValue(slot.faceDownCard!));
+    const bestValue = getEffectiveCardValue(best.slot.faceDownCard!);
+    const worthLastChargeAnyway = opponentCharacter === 'mago' || opponentCharacter === 'besta' || bestValue >= 7;
     if (holdBackLastCharge && !worthLastChargeAnyway) return null;
-    return { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: ai };
+    return { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: ai, targetSlotIndex: best.i };
   }
 
   // Mago (Ilusão Arcana): copia o valor da carta revelada mais forte em
@@ -1226,9 +1213,60 @@ function decideMonsterEffect(state: GameState, ai: PlayerNumber, character: Char
 // Fase de Estratégia
 // ============================================================================
 
+/**
+ * Mago J (Revelação Forçada) - revela uma carta ainda oculta da mão do
+ * oponente (ganha informação), OU descarta uma carta JÁ revelada dela.
+ *
+ * FIX (pedido do usuário: "troque a fase do valete do mago de compra para
+ * estratégia") - movida de decideDrawPhase pra cá, chamada agora por
+ * decideStrategyMagic (mesmo padrão do Mosqueteiro, que também tem Valete E
+ * Rainha na Estratégia: tenta o Valete primeiro, mais barato).
+ *
+ * FIX (pedido do usuário: "você PODE descartar uma carta JÁ revelada, não só
+ * quando tiver todas") - a regra mudou: descartar uma carta já revelada não
+ * depende mais do resto da mão do oponente estar toda revelada (ver
+ * handleExecuteMagic em gameEngine.ts). Isso abre uma escolha real pra IA a
+ * cada ativação: continuar revelando cartas novas (ganha informação) ou
+ * descartar uma carta já revelada que seja perigosa (uma magia, um Ás, o
+ * Monstro, ou um numeral valioso - reaproveitando cardPriority, a mesma
+ * régua já usada em outras decisões de "quão valiosa é esta carta"). Só
+ * prioriza o descarte quando a carta já revelada é claramente perigosa -
+ * caso contrário, ganhar informação nova (revelar) vale mais a longo prazo.
+ */
+function decideMagoJ(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  const jCard = findActivatableMagicCard(me.hand, 'J');
+  if (!jCard || !canActivateMagic('strategy', 'mago', 'J', getMagicActivationContext(state, ai))) return null;
+
+  const opponentHand = state[opponentKeyOf(ai)].hand;
+  const opponentCharacter = characterOf(state, opponentOf(ai));
+  const revealed = opponentHand.filter((c) => c.revealed);
+  const unrevealed = opponentHand.filter((c) => !c.revealed);
+
+  const bestRevealedTarget = revealed.length > 0 ? pickHighestBy(revealed, (c) => cardPriority(c, opponentCharacter, state.spotlight)) : null;
+  const DISCARD_WORTHY_PRIORITY = 80; // magias (J/Q/K), Ás e Monstro - ver cardPriority
+  const shouldDiscardRevealed = bestRevealedTarget !== null && cardPriority(bestRevealedTarget, opponentCharacter, state.spotlight) >= DISCARD_WORTHY_PRIORITY;
+
+  const target = shouldDiscardRevealed
+    ? bestRevealedTarget
+    : unrevealed.length > 0
+    ? unrevealed[Math.floor(random() * unrevealed.length)]
+    : bestRevealedTarget; // nada mais pra revelar - descarta a melhor carta já revelada, mesmo sem ser "perigosa"
+
+  if (!target) return null;
+  return {
+    type: 'EXECUTE_MAGIC',
+    player: ai,
+    cardId: jCard.id,
+    character: 'mago',
+    magicType: 'J',
+    selection: { selectedCards: [target.id] },
+  };
+}
+
 function decideMagoQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = me.hand.find((c) => c.value === 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q');
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'mago', 'Q', getMagicActivationContext(state, ai))) return null;
 
@@ -1311,7 +1349,7 @@ function decideMagoQ(state: GameState, ai: PlayerNumber): GameAction | null {
  */
 function decideBestaQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = me.hand.find((c) => c.value === 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q');
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'besta', 'Q', getMagicActivationContext(state, ai))) return null;
 
@@ -1388,7 +1426,7 @@ function decideBestaQ(state: GameState, ai: PlayerNumber): GameAction | null {
 
 function decideAnjoQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = me.hand.find((c) => c.value === 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q');
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'anjo', 'Q', getMagicActivationContext(state, ai))) return null;
 
@@ -1437,7 +1475,7 @@ function decideAnjoQ(state: GameState, ai: PlayerNumber): GameAction | null {
  */
 function decideAnjoK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = me.hand.find((c) => c.value === 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K');
   if (!kCard) return null;
   if (!canActivateMagic('strategy', 'anjo', 'K', getMagicActivationContext(state, ai))) return null;
 
@@ -1506,7 +1544,7 @@ function fieldSafeDiscardCandidates(me: PlayerState, candidates: Card[]): Card[]
 
 function decideMosqueteiroJ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const jCard = me.hand.find((c) => c.value === 'J');
+  const jCard = findActivatableMagicCard(me.hand, 'J');
   if (!jCard) return null;
   if (!canActivateMagic('strategy', 'mosqueteiro', 'J', getMagicActivationContext(state, ai))) return null;
 
@@ -1555,7 +1593,7 @@ function decideMosqueteiroJ(state: GameState, ai: PlayerNumber): GameAction | nu
  */
 function decideMosqueteiroQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = me.hand.find((c) => c.value === 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q');
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'mosqueteiro', 'Q', getMagicActivationContext(state, ai))) return null;
 
@@ -1599,7 +1637,11 @@ function decideMosqueteiroQ(state: GameState, ai: PlayerNumber): GameAction | nu
 }
 
 function decideStrategyMagic(state: GameState, ai: PlayerNumber, character: CharacterId): GameAction | null {
-  if (character === 'mago') return decideMagoQ(state, ai);
+  // FIX (pedido do usuário: "troque a fase do valete do mago de compra para
+  // estratégia") - Mago agora também tem Valete E Rainha na Estratégia,
+  // mesmo padrão do Mosqueteiro logo abaixo: tenta o Valete primeiro (mais
+  // barato, 1 carta) antes da Rainha.
+  if (character === 'mago') return decideMagoJ(state, ai) ?? decideMagoQ(state, ai);
   if (character === 'besta') return decideBestaQ(state, ai);
   if (character === 'anjo') return decideAnjoQ(state, ai) ?? decideAnjoK(state, ai);
   // Mosqueteiro (personagem novo): Valete E Rainha são AMBOS de Estratégia
@@ -1608,7 +1650,9 @@ function decideStrategyMagic(state: GameState, ai: PlayerNumber, character: Char
   if (character === 'mosqueteiro') return decideMosqueteiroJ(state, ai) ?? decideMosqueteiroQ(state, ai);
   // Coringa (redesenho completo) nunca chega aqui - Rainha/Rei são
   // posicionados no campo normal (decideFieldPlacement), não ativados.
-  if (character === 'piromante') return decidePiromanteQ(state, ai);
+  // FIX (pedido do usuário: "troque a fase da rainha do piromante de
+  // estratégia para compra") - decidePiromanteQ não roda mais aqui, ver
+  // decideDrawPhase.
   if (character === 'druida') return decideDruidaQ(state, ai);
   return null;
 }
@@ -1619,11 +1663,15 @@ function decideStrategyMagic(state: GameState, ai: PlayerNumber, character: Char
  * disponível - prioriza SEMPRE alimentar a Bola de Fogo (nunca perde valor,
  * e ainda sabota o oponente de brinde) sobre lançar; só lança se não houver
  * nenhum alvo pra queimar agora.
+ *
+ * FIX (pedido do usuário: "troque a fase da rainha do piromante de
+ * estratégia para compra") - chamada agora por decideDrawPhase, não mais por
+ * decideStrategyMagic (ver magicCards.ts, `phase: 'draw'`).
  */
 function decidePiromanteQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = me.hand.find((c) => c.value === 'Q');
-  if (!qCard || !canActivateMagic('strategy', 'piromante', 'Q', getMagicActivationContext(state, ai))) return null;
+  const qCard = findActivatableMagicCard(me.hand, 'Q');
+  if (!qCard || !canActivateMagic('draw', 'piromante', 'Q', getMagicActivationContext(state, ai))) return null;
 
   const opponentState = state[playerKeyOf(opponentOf(ai))];
   const candidates = [
@@ -1900,7 +1948,7 @@ function decideDruidaMonster(state: GameState, ai: PlayerNumber): GameAction | n
  */
 function decideDruidaQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = me.hand.find((c) => c.value === 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q');
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'druida', 'Q', getMagicActivationContext(state, ai))) return null;
 
@@ -1942,7 +1990,7 @@ function decideDruidaQ(state: GameState, ai: PlayerNumber): GameAction | null {
  */
 function decideDruidaK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = me.hand.find((c) => c.value === 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'druida', 'K', getMagicActivationContext(state, ai))) return null;
 
@@ -2157,7 +2205,17 @@ function decideStrategyPhase(state: GameState, ai: PlayerNumber): AiDecision {
   // própria Visão Arcana só porque o oponente (humano) já tinha a dele ativa
   // - mesmo sendo efeitos completamente independentes. Agora checa só o
   // próprio slot da IA no mapa por jogador.
+  // FIX (pedido do usuário): Munição Infinita (Mosqueteiro) concede +1 de
+  // limite de mão pra cada carta descartada pelas PRÓPRIAS magias nos
+  // últimos 3 turnos - com menos de 3 descartes acumulados nessa janela, o
+  // bônus resultante (0-2) não compensa gastar 3 cartas numerais (A, 9, 9,
+  // 9) só pra isso. A IA agora segura a ativação até acumular um número
+  // decente no contador de descarte.
+  const mosqueteiroNumeralWindowTooLow =
+    character === 'mosqueteiro' &&
+    me.mosqueteiroDiscardsThisTurn + me.mosqueteiroDiscardsTurnMinus1 + me.mosqueteiroDiscardsTurnMinus2 < 3;
   if (
+    !mosqueteiroNumeralWindowTooLow &&
     getFilledFieldSlots(me.field).length === 0 &&
     canActivateNumeralSpell(character, me.hand, me.field, state.activeNumeralSpells[ai] !== undefined, state.spotlight)
   ) {
@@ -2267,13 +2325,18 @@ function decideTowerAction(state: GameState, ai: PlayerNumber, character: Charac
 
 function decideMagoK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = me.hand.find((c) => c.value === 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'mago', 'K', getMagicActivationContext(state, ai))) return null;
 
   const opponent = opponentOf(ai);
-  const opponentField = state[opponentKeyOf(ai)].field;
-  const targets = getUnbattledHorizontalSlots(opponentField).filter((i) => !isSlotProtected(state, opponent, i));
+  const opponentState = state[opponentKeyOf(ai)];
+  const opponentField = opponentState.field;
+  // FIX (pedido do usuário: "permita que o mago possa destruir marcadores em
+  // sua magia do rei") - alvo agora também inclui slots sem horizontal
+  // nenhuma mas com um CombatModifier destruível (ver
+  // getDestroyableReinforcementSlots, gameEngine.ts).
+  const targets = getDestroyableReinforcementSlots(opponentField, opponentState.combatModifiers).filter((i) => !isSlotProtected(state, opponent, i));
   if (targets.length === 0) return null;
 
   // FIX: a magia agora destrói TODAS as cartas horizontais empilhadas do
@@ -2295,9 +2358,24 @@ function decideMagoK(state: GameState, ai: PlayerNumber): GameAction | null {
   // soma horizontais JÁ reveladas; se nenhum dos alvos tem NADA revelado (a
   // escolha é totalmente às cegas, como seria para um humano), sorteia entre
   // eles em vez de cair sempre no primeiro da lista por empate em 0.
-  const revealedHorizontalValue = (i: number) =>
-    opponentField[i].horizontalCards.reduce((sum, c) => sum + (c.revealed ? getEffectiveCardValue(c) : 0), 0);
-  const anyRevealed = targets.some((i) => opponentField[i].horizontalCards.some((c) => c.revealed));
+  //
+  // FIX (marcadores): soma também o valor de qualquer CombatModifier ('add')
+  // preso a uma carta REVELADA do slot - mesma cautela de só contar o que um
+  // humano também veria.
+  const revealedHorizontalValue = (i: number) => {
+    const slot = opponentField[i];
+    const horizontalValue = slot.horizontalCards.reduce((sum, c) => sum + (c.revealed ? getEffectiveCardValue(c) : 0), 0);
+    const revealedCardIds = new Set([
+      ...(slot.faceDownCard && slot.revealed ? [slot.faceDownCard.id] : []),
+      ...slot.horizontalCards.filter((c) => c.revealed).map((c) => c.id),
+    ]);
+    const modifierValue = opponentState.combatModifiers.reduce(
+      (sum, m) => sum + (revealedCardIds.has(m.cardId) && m.kind === 'add' ? m.amount : 0),
+      0
+    );
+    return horizontalValue + modifierValue;
+  };
+  const anyRevealed = targets.some((i) => revealedHorizontalValue(i) > 0);
   const best = anyRevealed
     ? targets.reduce((a, b) => (revealedHorizontalValue(b) > revealedHorizontalValue(a) ? b : a))
     : targets[Math.floor(random() * targets.length)];
@@ -2306,7 +2384,7 @@ function decideMagoK(state: GameState, ai: PlayerNumber): GameAction | null {
 
 function decideBestaK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = me.hand.find((c) => c.value === 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'besta', 'K', getMagicActivationContext(state, ai))) return null;
 
@@ -2355,13 +2433,21 @@ function decideBestaK(state: GameState, ai: PlayerNumber): GameAction | null {
  * conta o turno anterior" - antes só contava este turno, mesma janela de 2
  * turnos usada de verdade em handleExecuteMagic/gameEngine.ts). Só ativa se
  * já houver ALGUM descarte acumulado nessa janela (senão o Rei seria gasto
- * por +0, puro desperdício) e reforça sempre a carta de MAIOR valor já em
+ * por +0, puro desperdício) e prefere reforçar a carta de MAIOR valor já em
  * campo - consolidar numa disputa que já tende a vencer rende mais do que
  * tentar "salvar" a mais fraca com um bônus fixo.
+ *
+ * FIX (pedido do usuário: "variar mais os alvos dos marcadores" - agora que
+ * o motor SOMA reativações sobre a mesma carta em vez de substituir, ver
+ * handleExecuteMagic/gameEngine.ts): empilhar tudo sempre na mesma carta já
+ * marcada satura rápido (ela já tende a vencer sozinha) - a IA agora prefere
+ * a carta de maior valor entre as que AINDA NÃO têm um marcador 'mosqueteiro'
+ * (espalhando o reforço por mais disputas), só voltando a reforçar uma carta
+ * já marcada quando TODAS as candidatas já têm marcador.
  */
 function decideMosqueteiroK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = me.hand.find((c) => c.value === 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'mosqueteiro', 'K', getMagicActivationContext(state, ai))) return null;
   if (me.mosqueteiroDiscardsThisTurn + me.mosqueteiroDiscardsTurnMinus1 <= 0) return null;
@@ -2384,7 +2470,10 @@ function decideMosqueteiroK(state: GameState, ai: PlayerNumber): GameAction | nu
   });
   if (candidates.length === 0) return null;
 
-  const best = pickHighestBy(candidates, (c) => c.value);
+  const alreadyMarked = new Set(me.combatModifiers.filter((m) => m.source === 'mosqueteiro').map((m) => m.cardId));
+  const unmarkedCandidates = candidates.filter((c) => !alreadyMarked.has(c.id));
+  const pool = unmarkedCandidates.length > 0 ? unmarkedCandidates : candidates;
+  const best = pickHighestBy(pool, (c) => c.value);
   return {
     type: 'EXECUTE_MAGIC',
     player: ai,
@@ -2405,7 +2494,7 @@ function decideMosqueteiroK(state: GameState, ai: PlayerNumber): GameAction | nu
  */
 function decidePiromanteK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = me.hand.find((c) => c.value === 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'piromante', 'K', getMagicActivationContext(state, ai))) return null;
 

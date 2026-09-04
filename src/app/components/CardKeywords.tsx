@@ -1,4 +1,4 @@
-import { Eye, Wand2, ShieldCheck, Combine, Box, type LucideIcon } from 'lucide-react';
+import { Eye, Wand2, ShieldCheck, Combine, Box, Lock, type LucideIcon } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { cn } from './ui/utils';
 
@@ -25,7 +25,7 @@ import { cn } from './ui/utils';
  * nenhum componente novo.
  */
 
-export type CardKeywordId = 'revealed' | 'transformedAce' | 'divineProtection' | 'fused' | 'spotlightPositive' | 'spotlightNegative';
+export type CardKeywordId = 'revealed' | 'transformedAce' | 'divineProtection' | 'fused' | 'spotlightPositive' | 'spotlightNegative' | 'magicLocked';
 
 export interface CardKeywordDef {
   icon: LucideIcon;
@@ -90,6 +90,18 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
     label: 'Spotlight (-)',
     description: 'Spotlight negativo: o valor desta carta está fixado em 1 em tudo (combate, Magia Numeral, Torres).',
     position: 'top-left',
+  },
+  // FIX (pedido do usuário: "a rainha do anjo agora impede a ativação de um
+  // efeito caso a carta revelada por ela seja uma carta mágica até o fim do
+  // turno... adicione um efeito visual de correntes ou de aureola") - ver
+  // Card.magicLocked (cardUtils.ts) e o guard em canActivateMagic/
+  // handleExecuteMagic.
+  magicLocked: {
+    icon: Lock,
+    color: '#9B6BD1',
+    label: 'Trancada',
+    description: 'Trancada pela Visão Celestial do Anjo: esta magia não pode ser ativada até o fim do turno.',
+    position: 'bottom-right',
   },
 };
 

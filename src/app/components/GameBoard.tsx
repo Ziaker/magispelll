@@ -75,7 +75,7 @@ import {
   opponentOf,
   characterOf,
   isSlotProtected,
-  getUnbattledHorizontalSlots,
+  getDestroyableReinforcementSlots,
   getUnrevealedFieldSlots,
   getFilledFieldSlots,
   canActivateMonsterEffect,
@@ -1966,6 +1966,9 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     if (!rule) return false;
     const expectedDropSide: 1 | 2 = rule.side === 'own' ? ownerPlayerNumber : opponentOf(ownerPlayerNumber);
     if (slotPlayerNumber !== expectedDropSide) return false;
+    // FIX (pedido do usuário: "a rainha do anjo impede a ativação... até o
+    // fim do turno") - checagem por CARTA específica, ver PlayerZone.tsx.
+    if (card.magicLocked) return false;
     if (!canActivateMagic(gameState.phase, character, magicType, getMagicActivationContext(gameState, ownerPlayerNumber))) return false;
     return rule.isValidSlotTarget(gameState, ownerPlayerNumber, slotIndex);
   };
@@ -1990,6 +1993,9 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     const magicType = card.value as MagicCardType;
     const rule = getDragActivationRule(character, magicType);
     if (!rule) return false;
+    // FIX (pedido do usuário: "a rainha do anjo impede a ativação... até o
+    // fim do turno") - checagem por CARTA específica, ver PlayerZone.tsx.
+    if (card.magicLocked) return false;
     if (!canActivateMagic(gameState.phase, character, magicType, getMagicActivationContext(gameState, ownerPlayerNumber))) return false;
     const targetSide: 1 | 2 = rule.side === 'own' ? ownerPlayerNumber : opponentOf(ownerPlayerNumber);
     const fieldLength = gameState[playerKeyOf(targetSide)].field.length;
@@ -2126,23 +2132,15 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     if (canActivateMonsterEffect(gameState, playerNumber)) {
       if (gameState.phase !== 'strategy' && gameState.phase !== 'combat') return;
 
-      // FIX (pedido do usuário): a Proteção Divina do Anjo passou a proteger
-      // o campo INTEIRO de uma vez (ver isSlotProtected em gameEngine.ts) -
-      // não faz mais sentido pedir pra escolher um slot alvo, então ativa
-      // direto num único clique na própria zona, sem entrar no fluxo de
-      // pendingMonsterTarget (que continua existindo só para Mago/Besta).
       const character = characterOf(gameState, playerNumber);
-      if (character === 'anjo') {
-        flashEffectTargets(
-          { slots: [0, 1, 2].map((slotIndex) => ({ player: playerNumber, slotIndex })) },
-          character,
-          getMonsterEffect(character).name
-        );
-        dispatch({ type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: playerNumber });
-        soundManager.play(monsterSoundFor(character));
-        setPendingMonsterTarget(null);
-        return;
-      }
+      // FIX (pedido do usuário: "o monstro do anjo agora só protege 1 slot
+      // selecionado do campo ao invés dos 3, mas pode ser ativado múltiplas
+      // vezes no mesmo turno") - reversão do FIX anterior (campo inteiro,
+      // ativação direta sem escolha) - o Anjo agora entra no MESMO fluxo de
+      // escolha de slot que Mago/Besta já usam (ver pendingMonsterTarget/
+      // handleFieldSlotClick), e como `monsterUsed` nunca mais bloqueia o
+      // Anjo, o jogador pode clicar na Zona de novo depois pra proteger
+      // outro slot, enquanto ainda houver carga (`monsterUseCount`).
 
       // FIX (bug real relatado pelo usuário: "a carta monstro do piromante
       // nunca ativa quando clica, ela pede pra clicar no campo mas quando
@@ -2339,11 +2337,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           setPendingBestaMonsterTarget({ playerNumber, targetSlotIndex: slotIndex });
         }
         // slot vazio (candidates.length === 0): nada pra dobrar, ignora o clique.
+      } else if (character === 'anjo') {
+        // FIX (pedido do usuário: "o monstro do anjo agora só protege 1 slot
+        // selecionado do campo ao invés dos 3, mas pode ser ativado múltiplas
+        // vezes no mesmo turno") - reversão do FIX anterior. Um slot já
+        // protegido não faz nada de novo (mesma checagem de
+        // handleActivateMonsterEffectSimple) - ignora o clique em silêncio em
+        // vez de gastar uma carga à toa.
+        if (!isSlotProtected(gameState, playerNumber, slotIndex)) {
+          flashEffectTargets({ slots: [{ player: playerNumber, slotIndex }] }, character, getMonsterEffect(character).name);
+          dispatch({ type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: playerNumber, targetSlotIndex: slotIndex });
+          soundManager.play(monsterSoundFor(character));
+        }
       }
-      // Anjo nunca chega aqui: sua Proteção Divina ativa direto no clique da
-      // Zona Monstro (ver handleMonsterZoneClick), sem passar por
-      // pendingMonsterTarget - protege o campo inteiro, então não há slot
-      // pra escolher.
       setPendingMonsterTarget(null);
       return;
     }
@@ -3662,14 +3668,31 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   </div>
                 )}
 
-                {/* Mago K - Selecionar horizontal do oponente */}
+                {/* Mago K - Selecionar horizontal ou marcador do oponente */}
+                {/* FIX (pedido do usuário: "permita que o mago possa destruir
+                    marcadores em sua magia do rei") - agora também aceita um
+                    slot sem horizontal nenhuma mas com um CombatModifier
+                    (Fúria Selvagem/Tiro Certeiro) ainda ativo numa carta não
+                    batalhada - ver getDestroyableReinforcementSlots. */}
                 {pendingMagic.character === 'mago' && pendingMagic.type === 'K' && (
                   <div>
-                    <p className="text-[#BFB6A6] text-[12px] mb-2">Selecione um slot com carta horizontal do oponente (ainda não batalhada):</p>
+                    <p className="text-[#BFB6A6] text-[12px] mb-2">Selecione um slot com carta horizontal ou marcador de reforço do oponente (ainda não batalhado):</p>
                     <div className="flex gap-2">
                       {[0, 1, 2].map((slotIdx) => {
                         const slot = gameState[opponentKey].field[slotIdx];
-                        const canSelect = getUnbattledHorizontalSlots(gameState[opponentKey].field).includes(slotIdx) && !isSlotProtected(gameState, opponentNumber, slotIdx);
+                        const canSelect =
+                          getDestroyableReinforcementSlots(gameState[opponentKey].field, gameState[opponentKey].combatModifiers).includes(slotIdx) &&
+                          !isSlotProtected(gameState, opponentNumber, slotIdx);
+                        const unbattledCardIds = new Set([
+                          ...(slot.faceDownCard && !slot.faceDownCard.battled ? [slot.faceDownCard.id] : []),
+                          ...slot.horizontalCards.filter((c) => !c.battled).map((c) => c.id),
+                        ]);
+                        const hasMarker = gameState[opponentKey].combatModifiers.some((m) => unbattledCardIds.has(m.cardId));
+                        const hasHorizontal = slot.horizontalCards.length > 0;
+                        const label = [
+                          hasHorizontal ? `Reforço presente${slot.horizontalCards.length > 1 ? ' (x2)' : ''}` : null,
+                          hasMarker ? 'Marcador ativo' : null,
+                        ].filter(Boolean);
 
                         return (
                           <button
@@ -3684,7 +3707,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                                 : 'border-[#C59E4F]/10 opacity-30'
                             } transition-all text-[11px] text-[#BFB6A6]`}
                           >
-                            {slot.horizontalCards.length > 0 ? `Reforço presente${slot.horizontalCards.length > 1 ? ' (x2)' : ''}` : 'Sem horizontal'}
+                            {label.length > 0 ? label.join(' + ') : 'Sem reforço'}
                           </button>
                         );
                       })}

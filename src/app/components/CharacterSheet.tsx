@@ -180,7 +180,7 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
       },
       monsterEffect: {
         name: 'Proteção Divina',
-        effect: 'Ativa direto (sem escolher slot) e protege TODO o seu campo contra magias do oponente (Valete, Rainha ou Rei) até o fim do turno.',
+        effect: 'Escolha 1 slot do seu campo para proteger contra magias do oponente (Valete, Rainha ou Rei) até o fim do turno. Pode ativar mais de uma vez no mesmo turno, protegendo um slot diferente a cada vez.',
       },
     },
     mosqueteiro: {

@@ -1555,7 +1555,14 @@ export function PlayerZone({
                         canActivateMagicNow={
                           isCoringaTrapCard
                             ? coringaTransformWindowOpen
-                            : isMagic && canActivateMagic(phase, character, card.value as 'J' | 'Q' | 'K', magicContext)
+                            : // FIX (pedido do usuário: "a rainha do anjo impede a
+                              // ativação de um efeito... até o fim do turno") -
+                              // `!card.magicLocked` é checado por CARTA (não só
+                              // por valor) - no Modo Temático, 2 cópias do mesmo
+                              // valor podem coexistir na mão; só a cópia
+                              // TRANCADA fica desabilitada, a outra continua
+                              // normal (ver Card.magicLocked, cardUtils.ts).
+                              isMagic && !card.magicLocked && canActivateMagic(phase, character, card.value as 'J' | 'Q' | 'K', magicContext)
                         }
                         // FIX (pedido do usuário: "os botões e o tooltip do
                         // botão ainda aparecem pra ele mesmo sem a magia

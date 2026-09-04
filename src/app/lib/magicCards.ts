@@ -59,7 +59,7 @@ export const MAGIC_CARDS: Record<Character, Record<MagicCardType, MagicCardInfo>
   mago: {
     J: {
       name: 'Valete - Revelação Forçada',
-      phase: 'draw',
+      phase: 'strategy',
       description: 'Escolha uma carta não-revelada da mão do oponente e a revele. Se todas já estão reveladas, descarte uma ao invés.',
     },
     Q: {
@@ -177,7 +177,7 @@ export const MAGIC_CARDS: Record<Character, Record<MagicCardType, MagicCardInfo>
     },
     Q: {
       name: 'Rainha - Roubo Flamejante',
-      phase: 'strategy',
+      phase: 'draw',
       description:
         'Escolha uma carta revelada do oponente (na mão ou no campo, valor de 2 a 10) - ela é queimada (vai pro descarte) e seu valor é adicionado à sua Bola de Fogo (até o teto). OU: lance a Bola de Fogo já acumulada contra um slot do oponente.',
     },
@@ -259,6 +259,17 @@ export interface MagicActivationContext {
    */
   hasRevealedUnprotectedCardInOpponentField?: boolean;
   hasUnbattledHorizontalCardsInOpponentField?: boolean;
+  /**
+   * Anjo (Rainha - Visão Celestial): valores de magia (J/Q/K) pra quem TODA
+   * carta da mão daquele valor está `magicLocked` (ver Card em cardUtils.ts)
+   * agora - nenhuma carta alternativa não-trancada sobra pra ativar. Guarda
+   * genérica em `canActivateMagic` (vale pra qualquer personagem, já que
+   * qualquer um pode ser alvo da Rainha do Anjo), evitando que a IA proponha
+   * repetidamente uma ativação que `handleExecuteMagic` sempre rejeita
+   * (mesma classe de bug "ação silenciosamente recusada em loop" já corrigida
+   * várias vezes neste arquivo).
+   */
+  lockedMagicValues?: MagicCardType[];
   handSize?: number;
   handLimit?: number;
   hasNumeralCardsInHand?: boolean;
@@ -336,6 +347,12 @@ export function canActivateMagic(
   cardValue: MagicCardType,
   ctx: MagicActivationContext = {}
 ): boolean {
+  // FIX (pedido do usuário: "a rainha do anjo impede a ativação de um efeito
+  // caso a carta revelada por ela seja mágica até o fim do turno") - guarda
+  // de topo, ANTES de qualquer branch de fase/personagem: se toda carta
+  // deste valor na mão está trancada, a magia não pode ser ativada agora,
+  // não importa o personagem.
+  if (ctx.lockedMagicValues?.includes(cardValue)) return false;
   const info = getMagicCardInfo(character, cardValue);
   // Piromante (pedido do usuário: "os segundos efeitos de todas magias do
   // piromante (de lançar a bola de fogo) só podem ser ativados na fase de

@@ -36,6 +36,7 @@ import { random } from './rng';
  * @property coringaTransformedToNumeral - Coringa (redesenho completo, pedido do usuário) - Magia Numeral "Mão de Ferro" (7,7,7): permanentemente `true` numa carta de magia (J/Q/K) que o jogador transformou em carta de número 11/12/13 apertando o botão liberado pela janela de 1 turno do efeito (ver `transformedValue`, reutilizado aqui: 11/12/13). Uma vez marcada, a carta LARGA de vez seu comportamento de armadilha (nunca mais dispara os efeitos de revelação na Estratégia/Combate descritos em cardUtils.ts/gameEngine.ts) e passa a se comportar como uma carta de campo comum, permanentemente - ver isCoringaRawTrapCard.
  * @property isFireToken - Piromante (personagem novo) - `true` numa carta-TOKEN criada quando a Bola de Fogo reduz (sem obliterar) o valor de um slot do oponente: uma carta sintética, `value: 'FIRE'`/`transformedValue` = valor restante depois da redução, que representa as brasas/cinzas do que sobrou. Diferente de QUALQUER outra carta do jogo, uma carta-token NUNCA existiu no baralho original de 54 cartas - ela é criada do nada no momento do lançamento e, se algum dia sair do campo (ex.: perde uma disputa de combate), simplesmente desaparece em vez de ir para a pilha de descarte (ver pushToDiscard/executeFireballLaunch em gameEngine.ts) - por isso nunca conta na conservação total de cartas do jogo.
  * @property synthetic - Ciclo de vida no descarte de uma carta que não é "real" da forma usual (ver SyntheticCardLifecycle abaixo). `undefined` = carta comum, descarta normalmente. Aditivo a `isFireToken`/`fused`/`fusionSources` (que continuam existindo como identidade/exibição) - `synthetic` só existe pra `pushToDiscard` (gameEngine.ts) saber o que fazer sem precisar de um caso especial hardcoded por personagem: um personagem futuro com uma carta sintética nova só precisa marcar este campo corretamente pra herdar conservação de carta correta de graça.
+ * @property magicLocked - Anjo (Rainha - Visão Celestial): `true` numa carta de magia (J/Q/K) que a Rainha do Anjo revelou - impede a ATIVAÇÃO do efeito dela (não a existência da carta em si) até o fim do turno (ver `resetForNewTurn`, que zera este campo em toda carta da mão de ambos jogadores na virada de fase pra Compra). Checado como guarda de topo em `handleExecuteMagic` (gameEngine.ts), então vale pra qualquer personagem/carta, não só a do Anjo.
  *
  * EXTENSÃO: Adicione novas propriedades para novos efeitos ou mecânicas
  */
@@ -54,6 +55,7 @@ export type Card = {
   coringaTransformedToNumeral?: boolean;
   isFireToken?: boolean;
   synthetic?: SyntheticCardLifecycle;
+  magicLocked?: boolean;
 };
 
 /**
