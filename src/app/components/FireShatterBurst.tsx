@@ -5,7 +5,17 @@ import { useSettings } from '../context/SettingsContext';
 
 /** Ângulos (radianos) dos estilhaços, distribuídos em círculo com um pouco de variação - mesmo esquema de CardShatterBurst.tsx. */
 const SHARD_ANGLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (i / 10) * Math.PI * 2 + (i % 2 === 0 ? 0.15 : -0.15));
-const FLAME_LICKS = [0, 1, 2, 3, 4, 5];
+// FIX (pedido do usuário, 2ª rodada: "as línguas de fogo mal parecem que
+// aumentaram") - a 1ª tentativa só aumentou width/height (10x22 -> 18x40),
+// mas a causa real era outra: as línguas nasciam ANTES, no DOM, da camada
+// opaca que "carboniza" o card inteiro (bg-[#3D1900] cobrindo `inset-0`) -
+// como as duas vivem no MESMO empilhamento (nenhuma tinha z-index próprio),
+// a camada mais tarde no DOM (a carbonização) pintava POR CIMA da base das
+// chamas, escondendo boa parte delas nos primeiros ~0.3s (justo quando
+// estão maiores/mais opacas, perto do chão). Agora reordenadas (ver JSX
+// abaixo) pra nascerem DEPOIS da carbonização, sempre visíveis por cima, e
+// aumentadas de novo (8 línguas em vez de 6, 30x70 em vez de 18x40).
+const FLAME_LICKS = [0, 1, 2, 3, 4, 5, 6, 7];
 
 /**
  * FireShatterBurst - pedido explícito do usuário para o Piromante: "faça
@@ -66,28 +76,6 @@ export function FireShatterBurst({ active }: { active: boolean }) {
               transition={{ duration: 0.45, ease: 'easeOut' }}
               style={{ backgroundColor: '#FF8033', mixBlendMode: 'overlay' }}
             />
-            {/* Línguas de fogo subindo pelas bordas antes da carta se partir.
-                FIX (pedido do usuário: "o fogo... mal é perceptível, aumente
-                seu tamanho") - quase dobrado (18x40, era 10x22), mais alto
-                (sobe até -60px, era -30px), mais opaco no pico (1 -> mantém,
-                mas dura mais - 0.9s, era 0.6s) e um brilho (boxShadow) extra
-                pra ler como chama de verdade, não uma risca fina. */}
-            {FLAME_LICKS.map((i) => (
-              <motion.div
-                key={`flame-${i}`}
-                className="absolute bottom-0 rounded-full"
-                style={{
-                  left: `${6 + i * 15}%`,
-                  width: 18,
-                  height: 40,
-                  background: 'linear-gradient(to top, #FF8033, #FFE0B3, transparent)',
-                  boxShadow: '0 0 14px 4px rgba(255, 128, 51, 0.65)',
-                }}
-                initial={{ opacity: 0, scaleY: 0.3, y: 0 }}
-                animate={{ opacity: [0, 1, 1, 0], scaleY: [0.3, 1.4, 1.1, 0.7], y: [0, -30, -48, -60] }}
-                transition={{ duration: 0.9, delay: i * 0.04, ease: 'easeOut' }}
-              />
-            ))}
             {/* A "carta" carboniza e encolhe rápido, dando lugar aos estilhaços em brasa. */}
             <motion.div
               className="absolute inset-0 rounded-lg bg-[#3D1900] border-2 border-[#FF8033]"
@@ -95,6 +83,30 @@ export function FireShatterBurst({ active }: { active: boolean }) {
               animate={{ opacity: 0, scale: 0.85 }}
               transition={{ duration: 0.3, ease: 'easeIn' }}
             />
+            {/* Línguas de fogo subindo pelas bordas antes da carta se partir.
+                FIX (pedido do usuário, 2ª rodada: "as línguas de fogo mal
+                parecem que aumentaram") - causa raiz: nasciam ANTES da
+                carbonização acima no DOM, então a camada opaca dela pintava
+                POR CIMA da base das chamas nos primeiros instantes (mesmo
+                empilhamento, sem z-index próprio) - agora vêm DEPOIS dela,
+                sempre visíveis por cima. Também aumentadas de novo: 30x70
+                (era 18x40), 8 línguas (era 6), brilho mais forte. */}
+            {FLAME_LICKS.map((i) => (
+              <motion.div
+                key={`flame-${i}`}
+                className="absolute bottom-0 rounded-full"
+                style={{
+                  left: `${2 + i * 12}%`,
+                  width: 30,
+                  height: 70,
+                  background: 'linear-gradient(to top, #FF8033, #FFE0B3, transparent)',
+                  boxShadow: '0 0 22px 8px rgba(255, 128, 51, 0.75)',
+                }}
+                initial={{ opacity: 0, scaleY: 0.3, y: 0 }}
+                animate={{ opacity: [0, 1, 1, 0], scaleY: [0.3, 1.4, 1.1, 0.7], y: [0, -30, -48, -60] }}
+                transition={{ duration: 0.9, delay: i * 0.04, ease: 'easeOut' }}
+              />
+            ))}
             {/* Estilhaços em brasa voando em todas as direções com rotação e "queda". */}
             {SHARD_ANGLES.map((angle, idx) => {
               const distance = 90 + (idx % 3) * 30;

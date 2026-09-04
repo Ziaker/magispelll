@@ -390,7 +390,22 @@ export function resetCardForDiscard(card: Card): Card {
   // uma vez descartada, a carta volta a ser uma magia comum, pronta pra
   // circular de novo (inclusive na mão do OUTRO jogador, que pode nem ser
   // Coringa) sem carregar transformação nenhuma.
-  const { transformedValue, revealed, monsterUsed, battled, fused, fusionSources, coringaTransformedToNumeral, ...rest } = card;
+  //
+  // FIX (bug real relatado pelo usuário: "a IA do druída não joga as
+  // magias") - `magicLocked` (Anjo - Visão Celestial) tinha ficado de fora
+  // desta lista, violando a CONVENÇÃO documentada acima: uma carta revelada
+  // e trancada que fosse descartada (por qualquer motivo - fim de turno,
+  // Fusão, Substituição Arcana etc.) carregava o `magicLocked: true` PRA
+  // SEMPRE, sobrevivendo a reembaralhamentos e podendo ser puxada de volta
+  // (pelo mesmo jogador ou pelo oponente) já trancada, sem nenhum Anjo
+  // envolvido. Como o guard em `canActivateMagic`/`getMagicActivationContext`
+  // (lockedMagicValues) bloqueia a ativação quando TODA cópia de um valor na
+  // mão está trancada, um Druida com só 1 Rainha/Rei no baralho podia ficar
+  // com Simbiose/Urtiga permanentemente inutilizáveis depois de um único
+  // Visão Celestial em qualquer ponto da partida - a IA (decideDruidaQ/K)
+  // corretamente para de tentar ativar (canActivateMagic nega), mas por
+  // fora parece "a IA nunca usa a magia".
+  const { transformedValue, revealed, monsterUsed, battled, fused, fusionSources, coringaTransformedToNumeral, magicLocked, ...rest } = card;
   return {
     ...rest,
     ...(card.isMonster ? { monsterUsed: false } : {}),

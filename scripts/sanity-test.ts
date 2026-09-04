@@ -20,7 +20,7 @@ import {
   type PlayerNumber,
   type GameAction,
 } from '../src/app/lib/gameEngine';
-import { getDisplayValue, type Card } from '../src/app/lib/cardUtils';
+import { getDisplayValue, resetCardForDiscard, type Card } from '../src/app/lib/cardUtils';
 import { DEFAULT_GAME_CONFIG, MIN_DISCARD_LIMIT, type GameConfig } from '../src/app/lib/gameConfig';
 import { getLogEffectInfo } from '../src/app/lib/logFormat';
 import { decideAiAction, decideReactionToMagic } from '../src/app/lib/aiPlayer';
@@ -4840,6 +4840,66 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     'FIX Druida+Piromante: o topo E a reserva do Broto foram pro descarte, nenhuma carta perdida'
   );
   assert(countAllCards(state) === totalBefore, `FIX: conservação de cartas mantida (${totalBefore} -> ${countAllCards(state)})`);
+})();
+
+// ---------------------------------------------------------------------------
+// FIX (bug real relatado pelo usuário: "a IA do druída não joga as magias") -
+// `magicLocked` (Anjo - Visão Celestial, ver Card em cardUtils.ts) tinha
+// ficado de fora de resetCardForDiscard, violando a CONVENÇÃO documentada
+// bem ali ("todo campo transitório novo... precisa entrar na lista, ou ele
+// vaza pra sempre"). Uma carta trancada que fosse descartada carregava
+// `magicLocked: true` PRA SEMPRE, sobrevivendo a reembaralhamentos - se
+// redistribuída de volta pra QUALQUER mão (do mesmo jogador ou do
+// oponente), continuava trancada sem nenhum Anjo envolvido. Como
+// `lockedMagicValues` (magicCards.ts) bloqueia a ativação quando TODA cópia
+// de um valor na mão está trancada, um Druida com só 1 Rainha/Rei no
+// baralho podia ficar com Simbiose/Urtiga inutilizáveis pelo resto da
+// partida depois de um único Visão Celestial.
+// ---------------------------------------------------------------------------
+(function testResetCardForDiscardClearsMagicLocked() {
+  const lockedCard = makeCard('reset-discard-magiclocked', 'Q');
+  (lockedCard as any).magicLocked = true;
+  (lockedCard as any).revealed = true;
+  const reset = resetCardForDiscard(lockedCard);
+  assert(!reset.magicLocked, 'FIX: resetCardForDiscard limpa magicLocked - uma carta trancada não carrega o cadeado pro descarte/baralho pra sempre');
+  assert(!reset.revealed, 'resetCardForDiscard também limpa revealed normalmente (comportamento pré-existente, conferido junto)');
+})();
+
+(function testDruidaMagicLockedCardDoesNotSurviveDiscardViaCombat() {
+  // Reproduz o cenário completo: uma Rainha do Druida, TRANCADA pelo Anjo,
+  // é plantada como Broto (novo caminho de PLAY_CARD que Q/K ganharam -
+  // funciona mesmo trancada, já que plantar não é "ativar magia"), perde uma
+  // disputa de combate (colapsa, vai pro descarte) e PRECISA sair de lá sem
+  // o `magicLocked` - senão fica "amaldiçoada" pra sempre, mesmo reembaralhada.
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const lockedQ = makeCard('druida-locked-q-broto', 'Q');
+  (lockedQ as any).magicLocked = true;
+  const strongerCard = makeCard('druida-locked-q-opponent', '10');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [lockedQ] },
+  };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: lockedQ.id, slotIndex: 0, asHorizontal: false });
+  assert(state.player1.field[0].faceDownCard?.id === lockedQ.id, 'Pré-condição: a Rainha trancada foi plantada como Broto mesmo estando magicLocked (plantar não é ativar magia)');
+
+  state = {
+    ...state,
+    phase: 'combat',
+    player2: {
+      ...state.player2,
+      field: [{ faceDownCard: strongerCard, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: state.firstToFlip, slotIndex: 0 });
+  const other = state.firstToFlip === 1 ? 2 : 1;
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: other as PlayerNumber, slotIndex: 0 });
+  state = gameReducer(state, { type: 'RESOLVE_COMBAT' });
+  state = gameReducer(state, { type: 'FINALIZE_COMBAT' });
+
+  const discarded = state.discardPile.find((c) => c.id === lockedQ.id);
+  assert(Boolean(discarded), 'Pré-condição: o Broto perdeu a disputa e foi pro descarte');
+  assert(!discarded?.magicLocked, 'FIX: a Rainha travada não carrega magicLocked ao ir pro descarte - não fica "amaldiçoada" pra sempre se for reembaralhada e puxada de novo');
 })();
 
 // ---------------------------------------------------------------------------
