@@ -311,29 +311,31 @@ MUNIÇÃO INFINITA (Magia Numeral, 9, 9, 9):
       id: 'druida-broto',
       title: 'Druida - Broto e Simbiose',
       characters: ['druida'],
-      content: `O Broto é uma carta que cresce SOZINHA a cada troca de fase - só o Druida tem isso. Diferente de uma carta comum, ele permanece em campo entre turnos (não é descartado quando o resto do campo é) e só some sendo combatido ou removido por um efeito.
+      content: `O Broto é uma carta que cresce SOZINHA a cada troca de fase - só o Druida tem isso. Diferente de uma carta comum, ele permanece em campo entre turnos (não é descartado quando o resto do campo é) e só some se PERDER uma disputa de combate (ou for removido por um efeito) - vencer ou empatar mantém o Broto intacto no campo.
 
 ═══════════════════════════════════════
 🟢 VALETE - Broto (Fase de Estratégia)
 ═══════════════════════════════════════
 • Posicione no campo virado para cima, valendo 1
 • A cada troca de fase (Compra→Estratégia→Combate→Compra), seu valor cresce sozinho
-• Plantar outro Valete SEMPRE empilha no Broto já existente (só 1 Broto por vez) - aumenta o valor E a taxa de crescimento
+• Plantar outra carta SEMPRE empilha no Broto já existente (só 1 Broto por vez) - aumenta o valor E a taxa de crescimento
+• A Rainha (Simbiose) e o Rei (Urtiga) também podem ser POSICIONADOS no campo em vez de ativados como magia - plantam ou empilham o Broto exatamente como um Valete (arraste-os até um slot vazio ou até o próprio Broto)
 • Não recebe cartas horizontais
-• É removido apenas sendo combatido ou por efeito - nunca por passar o turno
+• É removido apenas se PERDER uma disputa de combate (ou por efeito) - vencer ou empatar mantém o Broto em campo; nunca é descartado só por passar o turno
+• Você (ou a IA) sempre pode escolher um slot vazio para combater em vez do Broto - arriscá-lo é uma decisão, não uma obrigação automática
 
 ═══════════════════════════════════════
 🟢 RAINHA - Simbiose (Fase de Estratégia)
 ═══════════════════════════════════════
 Sempre oferece 2 formas de ativar (precisa de um Broto ativo):
-• Reduza o Broto pela metade para adicionar um marcador de combate (vale a metade reduzida) numa carta SUA no campo
+• Reduza o Broto pela metade para adicionar um marcador de combate (vale a metade reduzida) numa carta SUA no campo - pode ser ativado arrastando a carta direto até o alvo
 • OU: aumente o Broto em 2
 
 ═══════════════════════════════════════
 🟢 REI - Urtiga (Fase de Combate)
 ═══════════════════════════════════════
 Mesma escolha de Simbiose, mas mirando o OPONENTE:
-• Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do OPONENTE
+• Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do OPONENTE - pode ser ativado arrastando a carta direto até o alvo
 • OU: aumente o Broto em 2
 
 ═══════════════════════════════════════
@@ -345,7 +347,7 @@ Mesma escolha de Simbiose, mas mirando o OPONENTE:
 
 FOTOSSÍNTESE (Magia Numeral, A, 3, 7):
 • Única Magia Numeral do jogo que exige 3 VALORES DIFERENTES (Ás, 3 e 7), não 3 cópias do mesmo número
-• PERMANENTE e REATIVÁVEL: cada ativação soma +1 a um nível que nunca reseta, empilhando o bônus em TODOS os efeitos relacionados ao Broto - crescimento por turno, marcador da Rainha/Rei, e a redução do Rei/Rainha`,
+• PERMANENTE e REATIVÁVEL: cada ativação soma +1 a um nível que nunca reseta, empilhando o bônus em TODOS os efeitos relacionados ao Broto - crescimento por fase, marcador da Rainha/Rei, e a redução do Rei/Rainha`,
     },
     {
       id: 'numeral',

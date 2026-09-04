@@ -1,8 +1,10 @@
 /**
- * dragActivation.ts - Registro de "arrastar pra ativar" (pedido do usuário:
- * "eu queria que desse pra ser mais rápido... permitindo que o jogador
- * arraste a sua magia até o campo do alvo... isso é pra ser uma feature pra
- * outros personagens também que possuem alvos escolhíveis").
+ * dragActivation.ts - Registro de "arrastar pra ativar" (pedido original do
+ * usuário: "eu queria que desse pra ser mais rápido... permitindo que o
+ * jogador arraste a sua magia até o campo do alvo"; pedido posterior:
+ * "permita que TODAS as magias que pedem seleção de alvo APENAS para sua
+ * ativação possam ser ativadas de imediato com drag&drop no alvo
+ * correspondente").
  *
  * Hoje ativar uma magia com alvo exige 3 cliques (carta -> alvo -> confirmar)
  * mesmo quando o alvo inteiro já é conhecido de antemão (um único slot de
@@ -12,18 +14,26 @@
  * GameBoard.tsx/FieldSlotView.tsx nunca hardcodeiam personagem nenhum, só
  * consultam `getDragActivationRule`.
  *
- * ESCOPO (deliberadamente restrito): só magias cuja seleção INTEIRA se
- * resume a "escolher 1 slot de campo" - nada de seleção composta (ex.: Q do
- * Mago/Besta, que pedem um slot de QUALQUER lado MAIS uma carta de mão
- * separada; K da Besta, que pede um slot PRÓPRIO E um do oponente ao mesmo
- * tempo; Rainha do Mosqueteiro, que pede descartes E revelações
- * independentes) nem efeitos de Monstro (vivem na Zona própria, não são
- * cartas de mão pra arrastar - fora do pedido literal do usuário). Isso
- * ainda cobre a Bola de Fogo do Piromante (o caso original que motivou o
- * pedido) e mais 2 magias já existentes (Destruição de Reforço do Mago,
- * Visão Celestial do Anjo) - e qualquer personagem FUTURO com uma magia
- * "aponta pra 1 slot" só precisa de uma entrada nova aqui, nunca mexer em
- * FieldSlotView.tsx/GameBoard.tsx de novo.
+ * ESCOPO: toda magia cuja seleção INTEIRA se resume a "escolher 1 slot de
+ * campo" (do próprio lado ou do oponente) ganha uma entrada aqui - hoje
+ * cobre a Bola de Fogo do Piromante (J/Q/K, o caso original que motivou o
+ * pedido), Destruição de Reforço do Mago (K), Visão Celestial do Anjo (Q,
+ * só o modo "revelar slot"), Tiro Certeiro do Mosqueteiro (K) e Simbiose/
+ * Urtiga do Druida (Q/K, só o modo "marcador" - a opção "aumentar o Broto"
+ * não tem alvo, e plantar/empilhar o Broto em si já tem seu próprio atalho
+ * de arrastar via PLAY_CARD, ver isDruidaBrotoCard em gameEngine.ts).
+ *
+ * FICAM DE FORA as magias de seleção COMPOSTA (mais de uma escolha
+ * independente pra completar a ativação) - não há um único "alvo" pra um
+ * gesto de arrastar representar sem ambiguidade: Q do Mago/Besta (um slot de
+ * QUALQUER lado MAIS uma carta de mão separada), K da Besta (um slot PRÓPRIO
+ * E um do oponente ao mesmo tempo), Rainha do Mosqueteiro (descartes E
+ * revelações independentes, cada um podendo ser mais de 1 carta), Valete do
+ * Mosqueteiro/Anjo Q no modo "carta da mão" (a mão do oponente não é uma
+ * zona de campo arrastável). Efeitos de Monstro também ficam de fora (vivem
+ * na Zona própria, não são cartas de mão pra arrastar). Qualquer personagem
+ * FUTURO com uma magia "aponta pra 1 slot" só precisa de uma entrada nova
+ * aqui, nunca mexer em FieldSlotView.tsx/GameBoard.tsx de novo.
  *
  * EXTENSÃO: pra adicionar um personagem/magia novo aqui, adicione uma
  * entrada em `DRAG_ACTIVATION_RULES` com a chave `${character}-${magicType}`.
@@ -35,6 +45,7 @@
  * diálogo de clique já monta pro mesmo caso.
  */
 import {
+  isBrotoSlot,
   isSlotProtected,
   opponentOf,
   playerKeyOf,
@@ -115,6 +126,45 @@ const mosqueteiroKRule: DragActivationRule = {
   }),
 };
 
+/**
+ * Druida Q - Simbiose, só o modo "marcador" (reduz o Broto pela metade pra
+ * reforçar uma carta do PRÓPRIO campo - a opção "aumentar o Broto em 2" não
+ * tem alvo nenhum, continua só por clique/pelo atalho de plantar/empilhar
+ * via arrastar, ver isDruidaBrotoCard em gameEngine.ts). O próprio Broto
+ * nunca é um alvo válido (ele já É a fonte do efeito - mesma regra que
+ * handleExecuteMagic aplica). Mesma simplificação de mosqueteiroKRule:
+ * arrastar sempre mira a carta PRINCIPAL do slot, nunca uma horizontal.
+ */
+const druidaQRule: DragActivationRule = {
+  side: 'own',
+  isValidSlotTarget: (state, player, slotIndex) => {
+    const field = state[playerKeyOf(player)].field;
+    const slot = field[slotIndex];
+    if (!slot.faceDownCard) return false;
+    return !isBrotoSlot(slot);
+  },
+  buildSelection: (state, player, slotIndex) => ({
+    selectedCards: [state[playerKeyOf(player)].field[slotIndex].faceDownCard!.id],
+  }),
+};
+
+/**
+ * Druida K - Urtiga, mesmo modo "marcador" de druidaQRule, mirando o
+ * OPONENTE (o Broto sempre está no PRÓPRIO campo, então nunca aparece do
+ * lado do oponente - sem necessidade de excluí-lo aqui).
+ */
+const druidaKRule: DragActivationRule = {
+  side: 'opponent',
+  isValidSlotTarget: (state, player, slotIndex) => {
+    const opponent = opponentOf(player);
+    if (isSlotProtected(state, opponent, slotIndex)) return false;
+    return Boolean(state[playerKeyOf(opponent)].field[slotIndex].faceDownCard);
+  },
+  buildSelection: (state, player, slotIndex) => ({
+    selectedCards: [state[playerKeyOf(opponentOf(player))].field[slotIndex].faceDownCard!.id],
+  }),
+};
+
 type DragActivationKey = `${CharacterId}-${MagicCardType}`;
 
 const DRAG_ACTIVATION_RULES: Partial<Record<DragActivationKey, DragActivationRule>> = {
@@ -124,6 +174,12 @@ const DRAG_ACTIVATION_RULES: Partial<Record<DragActivationKey, DragActivationRul
   'mago-K': magoKRule,
   'anjo-Q': anjoQFieldRule,
   'mosqueteiro-K': mosqueteiroKRule,
+  // FIX (pedido do usuário: "permita que todas magias que pedem seleção de
+  // alvo apenas para sua ativação possam ser ativadas de imediato com
+  // drag&drop no alvo correspondente") - Simbiose/Urtiga também se encaixam
+  // no escopo original (seleção inteira = 1 carta de campo).
+  'druida-Q': druidaQRule,
+  'druida-K': druidaKRule,
 };
 
 export function getDragActivationRule(character: CharacterId, magicType: MagicCardType): DragActivationRule | undefined {

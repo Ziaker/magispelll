@@ -494,7 +494,15 @@ export function PlayerZone({
       const isCoringaTrapCardHere = character === 'coringa' && isMagic && !card.coringaTransformedToNumeral;
       const coringaWindowOpenHere = character === 'coringa' && playerState.coringaTransformWindowUntilTurn !== undefined;
       const coringaSelectableHere = character === 'coringa' && isMagic && (!isCoringaTrapCardHere || !coringaWindowOpenHere);
-      if (isMagic && !coringaSelectableHere) return;
+      // FIX (pedido do usuário: "permita que o Q, K e J sejam posicionados
+      // encima de um Q, K ou J também no campo") - Rainha/Rei do Druida
+      // agora TAMBÉM podem ser selecionados pra posicionamento no campo
+      // (plantar/empilhar o Broto, ver isDruidaBrotoCard em
+      // handlePlayCard/gameEngine.ts) - continuam sendo magias de verdade
+      // também (o botão de ativar magia na própria carta continua
+      // funcionando); isto só abre uma SEGUNDA forma de usar a mesma carta.
+      const druidaSelectableHere = character === 'druida' && isMagic && (card.value === 'Q' || card.value === 'K');
+      if (isMagic && !coringaSelectableHere && !druidaSelectableHere) return;
       // FIX (pedido do usuário: "adicione uma opção para só usar drag &
       // drop") - com o modo "Só arrastar" ativo, clicar na carta não a
       // seleciona mais para posicionamento (o único jeito passa a ser
@@ -876,15 +884,20 @@ export function PlayerZone({
                     "Posicionar" acima só aparece pra slot VAZIO, e "Troca"
                     (mais abaixo) é bloqueada pelo motor pra um slot de Broto
                     (ver isBrotoSlot em handleSwapFieldCard, gameEngine.ts) -
-                    sem este botão, empilhar outro Valete no Broto já existente
+                    sem este botão, empilhar outra carta no Broto já existente
                     não tinha NENHUM jeito de clicar (só via arrastar,
-                    ver PlayingCard.tsx/isDraggable). Aparece só quando a
-                    carta selecionada é um Valete do Druida e o slot já tem
-                    um Broto ativo - despacha exatamente o mesmo PLAY_CARD
-                    (asHorizontal: false) que handlePlayFaceDown, o motor já
-                    sabe empilhar em vez de rejeitar (ver handlePlayCard).
+                    ver PlayingCard.tsx/isDraggable). Aparece quando a carta
+                    selecionada é Valete/Rainha/Rei do Druida (FIX: "permita
+                    que o Q, K e J sejam posicionados encima de um Q, K ou J
+                    também no campo" - Rainha/Rei agora também empilham,
+                    igual ao Valete) e o slot já tem um Broto ativo - despacha
+                    exatamente o mesmo PLAY_CARD (asHorizontal: false) que
+                    handlePlayFaceDown, o motor já sabe empilhar em vez de
+                    rejeitar (ver handlePlayCard).
                 */}
-                {character === 'druida' && selectedCard?.value === 'J' && isBrotoSlot(playerState.field[selectedSlot.slot]) && (
+                {character === 'druida' &&
+                  (selectedCard?.value === 'J' || selectedCard?.value === 'Q' || selectedCard?.value === 'K') &&
+                  isBrotoSlot(playerState.field[selectedSlot.slot]) && (
                   <button
                     onClick={handlePlayFaceDown}
                     className="px-3 py-1 rounded-lg transition-all hover:scale-105 shadow-lg"
@@ -1474,6 +1487,14 @@ export function PlayerZone({
                   const coringaTransformWindowOpen = character === 'coringa' && playerState.coringaTransformWindowUntilTurn !== undefined;
                   const coringaFieldPlaceable =
                     character === 'coringa' && isMagic && (!isCoringaTrapCard || !coringaTransformWindowOpen);
+                  // FIX (pedido do usuário: "ajeite o drag & drop pra
+                  // permitir isso também, arrastando o Q ou o K no campo/no
+                  // broto") - Rainha/Rei do Druida agora também podem ser
+                  // arrastados até o campo pra plantar/empilhar o Broto,
+                  // mesmo padrão do Coringa acima (mesma carta continua
+                  // arrastável pro botão de ativar magia via
+                  // isMagicDragEligible, mais abaixo).
+                  const druidaFieldPlaceable = character === 'druida' && isMagic && (card.value === 'Q' || card.value === 'K');
                   // FIX (pedido do usuário: "permitindo que o jogador
                   // arraste sua magia até o campo do alvo... para ativar
                   // ela") - além dos casos já cobertos acima (carta não-
@@ -1493,7 +1514,7 @@ export function PlayerZone({
                   // (Fusão e o atalho de magia por arraste continuam
                   // funcionando do mesmo jeito, ver settings.ts).
                   const canDragToPlaceOnField =
-                    handInteractionMode !== 'clickOnly' && phase === 'strategy' && (!isMagic || coringaFieldPlaceable);
+                    handInteractionMode !== 'clickOnly' && phase === 'strategy' && (!isMagic || coringaFieldPlaceable || druidaFieldPlaceable);
                   const isDraggable = !isAiControlled && (canDragToPlaceOnField || canDragToFuse || isMagicDragEligible);
                   // FIX (pedido do usuário, variante "Fusão"): esta carta
                   // pode RECEBER outra arrastada em cima agora? Mesma

@@ -354,13 +354,13 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
           card: 'Rainha (Q)',
           phase: 'Estratégia',
           name: 'Simbiose',
-          description: 'Reduza o Broto pela metade para adicionar um marcador de combate (vale a metade reduzida) numa carta sua no campo. Ou: aumente o Broto em 2.',
+          description: 'Reduza o Broto pela metade para adicionar um marcador de combate (vale a metade reduzida) numa carta sua no campo. Ou: aumente o Broto em 2. Também pode ser posicionada no campo em vez de ativada, plantando/empilhando o Broto como um Valete.',
         },
         {
           card: 'Rei (K)',
           phase: 'Combate',
           name: 'Urtiga',
-          description: 'Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do oponente. Ou: aumente o Broto em 2.',
+          description: 'Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do oponente. Ou: aumente o Broto em 2. Também pode ser posicionado no campo em vez de ativado, plantando/empilhando o Broto como um Valete.',
         },
       ],
       strategies: [
@@ -384,7 +384,7 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
       numericSpell: {
         cards: 'A, 3, 7',
         name: 'Fotossíntese',
-        effect: 'Permanente e reativável (empilha): aprimora em +1 todos os efeitos relacionados ao Broto - crescimento por turno, marcador da Rainha/Rei, e a redução do Rei/Rainha.',
+        effect: 'Permanente e reativável (empilha): aprimora em +1 todos os efeitos relacionados ao Broto - crescimento por fase, marcador da Rainha/Rei, e a redução do Rei/Rainha.',
       },
       monsterEffect: {
         name: 'Broto Espelhado',

@@ -2832,6 +2832,42 @@ function decideCombatSlotSelection(state: GameState, ai: PlayerNumber): AiDecisi
   // direto para a seleção, sem passar pelas heurísticas de reação a
   // informação conhecida ou hesitação por desvantagem abaixo (que só fazem
   // sentido quando existe mais de uma carta entre as quais escolher).
+  //
+  // FIX (pedido do usuário: "quando há um broto no campo e só falta o broto
+  // para ser selecionado, permita que o jogador/IA selecione um campo sem
+  // nada ao invés... eu quero que o jogador decida se vai usar ou não o
+  // broto no turno") - EXCETO quando essa única carta é o Broto do Druida:
+  // arriscá-lo em combate É uma escolha de verdade (ele só sai do campo se
+  // PERDER a disputa - ver handleResolveCombat/isBrotoSlot em
+  // gameEngine.ts), então merece a mesma cautela que qualquer outra decisão
+  // de combate, não o atalho de "não-escolha". Só seguindo o mesmo padrão
+  // já usado logo abaixo (reagir a uma informação PÚBLICA já conhecida, não
+  // um palpite às cegas): se o oponente já escolheu e revelou um valor que o
+  // Broto perderia, mais vale proteger o Broto com um slot vazio (vale 1,
+  // mas nunca é removido do campo por perder como vazio) do que arriscá-lo à
+  // toa numa disputa já perdida. Sem essa informação, continua comprometendo
+  // o Broto normalmente - ele é o recurso mais valioso do Druida, escondê-lo
+  // sem motivo concreto desperdiçaria o investimento de turnos crescendo.
+  if (myFilledSlots.length === 1 && isBrotoSlot(myPlayerState.field[myFilledSlots[0]])) {
+    const brotoSlotIndex = myFilledSlots[0];
+    const knownValue = knownSelectedSlotValue(state, ai);
+    if (knownValue !== null) {
+      const opponentField = state[humanKey].field;
+      const brotoValue = trueSlotValue(myPlayerState, brotoSlotIndex, character, state.spotlight, { opponentField });
+      if (brotoValue <= knownValue) {
+        const emptySlotIndex = myPlayerState.field.findIndex((slot) => !slot.faceDownCard);
+        if (emptySlotIndex !== -1) {
+          return {
+            type: 'action',
+            action: { type: 'SELECT_COMBAT_SLOT', player: ai, slotIndex: emptySlotIndex },
+            thinkTimeMs: isLosing ? disadvantageThinkTimeMs : 1600 + random() * 900,
+          };
+        }
+      }
+    }
+    return { type: 'action', action: { type: 'SELECT_COMBAT_SLOT', player: ai, slotIndex: brotoSlotIndex }, thinkTimeMs: 0 };
+  }
+
   if (myFilledSlots.length === 1) {
     return { type: 'action', action: { type: 'SELECT_COMBAT_SLOT', player: ai, slotIndex: myFilledSlots[0] }, thinkTimeMs: 0 };
   }

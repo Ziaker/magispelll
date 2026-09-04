@@ -1172,6 +1172,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       const filled = getFilledFieldSlots(gameState[key].field);
       if (filled.length >= 2) continue; // escolha de verdade entre 2+ cartas - deixa pro clique manual
 
+      // FIX (pedido do usuário: "quando há um broto no campo e só falta o
+      // broto para ser selecionado, permita que o jogador/IA selecione um
+      // campo sem nada ao invés... eu quero que o jogador decida se vai usar
+      // ou não o broto no turno") - o Broto NUNCA entra nesse atalho de
+      // "não-escolha": arriscá-lo em combate É uma decisão de verdade (ele só
+      // sai do campo se perder - ver handleResolveCombat), diferente de
+      // qualquer outra carta comum. Com só o Broto preenchido, deixa pro
+      // clique manual em vez de auto-selecionar.
+      if (filled.length === 1 && isBrotoSlot(gameState[key].field[filled[0]])) continue;
+
       const slotIndex = filled.length === 1 ? filled[0] : gameState[key].field.findIndex((slot) => !slot.faceDownCard);
       if (slotIndex === -1) continue; // guarda de segurança - não deveria acontecer (campo sempre tem 3 slots)
 

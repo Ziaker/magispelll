@@ -202,19 +202,19 @@ export const MAGIC_CARDS: Record<Character, Record<MagicCardType, MagicCardInfo>
       name: 'Valete - Broto',
       phase: 'strategy',
       description:
-        'Posicione no campo virado para cima, valendo 1. A cada troca de fase, seu valor cresce. Outro Valete pode ser plantado em cima do mesmo Broto para empilhar (aumenta o valor e a taxa de crescimento). Não recebe cartas horizontais e só é removido sendo combatido ou por efeito - nunca por passar o turno.',
+        'Posicione no campo virado para cima, valendo 1. A cada troca de fase, seu valor cresce. Outro Valete pode ser plantado em cima do mesmo Broto para empilhar (aumenta o valor e a taxa de crescimento). Não recebe cartas horizontais e só é removido se PERDER uma disputa de combate (ou por efeito) - vencer ou empatar mantém o Broto em campo, e ele nunca é descartado só por passar o turno.',
     },
     Q: {
       name: 'Rainha - Simbiose',
       phase: 'strategy',
       description:
-        'Reduza o Broto pela metade para adicionar um marcador de combate (vale a metade reduzida) numa carta sua no campo. OU: aumente o Broto em 2.',
+        'Reduza o Broto pela metade para adicionar um marcador de combate (vale a metade reduzida) numa carta sua no campo. OU: aumente o Broto em 2. Também pode ser POSICIONADA no campo em vez de ativada, plantando ou empilhando o Broto exatamente como um Valete.',
     },
     K: {
       name: 'Rei - Urtiga',
       phase: 'combat',
       description:
-        'Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do oponente (vale a metade reduzida). OU: aumente o Broto em 2.',
+        'Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do oponente (vale a metade reduzida). OU: aumente o Broto em 2. Também pode ser POSICIONADO no campo em vez de ativado, plantando ou empilhando o Broto exatamente como um Valete.',
     },
   },
 };

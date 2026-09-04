@@ -387,7 +387,14 @@ export function FieldSlotView({
   // gameEngine.ts, já sabe fazer isso com `asHorizontal: false` - rejeita se
   // vier `true`, que é exatamente o bug: nenhum caminho de UI conseguia
   // disparar o `false` certo num slot ocupado, nem clique nem arrastar).
-  const isDruidaBrotoStackDrop = (item: CardDragItem) => item.card?.value === 'J' && isBrotoSlot(slot);
+  // FIX (pedido do usuário: "permita que o Q, K e J sejam posicionados
+  // encima de um Q, K ou J também no campo... ajeite o drag & drop") - Q/K
+  // agora também plantam/empilham o Broto igual ao Valete (ver
+  // isDruidaBrotoCard em handlePlayCard, gameEngine.ts) - a mesma exceção
+  // de soltar em cima de um slot ocupado virando EMPILHAR (não reforço
+  // horizontal) vale pras 3 cartas agora, não só o Valete.
+  const isDruidaBrotoStackDrop = (item: CardDragItem) =>
+    (item.card?.value === 'J' || item.card?.value === 'Q' || item.card?.value === 'K') && isBrotoSlot(slot);
   const dropOnMain = (item: CardDragItem) => {
     lastDropSpinRef.current = item.spinAngle ?? 0;
     if (isMagicDrop(item)) {

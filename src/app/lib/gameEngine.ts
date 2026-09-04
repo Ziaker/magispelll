@@ -981,16 +981,19 @@ function nonPersistentFieldCards(field: [FieldSlot, FieldSlot, FieldSlot]): Card
 }
 
 /**
- * Druida (personagem novo) - crescimento do Broto na virada de turno
- * (decisão confirmada com o usuário: 1x por turno, na virada Combate→Compra
- * - não a cada fase). Chamada de `resetForNewTurn` (dentro de
- * advancePhaseState), depois de `keepPersistentFieldSlots` já ter decidido
- * que este campo sobrevive à virada - aqui só ajusta o VALOR do topo
- * (`transformedValue`), nunca move nenhuma carta.
+ * Druida (personagem novo) - crescimento do Broto a cada TROCA DE FASE.
+ *
+ * FIX (pedido do usuário: "volte atrás com a ideia de ser um acúmulo por
+ * turno, é pra ser um acúmulo por fase") - reversão de uma decisão anterior
+ * (1x por turno, só na virada Combate->Compra) - agora cresce nas 3
+ * transições de fase do turno (Compra->Estratégia, Estratégia->Combate,
+ * Combate->Compra), chamada de `resetForNewTurn` a cada uma delas (dentro de
+ * advancePhaseState) - aqui só ajusta o VALOR do topo (`transformedValue`),
+ * nunca move nenhuma carta.
  *
  * `taxa` = 1 (o Broto sozinho) + 1 por Valete extra empilhado em
  * `brotoReserve` - um Broto de 3 Valetes (1 topo + 2 na reserva) cresce +3
- * por turno, não +1. Fotossíntese soma seu nível diretamente por cima,
+ * por FASE, não +1. Fotossíntese soma seu nível diretamente por cima,
  * empilhando a cada reativação (ver handleFinalizeNumeralSpell).
  */
 function growDruidaBrotoField(field: [FieldSlot, FieldSlot, FieldSlot], photosynthesisLevel: number): [FieldSlot, FieldSlot, FieldSlot] {
@@ -1894,7 +1897,17 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
   // posicionadas em vez de ativadas. O Monstro dele também nunca usa a Zona
   // Monstro (ver handlePlaceMonsterCard) - é jogado como carta numeral comum,
   // valendo o valor atual do Broto - mesmo padrão do Monstro-15 do Coringa.
-  const isDruidaBrotoCard = character === 'druida' && card.value === 'J';
+  //
+  // FIX (pedido do usuário: "faça o druida ser capaz de plantar brotos com
+  // as outras magias também... permitindo que o Q, K e J sejam posicionados
+  // encima de um Q, K ou J também no campo") - Rainha (Simbiose) e Rei
+  // (Urtiga) agora TAMBÉM podem ser plantados/empilhados como o Broto,
+  // funcionando exatamente como o Valete pra esse fim - uma segunda forma de
+  // usar a mesma carta física, independente de EXECUTE_MAGIC (Simbiose/
+  // Urtiga continuam existindo normalmente como magias de verdade; o
+  // jogador escolhe, pra cada carta em mãos, qual das duas ações tomar com
+  // ela).
+  const isDruidaBrotoCard = character === 'druida' && (card.value === 'J' || card.value === 'Q' || card.value === 'K');
   const isDruidaMonsterCard = character === 'druida' && Boolean(card.isMonster);
   if (!isCoringaTrapCard && !isDruidaBrotoCard && !isDruidaMonsterCard) {
     // FIX: Cartas mágicas (J, Q, K) de qualquer OUTRO personagem nunca podem
@@ -2018,7 +2031,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     const existingBrotoIndex = playerState.field.findIndex(isBrotoSlot);
     if (existingBrotoIndex !== -1) {
       if (slotIndex !== existingBrotoIndex) {
-        return { ...state, log: appendLog(state, log, 'warning', `Já existe um Broto plantado - o próximo Valete precisa reforçar o mesmo slot!`) };
+        return { ...state, log: appendLog(state, log, 'warning', `Já existe um Broto plantado - a próxima carta precisa empilhar no mesmo slot!`) };
       }
       const brotoSlot = newField[slotIndex];
       const oldTop = brotoSlot.faceDownCard!;
@@ -4870,11 +4883,21 @@ function handleFinalizeCombat(state: GameState): GameState {
 
     const resolveWholeField = (
       field: [FieldSlot, FieldSlot, FieldSlot],
-      foughtIndex: number
+      foughtIndex: number,
+      owner: PlayerNumber
     ): { newField: [FieldSlot, FieldSlot, FieldSlot]; discarded: Card[] } => {
       const discarded: Card[] = [];
       const newField = field.map((slot, i) => {
         if (i === foughtIndex) {
+          // FIX (pedido do usuário: "mantenha o broto presente no campo
+          // mesmo se ganhar uma disputa, a ideia é o broto só sair se ele
+          // for derrotado em uma disputa") - o resto do campo (normal ou
+          // Torre) sempre é descartado quando a disputa FECHA, não importa
+          // quem venceu cada rodada - mas o Broto quebra essa regra: só
+          // colapsa se ELE PRÓPRIO perdeu a rodada que fechou a disputa
+          // (`resolution.winner` é o vencedor desta rodada específica,
+          // 'tie' inclusa - só sobrevive com uma vitória clara do dono).
+          if (isBrotoSlot(slot) && resolution.winner === owner) return slot;
           const result = resolveCombatSlot(slot, isTowerSlot(slot) && !towerVsTower);
           discarded.push(...result.discarded);
           return result.newSlot;
@@ -4890,8 +4913,8 @@ function handleFinalizeCombat(state: GameState): GameState {
       return { newField, discarded };
     };
 
-    const p1FieldResult = resolveWholeField(player1.field, p1SlotIndex);
-    const p2FieldResult = resolveWholeField(player2.field, p2SlotIndex);
+    const p1FieldResult = resolveWholeField(player1.field, p1SlotIndex, 1);
+    const p2FieldResult = resolveWholeField(player2.field, p2SlotIndex, 2);
     cardsToDiscard = [...p1FieldResult.discarded, ...p2FieldResult.discarded];
     player1 = { ...player1, field: p1FieldResult.newField };
     player2 = { ...player2, field: p2FieldResult.newField };
@@ -4905,7 +4928,15 @@ function handleFinalizeCombat(state: GameState): GameState {
     const towerVsTower = isTowerSlot(p1Slot) && isTowerSlot(p2Slot);
     const isP1LoneTower = isTowerSlot(p1Slot) && !towerVsTower;
     const isP2LoneTower = isTowerSlot(p2Slot) && !towerVsTower;
-    const resolveSlot = resolveCombatSlot;
+    // FIX (pedido do usuário: "mantenha o broto presente no campo mesmo se
+    // ganhar uma disputa, a ideia é o broto só sair se ele for derrotado em
+    // uma disputa") - mesma regra da disputa FECHANDO (ver resolveWholeField
+    // acima), agora pro caminho bem mais comum: uma rodada de combate que
+    // NÃO fecha a disputa (a maioria - só fecha a cada 2 vitórias). Sem esta
+    // checagem, `resolveSlot` colapsava o Broto (nunca é Torre, então nunca
+    // "eroda" - vai sempre pro branch de colapso total) mesmo numa vitória.
+    const resolveSlot = (slot: FieldSlot, owner: PlayerNumber, erodeOnly: boolean) =>
+      isBrotoSlot(slot) && resolution.winner === owner ? { newSlot: slot, discarded: [] } : resolveCombatSlot(slot, erodeOnly);
 
     // Coringa (redesenho completo) - Rei armadilha: a carta do OPONENTE
     // (nunca a do próprio Coringa, que explode/descarta normalmente via
@@ -4944,15 +4975,15 @@ function handleFinalizeCombat(state: GameState): GameState {
       const toHand = resolveSlotToHand(p1Slot);
       p1Result = { newSlot: toHand.newSlot, discarded: [] };
       p1ReturnedToHand = toHand.returnedToHand;
-      p2Result = resolveSlot(p2Slot, isP2LoneTower);
+      p2Result = resolveSlot(p2Slot, 2, isP2LoneTower);
     } else if (opponentOfKo === 2) {
       const toHand = resolveSlotToHand(p2Slot);
       p2Result = { newSlot: toHand.newSlot, discarded: [] };
       p2ReturnedToHand = toHand.returnedToHand;
-      p1Result = resolveSlot(p1Slot, isP1LoneTower);
+      p1Result = resolveSlot(p1Slot, 1, isP1LoneTower);
     } else {
-      p1Result = resolveSlot(p1Slot, isP1LoneTower);
-      p2Result = resolveSlot(p2Slot, isP2LoneTower);
+      p1Result = resolveSlot(p1Slot, 1, isP1LoneTower);
+      p2Result = resolveSlot(p2Slot, 2, isP2LoneTower);
     }
     cardsToDiscard = [...p1Result.discarded, ...p2Result.discarded];
 
@@ -5274,7 +5305,15 @@ function advancePhaseState(state: GameState): GameState {
     // FIX (pedido do usuário, Modo Towers): a virada de turno preserva os
     // slots de torre (ver keepPersistentFieldSlots) - quem chama já descartou o resto
     // do campo, então nada fica em campo e no descarte ao mesmo tempo.
-    field: newPhase === 'draw' ? growDruidaBrotoField(keepPersistentFieldSlots(p.field), p.druidaPhotosynthesisLevel) : p.field,
+    // FIX (pedido do usuário: "volte atrás com a ideia de ser um acúmulo por
+    // turno, é pra ser um acúmulo por fase") - reversão de uma decisão
+    // confirmada antes (1x por turno, na virada Combate->Compra) - agora
+    // `growDruidaBrotoField` roda em TODA transição de fase (Compra-
+    // >Estratégia, Estratégia->Combate, Combate->Compra: 3x por turno), não
+    // só na de turno. `keepPersistentFieldSlots` continua só na virada de
+    // turno de verdade (`newPhase === 'draw'`) - o campo não é "limpo" no
+    // meio do turno, só o Broto cresce mais vezes.
+    field: growDruidaBrotoField(newPhase === 'draw' ? keepPersistentFieldSlots(p.field) : p.field, p.druidaPhotosynthesisLevel),
     monsterCard: newPhase === 'draw' ? monster.kept : p.monsterCard,
     monsterTargetSlot: newPhase === 'draw' ? undefined : p.monsterTargetSlot,
     monsterProtectedSlots: newPhase === 'draw' ? [] : p.monsterProtectedSlots,

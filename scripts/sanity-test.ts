@@ -4078,7 +4078,74 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(rejectedState.player1.hand.some((c) => c.id === j3.id), 'FIX Druida: tentar plantar um 2º Broto num slot diferente é rejeitado - só empilha no já existente');
 })();
 
-(function testDruidaBrotoTurnGrowth() {
+// FIX (pedido do usuário: "faça o druida ser capaz de plantar brotos com as
+// outras magias também... permitindo que o Q, K e J sejam posicionados
+// encima de um Q, K ou J também no campo") - Rainha (Q) e Rei (K) agora
+// também plantam/empilham o Broto via PLAY_CARD, funcionando exatamente
+// como o Valete pra esse fim.
+(function testDruidaQAndKCanPlantAndStackBroto() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const qCard = makeCard('druida-qk-plant-q', 'Q');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [qCard] } };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: qCard.id, slotIndex: 0, asHorizontal: false });
+
+  assert(state.player1.field[0].faceDownCard?.id === qCard.id, 'FIX Druida: uma Rainha (Q) planta o Broto normalmente, como um Valete');
+  assert(state.player1.field[0].faceDownCard?.transformedValue === 1, 'O Broto plantado com Q começa valendo 1, igual ao Valete');
+  assert(state.player1.field[0].brotoReserve?.length === 0, 'brotoReserve vazio (mas definido) - o Broto existe');
+
+  const kCard = makeCard('druida-qk-stack-k', 'K');
+  state = { ...state, player1: { ...state.player1, hand: [kCard] } };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: kCard.id, slotIndex: 0, asHorizontal: false });
+
+  assert(state.player1.field[0].faceDownCard?.id === kCard.id, 'FIX Druida: um Rei (K) empilha no Broto existente - vira o novo topo, como um Valete empilharia');
+  assert(state.player1.field[0].faceDownCard?.transformedValue === 2, 'Empilhar o Rei soma +1 no valor do Broto, igual empilhar um Valete');
+  assert(state.player1.field[0].brotoReserve?.length === 1 && state.player1.field[0].brotoReserve[0].id === qCard.id, 'A Rainha (topo antigo) vai pra reserva do Broto ao ser sobreposta pelo Rei');
+  assert(state.player1.hand.length === 0, 'As 2 cartas (Q plantada + K empilhado) saíram da mão');
+
+  // Não pode ser posicionado como horizontal (mesma regra do Valete).
+  const anotherQ = makeCard('druida-qk-horiz-reject', 'Q');
+  state = { ...state, player1: { ...state.player1, hand: [anotherQ] } };
+  const rejectedHorizontal = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: anotherQ.id, slotIndex: 0, asHorizontal: true });
+  assert(rejectedHorizontal.player1.hand.some((c) => c.id === anotherQ.id), 'FIX Druida: Q/K também são rejeitados como carta horizontal (mesma regra do Broto/Valete)');
+})();
+
+// FIX (mesmo pedido): plantar/empilhar via Q ou K não pode interferir com o
+// uso NORMAL dessas cartas como magia (Simbiose/Urtiga) - são 2 ações
+// independentes disponíveis pra mesma carta física; usar uma consome a
+// carta, então a outra deixa de ser uma opção pra ELA especificamente, mas
+// a magia em si continua funcionando normalmente com outra cópia.
+(function testDruidaSimbioseStillWorksAfterQKPlantingAdded() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const brotoTop = makeCard('druida-simbiose-after-broto', 'J');
+  const qCard = makeCard('druida-simbiose-after-q', 'Q');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [qCard],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 8, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { faceDownCard: makeCard('druida-simbiose-after-target', '4'), revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: qCard.id,
+    character: 'druida',
+    magicType: 'Q',
+    selection: { druidaGrowBroto: true },
+  });
+
+  assert(state.player1.field[0].faceDownCard?.transformedValue === 10, 'FIX: Simbiose (Q) continua funcionando normalmente (aumentar o Broto em 2) mesmo depois de Q/K ganharem a opção de plantar/empilhar');
+  assert(!state.player1.hand.some((c) => c.id === qCard.id), 'A Rainha usada como magia foi consumida normalmente (descartada), não foi "plantada"');
+})();
+
+(function testDruidaBrotoPhaseGrowth() {
   let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
   const top = makeCard('druida-grow-top', 'J');
   state = {
@@ -4096,16 +4163,59 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 
   // Ambos "Prontos" sem nenhum combate de verdade força advancePhaseState pra
   // fase de Compra do próximo turno (mesmo padrão já usado pelos testes de
-  // torre sobrevivendo à virada de turno, acima neste arquivo).
+  // torre sobrevivendo à virada de turno, acima neste arquivo) - UMA única
+  // transição de fase (Combate -> Compra).
   state = gameReducer(state, { type: 'TOGGLE_READY', player: 1 });
   state = gameReducer(state, { type: 'TOGGLE_READY', player: 2 });
 
   assert(state.phase === 'draw', 'Pré-condição: o turno avançou pra fase de Compra');
   assert(
     state.player1.field[0].faceDownCard?.transformedValue === 6,
-    `FIX Druida: Broto sozinho (sem reserva) cresce +1 por turno (5 -> 6, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
+    `FIX Druida: Broto sozinho (sem reserva) cresce +1 por TRANSIÇÃO DE FASE (5 -> 6, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
   );
   assert(state.player1.field[0].faceDownCard?.id === top.id, 'O Broto continua sendo a MESMA carta (não foi descartado nem recriado)');
+})();
+
+// FIX (pedido do usuário: "volte atrás com a ideia de ser um acúmulo por
+// turno, é pra ser um acúmulo por fase") - o teste acima só prova UMA
+// transição (não distingue "por turno" de "por fase", já que um turno
+// completo também é só 1 transição vista de fora do combate). Este aqui
+// atravessa 2 transições DENTRO do mesmo turno (Estratégia->Combate,
+// Combate->Compra) sem nenhum combate de verdade entre elas - só cresce 2x
+// (não 1x) se o crescimento for por fase.
+(function testDruidaBrotoGrowsOncePerPhaseNotPerTurn() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const top = makeCard('druida-grow-top-2', 'J');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      field: [
+        { faceDownCard: { ...top, transformedValue: 5, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  // Transição 1: Estratégia -> Combate.
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 1 });
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 2 });
+  assert(state.phase === 'combat', 'Pré-condição: avançou pra fase de Combate (1ª transição)');
+  assert(
+    state.player1.field[0].faceDownCard?.transformedValue === 6,
+    `FIX Druida: Broto cresce na 1ª transição de fase (Estratégia->Combate) (5 -> 6, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
+  );
+
+  // Transição 2: Combate -> Compra (do próximo turno), ainda sem combate de verdade.
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 1 });
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 2 });
+  assert(state.phase === 'draw', 'Pré-condição: avançou pra fase de Compra (2ª transição, novo turno)');
+  assert(
+    state.player1.field[0].faceDownCard?.transformedValue === 7,
+    `FIX Druida: Broto cresce DE NOVO na 2ª transição de fase (Combate->Compra), mesmo turno nenhum combate real tendo acontecido (6 -> 7, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
+  );
 })();
 
 (function testDruidaBrotoTurnGrowthWithStackAndPhotosynthesis() {
@@ -4202,6 +4312,58 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     countAllCards(state) === totalBefore,
     `FIX Druida: conservação de cartas mantida após colapso de um Broto de 4 cartas empilhadas (${totalBefore} -> ${countAllCards(state)})`
   );
+})();
+
+// FIX (pedido do usuário: "mantenha o broto presente no campo mesmo se
+// ganhar uma disputa, a ideia é o broto só sair se ele for derrotado em uma
+// disputa") - espelha o teste de colapso acima, mas com o Broto GANHANDO a
+// rodada (valor maior que o oponente) - diferente de qualquer outra carta
+// (que sempre é descartada ao fechar/resolver uma rodada, vencendo ou não),
+// o Broto precisa continuar em campo, intacto, com reserva e tudo.
+(function testDruidaBrotoSurvivesWonCombat() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const top = makeCard('druida-survive-top', 'J');
+  const reserve1 = makeCard('druida-survive-r1', 'J');
+  const weakerCard = makeCard('druida-survive-opponent', '3');
+
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      field: [
+        {
+          faceDownCard: { ...top, transformedValue: 8, revealed: true },
+          revealed: true,
+          horizontalCards: [],
+          brotoReserve: [{ ...reserve1, revealed: true }],
+        },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: weakerCard, revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  const totalBefore = countAllCards(state);
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: state.firstToFlip, slotIndex: 0 });
+  const other = state.firstToFlip === 1 ? 2 : 1;
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: other as PlayerNumber, slotIndex: 0 });
+  state = gameReducer(state, { type: 'RESOLVE_COMBAT' });
+  assert(state.combatResolution?.winner === 1, 'Pré-condição: o Broto (8) venceu a rodada contra o 3 do oponente');
+  state = gameReducer(state, { type: 'FINALIZE_COMBAT' });
+
+  assert(state.player1.field[0].faceDownCard?.id === top.id, 'FIX Druida: o Broto continua em campo depois de VENCER a disputa (mesma carta, não recriada)');
+  assert(state.player1.field[0].faceDownCard?.transformedValue === 8, 'O valor do Broto não muda só por vencer a disputa');
+  assert(state.player1.field[0].brotoReserve?.length === 1 && state.player1.field[0].brotoReserve[0].id === reserve1.id, 'A reserva do Broto também sobrevive intacta a uma vitória');
+  assert(countAllCards(state) === totalBefore, `FIX Druida: conservação de cartas mantida quando o Broto sobrevive a uma vitória (${totalBefore} -> ${countAllCards(state)})`);
 })();
 
 (function testDruidaSimbioseMarkerOption() {
@@ -4505,6 +4667,92 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     state = gameReducer(state, decision.action);
   }
   assert(!sawRejectedHorizontalAttempt, 'FIX Druida IA: nunca propõe reforçar o próprio Broto com uma carta horizontal (sempre recusado pelo motor)');
+})();
+
+// FIX (pedido do usuário: "quando há um broto no campo e só falta o broto
+// para ser selecionado, permita que o jogador/IA selecione um campo sem
+// nada ao invés... eu quero que o jogador decida se vai usar ou não o broto
+// no turno") - antes, com o Broto como ÚNICA carta preenchida, a IA
+// (decideCombatSlotSelection) sempre comprometia ele automaticamente,
+// mesmo sabendo que a disputa já estava perdida. Agora, com o valor do
+// oponente já PÚBLICO (selecionado e revelado) e maior que o do Broto, ela
+// prefere um slot vazio pra proteger o Broto.
+(function testDruidaAiProtectsLoneBrotoAgainstKnownStrongerValue() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const brotoTop = makeCard('druida-ai-protect-broto', 'J');
+  const opponentCard = makeCard('druida-ai-protect-opponent', '9');
+  state = {
+    ...state,
+    phase: 'combat',
+    firstToFlip: 2,
+    combatSelection: { player2: 0 },
+    player1: {
+      ...state.player1,
+      // Mão vazia de propósito: a mão inicial (aleatória) podia incluir um
+      // Rei (Urtiga), que também ativa na fase de Combate e faria
+      // decideCombatMagic (chamado ANTES de decideCombatSlotSelection em
+      // decideCombatPhase) desviar a decisão - deixando este teste instável.
+      hand: [],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 5, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: { ...opponentCard, revealed: true }, revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  const decision = decideAiAction(state, 1);
+  assert(decision.type === 'action' && decision.action.type === 'SELECT_COMBAT_SLOT', 'Pré-condição: a IA decidiu selecionar um slot de combate');
+  const chosenSlot = decision.type === 'action' && decision.action.type === 'SELECT_COMBAT_SLOT' ? decision.action.slotIndex : -1;
+  assert(chosenSlot !== 0, `FIX Druida IA: com o Broto (5) perdendo contra um valor já conhecido (9), a IA protege o Broto escolhendo um slot vazio em vez de arriscá-lo (recebido: slot ${chosenSlot})`);
+})();
+
+// Mesmo cenário, mas o Broto agora VENCERIA a disputa - a IA não deveria
+// escondê-lo sem motivo (desperdiçaria o investimento de crescimento).
+(function testDruidaAiCommitsLoneBrotoWhenWinning() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const brotoTop = makeCard('druida-ai-commit-broto', 'J');
+  const opponentCard = makeCard('druida-ai-commit-opponent', '9');
+  state = {
+    ...state,
+    phase: 'combat',
+    firstToFlip: 2,
+    combatSelection: { player2: 0 },
+    player1: {
+      ...state.player1,
+      // Mesmo motivo do teste irmão acima: mão vazia evita que uma Urtiga
+      // (Rei) sorteada na mão inicial desvie a decisão antes de chegar em
+      // decideCombatSlotSelection.
+      hand: [],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 12, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: { ...opponentCard, revealed: true }, revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  const decision = decideAiAction(state, 1);
+  assert(
+    decision.type === 'action' && decision.action.type === 'SELECT_COMBAT_SLOT' && decision.action.slotIndex === 0,
+    'FIX Druida IA: com o Broto (12) vencendo um valor já conhecido (9), a IA comete o Broto normalmente em vez de escondê-lo à toa'
+  );
 })();
 
 (function testDruidaTowerCannotAbsorbBroto() {
