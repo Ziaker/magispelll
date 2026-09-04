@@ -176,6 +176,20 @@ interface PlayerZoneProps {
    */
   hotseatPrivacyActive?: boolean;
   /**
+   * FIX (pedido do usuário: "ver as cartas da IA mesmo estando ocultas para
+   * quem assiste no modo espectador") - `true` só quando `gameConfig.mode
+   * === 'spectator'` E `settings.spectatorRevealHands` está ligado
+   * (calculado em GameBoard.tsx, mesmo padrão de `hotseatPrivacyActive`
+   * acima). Ao contrário de `hotseatPrivacyActive`, este NUNCA se aplica
+   * fora do Modo Espectador - em especial, nunca no modo Contra a IA, onde
+   * revelar a mão do oponente controlado pela IA destruiria o propósito do
+   * modo (o humano jogando contra ela nunca pode ver o que ela tem). Só
+   * afeta a EXIBIÇÃO das cartas (mostra a face em vez das costas) - a mão da
+   * IA continua inteiramente não-interativa, exatamente como antes (nenhum
+   * clique/arraste passa a funcionar nela).
+   */
+  forceRevealHand?: boolean;
+  /**
    * FIX (item 5 da 4ª rodada): ids das cartas da MÃO deste jogador que
    * acabaram de ser alvo de uma magia (ex.: Revelação Forçada do Mago, ou
    * Visão Celestial do Anjo mirando uma carta da mão do oponente) - dispara
@@ -266,6 +280,7 @@ export function PlayerZone({
   isMagicCardDraggable,
   isAiControlled = false,
   hotseatPrivacyActive = false,
+  forceRevealHand = false,
   effectFlashCardIds,
   rejectedCardIds,
   selfEffectFlash,
@@ -329,6 +344,13 @@ export function PlayerZone({
   useEffect(() => {
     setHandRevealed(false);
   }, [phase]);
+  // FIX (pedido do usuário, Modo Espectador: "ver as cartas da IA mesmo
+  // estando ocultas") - `forceRevealHand` NÃO muda `showHandHidden` em si
+  // (a mão continua renderizando pelo branch simples/não-interativo de
+  // `isAiControlled`, nunca o branch interativo de HandCardView - um
+  // espectador nunca deveria ganhar controles de arrastar/clicar numa mão
+  // que não é dele) - só afeta, mais abaixo, se cada carta OCULTA dentro
+  // desse branch mostra a face ou as costas.
   const showHandHidden = isAiControlled || (hotseatPrivacyActive && !handRevealed);
   const [customOrderIds, setCustomOrderIds] = useState<string[]>(() => playerState.hand.map((c) => c.id));
   // Ideia "linha de fusão ao passar o mouse": qual carta está sob o mouse
@@ -1377,9 +1399,15 @@ export function PlayerZone({
                   // 'eligible' quando a carta JÁ é pública; uma elegível
                   // ainda escondida cai em 'dimmed' como qualquer outra, sem
                   // se destacar - preserva o segredo.
+                  // FIX (pedido do usuário, Modo Espectador): com
+                  // `forceRevealHand` ligado, uma carta ainda não revelada
+                  // pela IA já é pública pra quem assiste - o destaque de
+                  // reação também deve considerar isso, senão a carta
+                  // apareceria de face pra cima mas sem o anel dourado de
+                  // "elegível pra reagir", uma inconsistência visual.
                   const cardReactionState: 'eligible' | 'dimmed' | undefined = !isReactionTarget
                     ? undefined
-                    : card.value === pendingReaction!.cardValue && card.revealed
+                    : card.value === pendingReaction!.cardValue && (card.revealed || forceRevealHand)
                     ? 'eligible'
                     : 'dimmed';
                   return (
@@ -1389,7 +1417,12 @@ export function PlayerZone({
                     // jamais teria. Cartas já reveladas por alguma magia (ex.:
                     // Revelação Forçada do Mago, Visão Celestial do Anjo)
                     // continuam visíveis normalmente - foi o próprio jogador
-                    // humano quem as revelou.
+                    // humano quem as revelou. FIX (pedido do usuário: "ver as
+                    // cartas da IA... no modo espectador") - `forceRevealHand`
+                    // (só true no Modo Espectador com a preferência ligada,
+                    // ver GameBoard.tsx) também conta como "pode ver a face" -
+                    // um espectador não é um jogador competindo, então essa
+                    // vantagem de informação nunca é injusta pra ninguém.
                     <motion.div
                       key={card.id}
                       data-card-id={card.id}
@@ -1406,7 +1439,7 @@ export function PlayerZone({
                         cardReactionState === 'eligible' ? 'ring-4 ring-[#F2C94C] rounded-lg shadow-xl animate-pulse' : ''
                       }`}
                     >
-                      {card.revealed ? (
+                      {card.revealed || forceRevealHand ? (
                         <PlayingCard value={card.value} suit={card.suit} card={card} />
                       ) : (
                         <PlayingCard faceDown backTheme={theme} />

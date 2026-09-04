@@ -2484,6 +2484,11 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   // Hotseat) - ver o comentário completo em `hotseatPrivacyActive`,
   // PlayerZone.tsx.
   const hotseatPrivacyActive = gameConfig.mode === 'hotseat' && settings.hotseatPrivacyMode;
+  // FIX (pedido do usuário: "ver as cartas da IA mesmo estando ocultas para
+  // quem assiste no modo espectador") - ver o comentário completo em
+  // `forceRevealHand`, PlayerZone.tsx. Nunca fora do Modo Espectador, mesmo
+  // que a preferência esteja ligada.
+  const spectatorRevealHands = gameConfig.mode === 'spectator' && settings.spectatorRevealHands;
 
   const winnerVictoryColor = gameState.gameOver
     ? (gameState.gameOver.winner === 1 ? p1Theme.primary : p2Theme.primary)
@@ -2882,6 +2887,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[2] !== undefined}
                 isAiControlled={isAi(2)}
                 hotseatPrivacyActive={hotseatPrivacyActive}
+                forceRevealHand={spectatorRevealHands}
                 effectFlashCardIds={effectFlashCardIds}
                 rejectedCardIds={rejectedCardIds}
                 selfEffectFlash={selfEffectFlashPlayer === 2}
@@ -2989,6 +2995,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[1] !== undefined}
                 isAiControlled={isAi(1)}
                 hotseatPrivacyActive={hotseatPrivacyActive}
+                forceRevealHand={spectatorRevealHands}
                 effectFlashCardIds={effectFlashCardIds}
                 rejectedCardIds={rejectedCardIds}
                 selfEffectFlash={selfEffectFlashPlayer === 1}
@@ -4769,6 +4776,25 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   id="pauseHotseatPrivacy"
                   checked={settings.hotseatPrivacyMode}
                   onCheckedChange={(checked) => updateSetting('hotseatPrivacyMode', checked)}
+                />
+              </div>
+            )}
+            {/* FIX (pedido do usuário: "ver as cartas da IA mesmo estando
+                ocultas para quem assiste no modo espectador... ao lado das
+                opções") - só faz sentido nesse modo, mesmo padrão do bloco
+                de Hotseat logo acima. */}
+            {gameConfig.mode === 'spectator' && (
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="pauseSpectatorReveal" className="text-[#BFB6A6]">
+                    Revelar Mãos
+                  </Label>
+                  <p className="text-[11px] text-[#BFB6A6]/70">Mostra a face das cartas dos dois lados em vez das costas</p>
+                </div>
+                <Switch
+                  id="pauseSpectatorReveal"
+                  checked={settings.spectatorRevealHands}
+                  onCheckedChange={(checked) => updateSetting('spectatorRevealHands', checked)}
                 />
               </div>
             )}
