@@ -1047,7 +1047,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     const pendingAction = gameState.pendingReaction.originalAction;
     const resolve = setTimeout(() => {
       triggerAiActionEffects(pendingAction);
-      dispatch({ type: 'RESOLVE_PENDING_REACTION' });
+      dispatchWithMagicPause(pendingAction, () => dispatch({ type: 'RESOLVE_PENDING_REACTION' }));
     }, delay(3000));
     return () => {
       clearInterval(tick);
@@ -1477,8 +1477,10 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
             canMagicTriggerReactionAnnouncement(gameState, decision.action.player, decision.action.cardId);
           if (!isAnnouncement) {
             triggerAiActionEffects(decision.action);
+            dispatchWithMagicPause(decision.action, () => dispatchMagicAction(decision.action));
+          } else {
+            dispatchMagicAction(decision.action);
           }
-          dispatchMagicAction(decision.action);
         } else {
           dispatch({ type: 'TOGGLE_READY', player: ai });
         }
@@ -1729,12 +1731,14 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // se esta ativação for na verdade só um ANÚNCIO (efeito represado em
       // pendingReaction), a apresentação some daqui e só toca depois, no
       // mesmo caminho que já trata a resolução da reação.
+      const action: GameAction = { type: 'ACTIVATE_SIMPLE_MAGIC', player: playerNumber, cardId };
       if (!canMagicTriggerReactionAnnouncement(gameState, playerNumber, cardId)) {
         flashSelfEffect(playerNumber, character, getMagicCardInfo(character, magicType).name);
         soundManager.play(magicSoundFor(character, magicType));
-        triggerPostMagicPause(playerNumber, character, getMagicCardInfo(character, magicType).name, 'Sem alvo específico');
+        dispatchWithMagicPause(action, () => dispatch(action));
+      } else {
+        dispatch(action);
       }
-      dispatch({ type: 'ACTIVATE_SIMPLE_MAGIC', player: playerNumber, cardId });
       return;
     }
 
@@ -1904,22 +1908,57 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   };
 
   /**
-   * FIX (bug real relatado pelo usuário: "liguei a opção [intervalo pós-
-   * magia] e nada acontece") - a pausa só era acionada de DENTRO de
-   * `applyMagicEffectPresentation`, mas Anjo J (Bênção Divina) e Anjo K
-   * (Reforço Angelical) NUNCA passam por ali: são as 2 únicas magias "sem
-   * assistente" (ver handleActivateMagicClick) e tinham seu próprio código
-   * de apresentação separado (flashSelfEffect + som), tanto no clique humano
-   * quanto na ação da IA (triggerAiActionEffects) - nenhum dos dois lugares
-   * checava `gameConfig.postMagicPauseMs`. Extraído aqui como a ÚNICA fonte
-   * de verdade de "mostrar (ou não) o banner de pausa", chamada pelos 3
-   * lugares que hoje disparam apresentação de magia (applyMagicEffectPresentation
-   * abaixo + os 2 pontos do Anjo J/K).
+   * FIX (bug real relatado pelo usuário: "e DEPOIS o efeito é pra ser
+   * realizado... vc simplesmente n fez nada") - a versão anterior desta
+   * pausa só mostrava um banner DECORATIVO por cima de um efeito que já
+   * tinha sido aplicado no MESMO instante (`applyMagicEffectPresentation`
+   * seguido de `dispatch` na linha seguinte, sem nenhum atraso real entre os
+   * dois) - nunca existiu de fato um "antes/depois". Agora a pausa
+   * genuinamente ADIA o dispatch que aplica a mudança de verdade: mostra o
+   * nome + a DESCRIÇÃO COMPLETA do efeito (não só "alvo(s): ...") durante
+   * `gameConfig.postMagicPauseMs`, e só então chama `dispatchFn` - o
+   * destaque visual nos alvos (`flashEffectTargets`, dentro de
+   * `applyMagicEffectPresentation`/`triggerAiActionEffects`, chamado ANTES
+   * desta função) já começa a piscar imediatamente e continua durante toda
+   * a pausa, exatamente como pedido ("dar um highlight na carta no momento
+   * que ela é ativada").
+   *
+   * `getMagicPauseInfo` isola quais ações são "ativação de magia" pra fins
+   * desta pausa (EXECUTE_MAGIC, e ACTIVATE_SIMPLE_MAGIC só quando é
+   * realmente Anjo J/K ativando - as únicas 2 magias sem assistente,
+   * ver handleActivateMagicClick) - qualquer outro tipo de ação (jogar
+   * carta, Ás, Monstro...) nunca teve pausa nenhuma e continua sem, mesmo
+   * passando pelos mesmos 4 pontos de dispatch que chamam
+   * `dispatchWithMagicPause` (ela simplesmente devolve `null` e despacha na
+   * hora pra qualquer ação que não seja magia).
    */
-  const triggerPostMagicPause = (playerNumber: PlayerNumber, character: CharacterId, magicName: string, detail: string) => {
-    if (gameConfig.postMagicPauseMs <= 0) return;
-    setPostMagicPause({ title: `${character.toUpperCase()} ativou ${magicName}`, detail });
-    setTimeout(() => setPostMagicPause(null), gameConfig.postMagicPauseMs);
+  const getMagicPauseInfo = (action: GameAction): { title: string; detail: string } | null => {
+    if (action.type === 'EXECUTE_MAGIC') {
+      const info = getMagicCardInfo(action.character, action.magicType);
+      return { title: `${action.character.toUpperCase()} ativou ${info.name}`, detail: info.description };
+    }
+    if (action.type === 'ACTIVATE_SIMPLE_MAGIC') {
+      const character = characterOf(gameState, action.player);
+      const card = gameState[playerKeyOf(action.player)].hand.find((c) => c.id === action.cardId);
+      if (card && (card.value === 'J' || card.value === 'K')) {
+        const info = getMagicCardInfo(character, card.value);
+        return { title: `${character.toUpperCase()} ativou ${info.name}`, detail: info.description };
+      }
+    }
+    return null;
+  };
+
+  const dispatchWithMagicPause = (action: GameAction, dispatchFn: () => void) => {
+    const pauseInfo = gameConfig.postMagicPauseMs > 0 ? getMagicPauseInfo(action) : null;
+    if (!pauseInfo) {
+      dispatchFn();
+      return;
+    }
+    setPostMagicPause(pauseInfo);
+    setTimeout(() => {
+      setPostMagicPause(null);
+      dispatchFn();
+    }, gameConfig.postMagicPauseMs);
   };
 
   // FIX (pedido do usuário: "veja se a IA utiliza magias corretamente" +
@@ -2084,21 +2123,11 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     }
 
     // FIX (item 23 do Grupo F, "intervalo mínimo pós ativação de magia") -
-    // disparado daqui de propósito: `applyMagicEffectPresentation` só roda
-    // DEPOIS de qualquer `pendingReaction` resolver (a apresentação inteira
-    // é suprimida durante a janela de 3s - ver comentários no restante desta
-    // função e em GameBoard.tsx), então esta pausa nunca aparece antes do
-    // Modo Reações decidir, herdando essa ordem sem nenhuma checagem extra.
-    const targetDescriptions = [
-      ...targets.slots.map((s) => `Jogador ${s.player}, Slot ${s.slotIndex + 1}`),
-      ...(targets.cardIds.length > 0 ? [`${targets.cardIds.length} carta(s)`] : []),
-    ];
-    triggerPostMagicPause(
-      pm.playerNumber,
-      character,
-      getMagicCardInfo(character, type).name,
-      targetDescriptions.length > 0 ? `Alvo(s): ${targetDescriptions.join(', ')}` : 'Sem alvo específico'
-    );
+    // a pausa em si (banner + atraso real do dispatch) não mora mais aqui -
+    // esta função só cuida do destaque visual/som, que precisa começar JÁ
+    // (antes/durante a pausa) - ver dispatchWithMagicPause, chamada pelos
+    // pontos que despacham a ação de verdade, logo depois de chamar esta
+    // função.
   };
 
   /**
@@ -2164,10 +2193,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // aqui - só depois, no mesmo caminho que já trata a resolução da reação
     // (negada -> nenhum burst, correto; expira sem reação -> o timer de 3s
     // em GameBoard.tsx já dispara a apresentação exatamente uma vez).
+    const action: GameAction = { type: 'EXECUTE_MAGIC', player: playerNumber, cardId, character, magicType: type, selection };
     if (!canMagicTriggerReactionAnnouncement(gameState, playerNumber, cardId)) {
       applyMagicEffectPresentation(pm);
+      dispatchWithMagicPause(action, () => dispatchMagicAction(action));
+    } else {
+      dispatchMagicAction(action);
     }
-    dispatchMagicAction({ type: 'EXECUTE_MAGIC', player: playerNumber, cardId, character, magicType: type, selection });
     if (!override) setPendingMagic(null);
   };
 
@@ -2317,7 +2349,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       if (card && (card.value === 'J' || card.value === 'K')) {
         flashSelfEffect(action.player, character, getMagicCardInfo(character, card.value).name);
         soundManager.play(magicSoundFor(character, card.value));
-        triggerPostMagicPause(action.player, character, getMagicCardInfo(character, card.value).name, 'Sem alvo específico');
       } else {
         soundManager.play('magic-activate');
       }
@@ -5213,11 +5244,14 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         motivo de viver fora da árvore com `zoom` que a Pontuação flutuante/
         CardDragLayer/BulletImpactBurst logo acima. */}
     {postMagicPause && (
-      <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#1E1A16]/95 border border-[#C59E4F] rounded-lg px-4 py-2 shadow-xl flex items-center gap-3">
-        <Sparkles className="w-4 h-4 text-[#C59E4F] flex-shrink-0" />
+      <div
+        className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#1E1A16]/95 border border-[#C59E4F] rounded-lg px-4 py-3 shadow-xl flex items-start gap-3"
+        style={{ maxWidth: 420 }}
+      >
+        <Sparkles className="w-4 h-4 text-[#C59E4F] flex-shrink-0 mt-0.5" />
         <div>
           <p className="text-[12px] text-[#EFE7D6] font-semibold">{postMagicPause.title}</p>
-          <p className="text-[11px] text-[#BFB6A6]">{postMagicPause.detail}</p>
+          <p className="text-[11px] text-[#BFB6A6] leading-snug mt-0.5">{postMagicPause.detail}</p>
         </div>
       </div>
     )}

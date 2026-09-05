@@ -2912,6 +2912,22 @@ function estimateWinProbability(myValue: number, pool: number[]): number {
  * uma leve variação não-determinística (20% de chance de escolher a 2ª
  * melhor opção) para o comportamento da IA não ficar sempre perfeitamente
  * previsível (FIX Fase D, pedido do usuário original).
+ *
+ * FIX (bug real relatado pelo usuário: "a ia fica escolhendo uma carta fraca
+ * mesmo tendo uma carta forte em campo... especialmente no modo towers") - a
+ * variação de 20% acima trocava a MELHOR opção pela 2ª melhor sem olhar o
+ * TAMANHO da diferença entre elas - fazia sentido pra duas cartas parecidas
+ * (ex.: 8 vs 6), mas virava uma jogada catastrófica quando a 2ª opção é MUITO
+ * pior (ex.: uma Torre valendo 20 vs uma carta solta valendo 2 - exatamente o
+ * cenário mais comum no Modo Towers, onde o valor de uma torre estufada
+ * supera qualquer carta solta por uma margem bem maior que no jogo normal).
+ * Confirmado ao vivo: com uma Torre (20) e uma carta fraca (2) em campo, a
+ * IA escolhia a fraca ~23% das vezes - a variação existe pra parecer menos
+ * robótica, não pra jogar contra si mesma. Agora só se aplica quando a
+ * segunda opção ainda tem uma chance de vitória RAZOÁVEL (diferença de até
+ * 25 pontos percentuais) - a IA continua imprevisível entre opções
+ * parecidas, mas nunca mais joga fora uma vitória quase certa por uma
+ * derrota quase certa só por "variedade".
  */
 function pickCombatSlotWithVariety(
   state: GameState,
@@ -2929,7 +2945,8 @@ function pickCombatSlotWithVariety(
     if (Math.abs(a.winProb - b.winProb) >= 0.03) return b.winProb - a.winProb;
     return a.value - b.value;
   });
-  if (ranked.length >= 2 && random() < 0.2) return ranked[1].slotIndex;
+  const secondOptionIsViable = ranked.length >= 2 && ranked[0].winProb - ranked[1].winProb < 0.25;
+  if (secondOptionIsViable && random() < 0.2) return ranked[1].slotIndex;
   return ranked[0].slotIndex;
 }
 
