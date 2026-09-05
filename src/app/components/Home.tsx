@@ -30,8 +30,13 @@ export function Home({ onNewGame, onQuickStart, onRules, onCharacters, onSetting
           {/* FIX (item 31 do Grupo H da lista de afazeres, "número da versão
               abaixo do título") - texto puramente informativo, sem link/ação
               nenhuma (diferente do atalho de Partida Rápida logo abaixo) -
-              por isso mais discreto ainda, sem hover nem ícone. */}
-          <p className="text-[11px] text-[#8F6A30]/70">v0.8888888</p>
+              por isso mais discreto ainda, sem hover nem ícone.
+              FIX (pedido do usuário: "a partir de agora sempre atualize o
+              número de versão na tela inicial") - MAJOR.MINOR.PATCH a partir
+              daqui: PATCH sobe a cada commit/deploy, MINOR sobe pra lotes de
+              feature maiores (ex.: o overhaul do Modo Towers). Atualizar
+              SEMPRE que commitar/deployar, mesmo pra uma correção pequena. */}
+          <p className="text-[11px] text-[#8F6A30]/70">v0.1.1</p>
           {/* FIX (pedido do usuário: "atalho de Partida Rápida") - pula
               Configuração (usa a última usada ou o padrão) e Resumo, indo
               direto pra escolha de personagem - ver handleQuickStart em
