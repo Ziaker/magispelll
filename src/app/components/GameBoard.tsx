@@ -98,7 +98,7 @@ import { simulateSteps, fuzzSteps } from '../lib/simulateGame';
 import { enumerateLegalActions, checkActionDivergence } from '../lib/actionSpace';
 import { checkInvariants, countAllCards } from '../lib/invariants';
 import { setSeed, getSeed, clearSeed } from '../lib/rng';
-import { decideHandCardSelection } from '../lib/handSelection';
+import { decideHandCardSelection, toggleTowerCardSelection } from '../lib/handSelection';
 
 /**
  * Props do componente GameBoard
@@ -140,8 +140,6 @@ interface PendingMagic {
   selectedRevealCardIds?: string[];
   /** Piromante - verdadeiro quando o jogador escolheu, no diálogo, lançar a Bola de Fogo já acumulada em vez do efeito próprio de alimentar (J/Q/K) - ver MagicSelection.fireballLaunch em gameEngine.ts. */
   fireballLaunch?: boolean;
-  /** Druida - verdadeiro quando o jogador escolheu, no diálogo, aumentar o Broto em 2 em vez de reduzi-lo pela metade pra criar um marcador - ver MagicSelection.druidaGrowBroto em gameEngine.ts. */
-  druidaGrowBroto?: boolean;
 }
 
 export function GameBoard({ onBack, player1Character, player2Character, gameConfig }: GameBoardProps) {
@@ -1606,23 +1604,28 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     setSelectedForDiscard(new Set());
   };
 
-  // Modo Towers (pedido do usuário: "era pra ser possível selecionar duas
-  // cartas apenas clicando nelas, caso tenha mais do que uma carta igual a
-  // ela na mão") - substitui `onCardSelect` como o handler de clique numa
-  // carta da mão na fase de Estratégia. A decisão em si (juntar numa torre
-  // ou seguir a seleção normal de carta única) é uma função PURA testada
-  // isoladamente - ver decideHandCardSelection em lib/handSelection.ts para
-  // a lógica completa e comentada caso a caso.
+  // Substitui `onCardSelect` como o handler de toque no CORPO de uma carta
+  // da mão na fase de Estratégia - sempre seleção normal de carta única (ver
+  // decideHandCardSelection em lib/handSelection.ts, e o comentário completo
+  // lá sobre o overhaul do Modo Towers: agrupar numa torre agora tem um
+  // controle físico SEPARADO, ver handleToggleTowerCard logo abaixo).
   const handleSelectCardForField = (playerNumber: 1 | 2, cardId: string) => {
+    const next = decideHandCardSelection({ selectedCardId, selectedForTower }, cardId);
+    setSelectedCardId(next.selectedCardId);
+    setSelectedForTower(next.selectedForTower);
+  };
+
+  // FIX (overhaul completo do Modo Towers, pedido do usuário: "a atual é
+  // completamente anti-intuitiva... procure uma solução que seja também
+  // capaz de ser realizada para o mobile") - handler do selo "🗼" dedicado
+  // que aparece em cada carta elegível pra torre (ver PlayerZone.tsx) -
+  // tocá-lo é a ÚNICA forma de entrar/sair do grupo de torre agora (nunca
+  // mais um efeito colateral implícito de tocar o corpo da carta). A decisão
+  // em si é uma função PURA testada isoladamente - ver
+  // toggleTowerCardSelection em lib/handSelection.ts.
+  const handleToggleTowerCard = (playerNumber: 1 | 2, cardId: string) => {
     const player = gameState[playerKeyOf(playerNumber)];
-    const next = decideHandCardSelection(
-      player.hand,
-      player.field,
-      player.towerSlotThisTurn,
-      { selectedCardId, selectedForTower },
-      cardId,
-      gameConfig.towersMode
-    );
+    const next = toggleTowerCardSelection(player.hand, { selectedCardId, selectedForTower }, cardId);
     setSelectedCardId(next.selectedCardId);
     setSelectedForTower(next.selectedForTower);
   };
@@ -1729,6 +1732,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       if (!canMagicTriggerReactionAnnouncement(gameState, playerNumber, cardId)) {
         flashSelfEffect(playerNumber, character, getMagicCardInfo(character, magicType).name);
         soundManager.play(magicSoundFor(character, magicType));
+        triggerPostMagicPause(playerNumber, character, getMagicCardInfo(character, magicType).name, 'Sem alvo específico');
       }
       dispatch({ type: 'ACTIVATE_SIMPLE_MAGIC', player: playerNumber, cardId });
       return;
@@ -1857,27 +1861,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       } else if (pm.selectedCards?.[0]) {
         cardIds.push(pm.selectedCards[0]);
       }
-    } else if (pm.character === 'druida' && pm.druidaGrowBroto) {
-      // FIX (pedido do usuário: "a ia do druida não joga as magias" -
-      // investigação encontrou a IA ativando Simbiose/Urtiga normalmente por
-      // trás dos panos - ver diagnóstico com decideAiAction; o problema real
-      // era só de APRESENTAÇÃO: a opção "aumentar o Broto" (a mais escolhida
-      // pela IA, já que não exige alvo nem Broto grande) só acionava
-      // flashSelfEffect no retrato do jogador - nada acontecia visualmente
-      // EM CIMA do próprio Broto, que é onde o número realmente muda. Sem
-      // isto, um humano assistindo via IA vs IA facilmente lê como "não fez
-      // nada". Agora o slot do Broto entra como alvo aqui também, então
-      // flashEffectTargets abaixo acende a MESMA borda/glow de efeito que
-      // qualquer outra magia usa, direto no card que cresceu.
-      const ownField = gameState[playerKeyOf(pm.playerNumber)].field;
-      const brotoSlotIndex = ownField.findIndex(isBrotoSlot);
-      if (brotoSlotIndex !== -1) slots.push({ player: pm.playerNumber, slotIndex: brotoSlotIndex });
-    } else if (pm.character === 'druida' && !pm.druidaGrowBroto) {
-      // Druida (personagem novo) - Simbiose/Urtiga na opção "marcador" miram
-      // uma carta concreta (própria, na Simbiose; do oponente, na Urtiga - ver
-      // selection.selectedCards em handleExecuteMagic). A opção "aumentar o
-      // Broto" não tem alvo nenhum e usa flashSelfEffect em vez disso (ver
-      // applyMagicEffectPresentation).
+    } else if (pm.character === 'druida') {
+      // Druida (personagem novo) - Simbiose/Urtiga miram uma carta concreta
+      // (própria, na Simbiose; do oponente, na Urtiga - ver
+      // selection.selectedCards em handleExecuteMagic). Crescer o Broto sem
+      // reduzi-lo virou plantar/empilhar a própria carta Q/K no campo em vez
+      // de ativá-la (PLAY_CARD, fora deste fluxo de EXECUTE_MAGIC) - ver
+      // FIX (pedido do usuário: "remova o segundo efeito de aumentar em 2").
       //
       // FIX (achado testando ao vivo no navegador): diferente de Mago J/
       // Mosqueteiro K/etc. (que só miram carta de MÃO, sempre destacada via
@@ -1913,6 +1903,25 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     return { slots, cardIds };
   };
 
+  /**
+   * FIX (bug real relatado pelo usuário: "liguei a opção [intervalo pós-
+   * magia] e nada acontece") - a pausa só era acionada de DENTRO de
+   * `applyMagicEffectPresentation`, mas Anjo J (Bênção Divina) e Anjo K
+   * (Reforço Angelical) NUNCA passam por ali: são as 2 únicas magias "sem
+   * assistente" (ver handleActivateMagicClick) e tinham seu próprio código
+   * de apresentação separado (flashSelfEffect + som), tanto no clique humano
+   * quanto na ação da IA (triggerAiActionEffects) - nenhum dos dois lugares
+   * checava `gameConfig.postMagicPauseMs`. Extraído aqui como a ÚNICA fonte
+   * de verdade de "mostrar (ou não) o banner de pausa", chamada pelos 3
+   * lugares que hoje disparam apresentação de magia (applyMagicEffectPresentation
+   * abaixo + os 2 pontos do Anjo J/K).
+   */
+  const triggerPostMagicPause = (playerNumber: PlayerNumber, character: CharacterId, magicName: string, detail: string) => {
+    if (gameConfig.postMagicPauseMs <= 0) return;
+    setPostMagicPause({ title: `${character.toUpperCase()} ativou ${magicName}`, detail });
+    setTimeout(() => setPostMagicPause(null), gameConfig.postMagicPauseMs);
+  };
+
   // FIX (pedido do usuário: "veja se a IA utiliza magias corretamente" +
   // relato de que ativações da IA não tinham nenhum efeito visual) - extraído
   // de dentro de executeMagicEffect (que só cobria o clique humano) para que
@@ -1924,16 +1933,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const applyMagicEffectPresentation = (pm: PendingMagic) => {
     const { character, type } = pm;
     const targets = computeMagicEffectTargets(pm);
-    // Druida (personagem novo) - a opção "aumentar o Broto" de Simbiose/
-    // Urtiga não mira carta nem slot nenhum (computeMagicEffectTargets
-    // devolve os dois arrays vazios pra ela de propósito) - sem isto,
-    // flashEffectTargets abaixo não teria em QUEM disparar o burst, e
-    // CharacterMagicBurst nunca chegaria a montar com `active=true`. Mesmo
-    // padrão de Bênção Divina/Reforço Angelical do Anjo (flashSelfEffect no
-    // próprio retrato do jogador, ver PlayerZone.tsx).
-    if (character === 'druida' && pm.druidaGrowBroto) {
-      flashSelfEffect(pm.playerNumber, character, getMagicCardInfo(character, type).name);
-    }
     flashEffectTargets(targets, character, getMagicCardInfo(character, type).name);
     // FIX (pedido do usuário, item 5: "cartas destruídas se estilhaçando") -
     // só a Destruição de Reforço do Mago (K) realmente DESTRÓI uma carta (as
@@ -2090,17 +2089,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // é suprimida durante a janela de 3s - ver comentários no restante desta
     // função e em GameBoard.tsx), então esta pausa nunca aparece antes do
     // Modo Reações decidir, herdando essa ordem sem nenhuma checagem extra.
-    if (gameConfig.postMagicPauseMs > 0) {
-      const targetDescriptions = [
-        ...targets.slots.map((s) => `Jogador ${s.player}, Slot ${s.slotIndex + 1}`),
-        ...(targets.cardIds.length > 0 ? [`${targets.cardIds.length} carta(s)`] : []),
-      ];
-      setPostMagicPause({
-        title: `${characterOf(gameState, pm.playerNumber).toUpperCase()} ativou ${getMagicCardInfo(character, type).name}`,
-        detail: targetDescriptions.length > 0 ? `Alvo(s): ${targetDescriptions.join(', ')}` : 'Sem alvo específico',
-      });
-      setTimeout(() => setPostMagicPause(null), gameConfig.postMagicPauseMs);
-    }
+    const targetDescriptions = [
+      ...targets.slots.map((s) => `Jogador ${s.player}, Slot ${s.slotIndex + 1}`),
+      ...(targets.cardIds.length > 0 ? [`${targets.cardIds.length} carta(s)`] : []),
+    ];
+    triggerPostMagicPause(
+      pm.playerNumber,
+      character,
+      getMagicCardInfo(character, type).name,
+      targetDescriptions.length > 0 ? `Alvo(s): ${targetDescriptions.join(', ')}` : 'Sem alvo específico'
+    );
   };
 
   /**
@@ -2157,8 +2155,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const executeMagicEffect = (override?: PendingMagic) => {
     const pm = override ?? pendingMagic;
     if (!pm) return;
-    const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch, druidaGrowBroto } = pm;
-    const selection: MagicSelection = { selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch, druidaGrowBroto };
+    const { playerNumber, cardId, type, character, selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch } = pm;
+    const selection: MagicSelection = { selectedCards, selectedSlot: pSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds, fireballLaunch };
     // FIX (checagem extensa por bugs - burst fantasma/duplicado no Modo
     // Reações): ver canMagicTriggerReactionAnnouncement em gameEngine.ts -
     // se esta ativação for na verdade só um ANÚNCIO (efeito represado em
@@ -2309,7 +2307,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         selectedTargetSlot: action.selection.selectedTargetSlot,
         selectedRevealCardIds: action.selection.selectedRevealCardIds,
         fireballLaunch: action.selection.fireballLaunch,
-        druidaGrowBroto: action.selection.druidaGrowBroto,
       });
     } else if (action.type === 'ACTIVATE_SIMPLE_MAGIC') {
       // Só usada pelo Anjo J (Bênção Divina) e K (Reforço Angelical) - as
@@ -2320,6 +2317,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       if (card && (card.value === 'J' || card.value === 'K')) {
         flashSelfEffect(action.player, character, getMagicCardInfo(character, card.value).name);
         soundManager.play(magicSoundFor(character, card.value));
+        triggerPostMagicPause(action.player, character, getMagicCardInfo(character, card.value).name, 'Sem alvo específico');
       } else {
         soundManager.play('magic-activate');
       }
@@ -3086,6 +3084,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onReactToMagic={(cardId) => handleReactToMagic(2, cardId)}
                 selectedForTower={selectedForTower}
                 onSelectCardForField={(cardId) => handleSelectCardForField(2, cardId)}
+                onToggleTowerCard={(cardId) => handleToggleTowerCard(2, cardId)}
                 fusionEnabled={gameConfig.fusion}
                 fusionLimit={gameConfig.fusionLimit}
                 discardLimit={gameConfig.discardLimit}
@@ -3210,6 +3209,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onReactToMagic={(cardId) => handleReactToMagic(1, cardId)}
                 selectedForTower={selectedForTower}
                 onSelectCardForField={(cardId) => handleSelectCardForField(1, cardId)}
+                onToggleTowerCard={(cardId) => handleToggleTowerCard(1, cardId)}
                 fusionEnabled={gameConfig.fusion}
                 fusionLimit={gameConfig.fusionLimit}
                 discardLimit={gameConfig.discardLimit}
@@ -3319,6 +3319,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   simplificação. Escondida quando `showLastMagicPanel` está
                   desligado (ver toggle na barra de status do topo). */}
               {settings.showLastMagicPanel && (() => {
+                // FIX (pedido do usuário: "não é isso que eu pedi, é pra
+                // mostrar A CARTA e a descrição do efeito dela") - antes só
+                // mostrava o NOME da magia + "já resolvido/turno N", sem a
+                // carta em si nem o que ela faz - agora renderiza a carta
+                // física de verdade (valor + naipe reais, via
+                // LogEntry.cardSuit) ao lado do nome/descrição completa (ver
+                // MAGIC_CARDS em magicCards.ts).
                 const lastMagicFor = (playerNumber: PlayerNumber) => {
                   const entries = gameState.log.filter((l) => l.type === 'magic' && l.player === playerNumber && l.cardValue);
                   const last = entries[entries.length - 1];
@@ -3328,7 +3335,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   const stillActive =
                     gameState.player1.combatModifiers.some((m) => m.label === info.name) ||
                     gameState.player2.combatModifiers.some((m) => m.label === info.name);
-                  return { info, turn: last.turn, stillActive };
+                  return { info, turn: last.turn, stillActive, cardValue: last.cardValue!, cardSuit: last.cardSuit };
                 };
                 const p1Last = lastMagicFor(1);
                 const p2Last = lastMagicFor(2);
@@ -3338,12 +3345,21 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                       {theme.name}
                     </p>
                     {last ? (
-                      <>
-                        <p className="text-[11px] text-[#EFE7D6]">{last.info.name}</p>
-                        <p className="text-[10px]" style={{ color: last.stillActive ? '#6CC47A' : '#BFB6A6' }}>
-                          {last.stillActive ? 'Efeito ainda ativo' : 'Já resolvido'} · turno {last.turn}
-                        </p>
-                      </>
+                      <div className="flex gap-2">
+                        {/* FIX (pedido do usuário: "no momento é amarela para
+                            ambos... mude a cor da carta") - `accentColor`
+                            (PlayingCard.tsx) troca o dourado genérico da
+                            borda/naipe/valor pela cor do personagem, só
+                            nesta instância. */}
+                        <PlayingCard value={last.cardValue} suit={last.cardSuit} accentColor={theme.primary} className="w-11 h-16 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-[11px]" style={{ color: theme.primary }}>{last.info.name}</p>
+                          <p className="text-[10px]" style={{ color: last.stillActive ? '#6CC47A' : '#BFB6A6' }}>
+                            {last.stillActive ? 'Efeito ainda ativo' : 'Já resolvido'} · turno {last.turn}
+                          </p>
+                          <p className="text-[10px] text-[#BFB6A6] mt-1 leading-snug">{last.info.description}</p>
+                        </div>
+                      </div>
                     ) : (
                       <p className="text-[10px] text-[#BFB6A6]">Nenhuma magia usada ainda</p>
                     )}
@@ -4471,20 +4487,24 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   })()}
 
                 {/* Druida (personagem novo) - Simbiose (Rainha) e Urtiga
-                    (Rei) sempre oferecem a MESMA escolha (mesmo espírito do
-                    Piromante acima): reduzir o Broto pela metade pra marcar
-                    uma carta em combate, OU aumentar o Broto em 2. O bloco é
-                    compartilhado pelas 2; só o alvo (próprio campo na
-                    Rainha, campo do oponente no Rei) e a cor do marcador
-                    (positivo/negativo) mudam. */}
+                    (Rei) só têm mais UM efeito de ativação agora (FIX, pedido
+                    do usuário: "remova o segundo efeito de aumentar em 2 -
+                    plantar a própria carta como Broto é que deve ser o
+                    segundo efeito"): reduzir o Broto pela metade pra marcar
+                    uma carta em combate. Crescer o Broto sem reduzi-lo virou
+                    arrastar/soltar a própria carta Q/K no campo (mesmo
+                    caminho do Valete) em vez de abrir este diálogo - ver
+                    canActivateMagic/getMagicActivationContext, que já não
+                    habilitam mais o botão de ativar sem um alvo de verdade
+                    disponível. Bloco compartilhado pelas 2; só o alvo (próprio
+                    campo na Rainha, campo do oponente no Rei) e a cor do
+                    marcador (positivo/negativo) mudam. */}
                 {pendingMagic.character === 'druida' &&
                   (() => {
                     const brotoSlot = gameState[ownKey].field.find(isBrotoSlot);
                     const brotoValue = brotoSlot?.faceDownCard?.transformedValue ?? 1;
                     const level = gameState[ownKey].druidaPhotosynthesisLevel;
-                    const growAmount = 2 + level;
                     const halved = Math.floor(brotoValue / 2);
-                    const isGrow = Boolean(pendingMagic.druidaGrowBroto);
                     const isUrtiga = pendingMagic.type === 'K';
 
                     const ownTargets = gameState[ownKey].field.flatMap((slot, slotIdx) =>
@@ -4501,49 +4521,25 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     const targets = isUrtiga ? opponentTargets : ownTargets;
 
                     return (
-                      <div className="space-y-3">
-                        <div className="flex gap-2 flex-wrap">
-                          <button
-                            disabled={halved <= 0}
-                            onClick={() => setPendingMagic({ ...pendingMagic, druidaGrowBroto: false, selectedCards: [] })}
-                            className={`flex-1 min-w-[180px] px-3 py-2 rounded border-2 text-[11px] text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
-                              !isGrow ? 'border-[#6CC47A] bg-[#6CC47A]/10 text-[#EFE7D6]' : 'border-[#C59E4F]/30 hover:border-[#C59E4F] text-[#BFB6A6]'
-                            }`}
-                          >
-                            Reduzir o Broto para {halved} e marcar uma carta {isUrtiga ? 'do oponente' : 'sua'} com {isUrtiga ? '-' : '+'}
-                            {halved + level}
-                          </button>
-                          <button
-                            onClick={() => setPendingMagic({ ...pendingMagic, druidaGrowBroto: true, selectedCards: undefined })}
-                            className={`flex-1 min-w-[180px] px-3 py-2 rounded border-2 text-[11px] text-left transition-all ${
-                              isGrow ? 'border-[#0F8A19] bg-[#0F8A19]/10 text-[#EFE7D6]' : 'border-[#C59E4F]/30 hover:border-[#C59E4F] text-[#BFB6A6]'
-                            }`}
-                          >
-                            🌱 Aumentar o Broto em {growAmount} (agora vale {brotoValue}, ficaria {brotoValue + growAmount})
-                          </button>
-                        </div>
-
-                        {!isGrow && (
-                          <div className="space-y-2">
-                            <p className="text-[#BFB6A6] text-[12px]">
-                              Selecione a carta {isUrtiga ? 'do campo do oponente' : 'do seu campo'} que vai receber o marcador:
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {targets.map(({ card: c }) => (
-                                <div
-                                  key={c.id}
-                                  onClick={() => setPendingMagic({ ...pendingMagic, selectedCards: [c.id] })}
-                                  className={`cursor-pointer transition-all hover:scale-105 rounded ${
-                                    (pendingMagic.selectedCards || [])[0] === c.id ? 'ring-2 ring-[#0F8A19]' : ''
-                                  }`}
-                                >
-                                  {c.revealed ? <PlayingCard value={c.value} suit={c.suit} card={c} /> : <div className="w-16 h-24 rounded bg-[#1E1A16] border-2 border-[#C59E4F]/30 flex items-center justify-center text-[20px]">🂠</div>}
-                                </div>
-                              ))}
+                      <div className="space-y-2">
+                        <p className="text-[#BFB6A6] text-[12px]">
+                          Reduzir o Broto para {halved} e marcar a carta escolhida {isUrtiga ? 'do oponente' : 'sua'} com {isUrtiga ? '-' : '+'}
+                          {halved + level}. Selecione a carta {isUrtiga ? 'do campo do oponente' : 'do seu campo'}:
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {targets.map(({ card: c }) => (
+                            <div
+                              key={c.id}
+                              onClick={() => setPendingMagic({ ...pendingMagic, selectedCards: [c.id] })}
+                              className={`cursor-pointer transition-all hover:scale-105 rounded ${
+                                (pendingMagic.selectedCards || [])[0] === c.id ? 'ring-2 ring-[#0F8A19]' : ''
+                              }`}
+                            >
+                              {c.revealed ? <PlayingCard value={c.value} suit={c.suit} card={c} /> : <div className="w-16 h-24 rounded bg-[#1E1A16] border-2 border-[#C59E4F]/30 flex items-center justify-center text-[20px]">🂠</div>}
                             </div>
-                            {targets.length === 0 && <p className="text-[#8A5A5A] text-[11px]">Nenhuma carta {isUrtiga ? 'no campo do oponente' : 'no seu campo'} disponível agora.</p>}
-                          </div>
-                        )}
+                          ))}
+                        </div>
+                        {targets.length === 0 && <p className="text-[#8A5A5A] text-[11px]">Nenhuma carta {isUrtiga ? 'no campo do oponente' : 'no seu campo'} disponível agora.</p>}
                       </div>
                     );
                   })()}
@@ -4586,7 +4582,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                         return !selectedCards || selectedCards.length === 0;
                       }
                       if (character === 'druida') {
-                        if (pendingMagic.druidaGrowBroto) return false;
                         return !selectedCards || selectedCards.length === 0;
                       }
                       return false;

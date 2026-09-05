@@ -395,6 +395,16 @@ export interface LogEntry {
    */
   cardValue?: string;
   /**
+   * FIX (pedido do usuário: "não é isso que eu pedi, é pra mostrar A CARTA e
+   * a descrição do efeito dela" - painel "Última Magia Usada", GameBoard.tsx)
+   * - naipe da carta em destaque em `cardValue` acima, quando ela é uma carta
+   * de baralho de verdade (J/Q/K de uma magia) - permite renderizar a carta
+   * FÍSICA de verdade (valor + naipe reais) em vez de só citar o valor no
+   * texto. Ausente para os `cardValue` que não são cartas reais ('🃏' do
+   * Monstro, o valor exigido de uma Magia Numeral).
+   */
+  cardSuit?: string;
+  /**
    * Coringa (redesenho completo, "armadilhas") - slot de campo (do jogador
    * `player` acima) onde um Valete/Rei armadilha acabou de se dissipar em
    * fumaça na fase de Estratégia (ver applyCoringaTrapReaction). GameBoard.tsx
@@ -576,15 +586,6 @@ export interface MagicSelection {
    * `selectedCards` com a carta do oponente a queimar).
    */
   fireballLaunch?: boolean;
-  /**
-   * Druida (personagem novo) - Simbiose (Rainha) e Urtiga (Rei) sempre
-   * oferecem 2 formas de ativar (mesmo espírito de `fireballLaunch` acima):
-   * `true` = aumentar o Broto em 2 (+ nível de Fotossíntese), sem alvo
-   * nenhum; `false`/ausente = reduzir o Broto pela metade para colocar um
-   * marcador de combate (`selectedCards[0]` é o alvo - próprio campo na
-   * Rainha, campo do oponente no Rei).
-   */
-  druidaGrowBroto?: boolean;
 }
 
 export type GameAction =
@@ -782,6 +783,8 @@ export function characterOf(state: GameState, player: PlayerNumber): CharacterId
 interface LogOptions {
   player?: PlayerNumber;
   cardValue?: string;
+  /** Ver LogEntry.cardSuit acima. */
+  cardSuit?: string;
   slotIndex?: number;
   /**
    * Só usado pelas 3 mensagens de transição de fase em advancePhaseState:
@@ -832,6 +835,7 @@ function appendLog(state: GameState, log: LogEntry[], type: LogEventType, messag
     player: opts.player ?? null,
     text: withPlayerCharacterNames(state, message),
     cardValue: opts.cardValue,
+    cardSuit: opts.cardSuit,
     slotIndex: opts.slotIndex,
   };
   return [...log, entry].slice(-30);
@@ -1476,11 +1480,17 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
       state.phase === 'combat' &&
       playerState.fireballValue > 0 &&
       opponentState.field.some((slot) => Boolean(slot.faceDownCard) || slot.horizontalCards.length > 0),
-    // Druida (personagem novo) - Simbiose (Rainha) e Urtiga (Rei) só podem
-    // ativar com um Broto plantado em algum slot do próprio campo (a opção
-    // "aumentar o Broto em 2" já é válida sozinha, sem precisar de nenhum
-    // alvo - ver handleExecuteMagic).
-    hasActiveBroto: playerState.field.some(isBrotoSlot),
+    // FIX (pedido do usuário: "remova o segundo efeito de aumentar em 2 -
+    // plantar a própria carta como Broto é que deve ser o segundo efeito") -
+    // Simbiose/Urtiga só têm mais o efeito de REDUZIR o Broto agora - exige
+    // um Broto valendo >= 2 (nada pra reduzir de um Broto valendo 1) E um
+    // alvo de verdade disponível (ver MagicActivationContext.canReduceBroto/
+    // hasSimbioseTarget em magicCards.ts).
+    canReduceBroto: (() => {
+      const brotoSlot = playerState.field.find(isBrotoSlot);
+      return Boolean(brotoSlot) && (brotoSlot!.faceDownCard!.transformedValue ?? 1) >= 2;
+    })(),
+    hasSimbioseTarget: playerState.field.some((slot) => (slot.faceDownCard && !isBrotoSlot(slot)) || slot.horizontalCards.length > 0),
   };
 }
 
@@ -2477,7 +2487,7 @@ function handleActivateSimpleMagic(state: GameState, player: PlayerNumber, cardI
     const ace = deck[aceIndex];
     const remainingDeck = [...deck.slice(0, aceIndex), ...deck.slice(aceIndex + 1)];
     const { deck: finalDeck, discardPile: finalDiscard } = pushToDiscard({ deck: remainingDeck, discardPile, gameConfig: state.gameConfig }, [card]);
-    const log = appendLog(state, state.log, 'magic', `Jogador ${player} comprou um Ás`, { player, cardValue: card.value });
+    const log = appendLog(state, state.log, 'magic', `Jogador ${player} comprou um Ás`, { player, cardValue: card.value, cardSuit: card.suit });
     return {
       ...state,
       deck: finalDeck,
@@ -2497,7 +2507,7 @@ function handleActivateSimpleMagic(state: GameState, player: PlayerNumber, cardI
     const newHand = playerState.hand.filter((c) => c.id !== cardId);
     const { deck, discardPile } = pushToDiscard(state, [card]);
     const newHorizontalStackBonus = playerState.horizontalStackBonus + 1;
-    const log = appendLog(state, state.log, 'magic', `Jogador ${player} pode agora posicionar até ${1 + newHorizontalStackBonus} cartas horizontais neste turno`, { player, cardValue: card.value });
+    const log = appendLog(state, state.log, 'magic', `Jogador ${player} pode agora posicionar até ${1 + newHorizontalStackBonus} cartas horizontais neste turno`, { player, cardValue: card.value, cardSuit: card.suit });
     return {
       ...state,
       deck,
@@ -2682,7 +2692,7 @@ function handleExecuteMagic(
     if (targetCard.revealed) {
       const newOpponentHand = opponentState.hand.filter((c) => c.id !== targetId);
       const { deck, discardPile } = pushToDiscard(state, [card, targetCard]);
-      const log = appendLog(state, state.log, 'magic', `Jogador ${player} descartou ${targetCard.value}${targetCard.suit} de Jogador ${opponent}`, { player, cardValue: card.value });
+      const log = appendLog(state, state.log, 'magic', `Jogador ${player} descartou ${targetCard.value}${targetCard.suit} de Jogador ${opponent}`, { player, cardValue: card.value, cardSuit: card.suit });
       return {
         ...state,
         deck,
@@ -2695,7 +2705,7 @@ function handleExecuteMagic(
 
     const newOpponentHand = opponentState.hand.map((c) => (c.id === targetId ? { ...c, revealed: true } : c));
     const { deck, discardPile } = pushToDiscard(state, [card]);
-    const log = appendLog(state, state.log, 'magic', `Jogador ${player} revelou ${targetCard.value}${targetCard.suit} de Jogador ${opponent}`, { player, cardValue: card.value });
+    const log = appendLog(state, state.log, 'magic', `Jogador ${player} revelou ${targetCard.value}${targetCard.suit} de Jogador ${opponent}`, { player, cardValue: card.value, cardSuit: card.suit });
     return {
       ...state,
       deck,
@@ -2731,7 +2741,7 @@ function handleExecuteMagic(
     const remainingDiscard = state.discardPile.filter((c) => !idsToTakeSet.has(c.id));
 
     let log = state.log;
-    log = appendLog(state, log, 'magic', `Jogador ${player} pegou ${cardsFromDiscard.length} carta(s) do descarte`, { player, cardValue: card.value });
+    log = appendLog(state, log, 'magic', `Jogador ${player} pegou ${cardsFromDiscard.length} carta(s) do descarte`, { player, cardValue: card.value, cardSuit: card.suit });
 
     const { deck, discardPile } = pushToDiscard({ deck: state.deck, discardPile: remainingDiscard, gameConfig: state.gameConfig }, [card]);
 
@@ -2825,7 +2835,7 @@ function handleExecuteMagic(
         setHand(sourceKey, handOf(sourceKey).filter((c) => c.id !== selectedCards[0]));
         setField(targetKey, newTargetField);
         const { deck, discardPile } = pushToDiscard(state, [card]);
-        const log = appendLog(state, state.log, 'magic', `Jogador ${player} reforçou uma torre com uma carta revelada`, { player, cardValue: card.value });
+        const log = appendLog(state, state.log, 'magic', `Jogador ${player} reforçou uma torre com uma carta revelada`, { player, cardValue: card.value, cardSuit: card.suit });
         return { ...state, deck, discardPile, log, player1: newPlayer1, player2: newPlayer2 };
       }
 
@@ -2834,7 +2844,7 @@ function handleExecuteMagic(
       newTargetField[selectedSlot] = { ...targetSlot, faceDownCard: newTop, towerReserve: newReserve, revealed: Boolean(newTop) };
       setField(targetKey, newTargetField);
       const { deck, discardPile } = pushToDiscard(state, [card, targetSlot.faceDownCard!]);
-      const log = appendLog(state, state.log, 'magic', `Jogador ${player} descartou o topo de uma torre (a carta não bateu com o número)`, { player, cardValue: card.value });
+      const log = appendLog(state, state.log, 'magic', `Jogador ${player} descartou o topo de uma torre (a carta não bateu com o número)`, { player, cardValue: card.value, cardSuit: card.suit });
       return { ...state, deck, discardPile, log, player1: newPlayer1, player2: newPlayer2 };
     }
 
@@ -2850,7 +2860,7 @@ function handleExecuteMagic(
       sourceOwner === player
         ? `Jogador ${player} substituiu carta no campo`
         : `Jogador ${player} substituiu carta no campo usando uma carta revelada da mão de Jogador ${opponent}`,
-      { player, cardValue: card.value }
+      { player, cardValue: card.value, cardSuit: card.suit }
     );
 
     // FIX: alvo do campo (own/opponent) e dono da carta usada na troca
@@ -2956,7 +2966,7 @@ function handleExecuteMagic(
         };
         const discardWithoutTaken = state.discardPile.filter((c) => c.id !== selectedCards[0]);
         const { deck, discardPile } = pushToDiscard({ deck: state.deck, discardPile: discardWithoutTaken, gameConfig: state.gameConfig }, [card]);
-        const log = appendLog(state, state.log, 'magic', `Jogador ${player} reforçou uma torre com uma carta do descarte`, { player, cardValue: card.value });
+        const log = appendLog(state, state.log, 'magic', `Jogador ${player} reforçou uma torre com uma carta do descarte`, { player, cardValue: card.value, cardSuit: card.suit });
         if (targetPlayer !== player) {
           return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic }, [targetKey]: { ...targetState, field: newTargetField } };
         }
@@ -2967,7 +2977,7 @@ function handleExecuteMagic(
       const newTop = newReserve.pop();
       newTargetField[selectedSlot] = { ...targetSlot, faceDownCard: newTop, towerReserve: newReserve, revealed: Boolean(newTop) };
       const { deck, discardPile } = pushToDiscard(state, [card, targetSlot.faceDownCard!]);
-      const log = appendLog(state, state.log, 'magic', `Jogador ${player} descartou o topo de uma torre (a carta não bateu com o número)`, { player, cardValue: card.value });
+      const log = appendLog(state, state.log, 'magic', `Jogador ${player} descartou o topo de uma torre (a carta não bateu com o número)`, { player, cardValue: card.value, cardSuit: card.suit });
       if (targetPlayer !== player) {
         return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic }, [targetKey]: { ...targetState, field: newTargetField } };
       }
@@ -2997,7 +3007,7 @@ function handleExecuteMagic(
       state.log,
       'magic',
       `Jogador ${player} trocou carta do campo${targetPlayer !== player ? ` de Jogador ${targetPlayer}` : ''} por uma do descarte`,
-      { player, cardValue: card.value }
+      { player, cardValue: card.value, cardSuit: card.suit }
     );
 
     if (targetPlayer !== player) {
@@ -3047,7 +3057,7 @@ function handleExecuteMagic(
         state.log,
         'magic',
         `Jogador ${player} revelou uma carta da mão de Jogador ${opponent}${isMagicValue ? ' (trancada até o fim do turno)' : ''}`,
-        { player, cardValue: card.value }
+        { player, cardValue: card.value, cardSuit: card.suit }
       );
       return {
         ...state,
@@ -3083,7 +3093,7 @@ function handleExecuteMagic(
         state.log,
         'magic',
         `Jogador ${player} revelou carta do campo de Jogador ${opponent}${isMagicValue ? ' (trancada até o fim do turno)' : ''}`,
-        { player, cardValue: card.value }
+        { player, cardValue: card.value, cardSuit: card.suit }
       );
       const resultState: GameState = {
         ...state,
@@ -3145,7 +3155,7 @@ function handleExecuteMagic(
       state.log,
       'magic',
       `Jogador ${player} destruiu ${destroyedParts.join(' e ')} de Jogador ${opponent}`,
-      { player, cardValue: card.value }
+      { player, cardValue: card.value, cardSuit: card.suit }
     );
 
     return {
@@ -3179,7 +3189,7 @@ function handleExecuteMagic(
     newOpponentField[selectedTargetSlot] = { ...newOpponentField[selectedTargetSlot], faceDownCard: playerCard };
 
     const { deck, discardPile } = pushToDiscard(state, [card]);
-    const log = appendLog(state, state.log, 'magic', `Jogador ${player} trocou carta com Jogador ${opponent}`, { player, cardValue: card.value });
+    const log = appendLog(state, state.log, 'magic', `Jogador ${player} trocou carta com Jogador ${opponent}`, { player, cardValue: card.value, cardSuit: card.suit });
 
     return {
       ...state,
@@ -3220,7 +3230,7 @@ function handleExecuteMagic(
       redirecting
         ? `Jogador ${player} ativou Tiro de Cobertura - Jogador ${opponent} descartou ${targetCard.value}${targetCard.suit} às cegas`
         : `Jogador ${player} descartou ${targetCard.value}${targetCard.suit} para posicionar uma carta horizontal a mais neste turno`,
-      { player, cardValue: card.value }
+      { player, cardValue: card.value, cardSuit: card.suit }
     );
 
     return {
@@ -3286,7 +3296,7 @@ function handleExecuteMagic(
       redirecting
         ? `Jogador ${player} ativou Rajada Reveladora - Jogador ${opponent} descartou ${discardedCards.length} carta(s) às cegas`
         : `Jogador ${player} descartou ${discardedCards.length} carta(s) com Rajada Reveladora`,
-      { player, cardValue: card.value }
+      { player, cardValue: card.value, cardSuit: card.suit }
     );
     if (revealIds.size > 0) {
       log = appendLog(state, log, 'magic', `${revealIds.size} carta(s) de Jogador ${opponent} foram reveladas`, { player });
@@ -3362,7 +3372,7 @@ function handleExecuteMagic(
       state.log,
       'magic',
       `Jogador ${player} ativou Tiro Certeiro e enfraqueceu ${targetCard.value}${targetCard.suit} de Jogador ${opponent} em -${boostAmount} de valor no combate (total: ${newAmount})`,
-      { player, cardValue: card.value }
+      { player, cardValue: card.value, cardSuit: card.suit }
     );
 
     return {
@@ -3409,9 +3419,9 @@ function handleExecuteMagic(
             state.log,
             'magic',
             `Jogador ${player} queimou ${fuelCards.length} carta(s) da mão e somou ${fuelSum} à Bola de Fogo (agora ${newFireball})`,
-            { player, cardValue: card.value }
+            { player, cardValue: card.value, cardSuit: card.suit }
           )
-        : appendLog(state, state.log, 'magic', `Jogador ${player} não tinha cartas pequenas na mão pra queimar`, { player, cardValue: card.value });
+        : appendLog(state, state.log, 'magic', `Jogador ${player} não tinha cartas pequenas na mão pra queimar`, { player, cardValue: card.value, cardSuit: card.suit });
     return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: newHand, fireballValue: newFireball } };
   }
 
@@ -3459,7 +3469,7 @@ function handleExecuteMagic(
       state.log,
       'magic',
       `Jogador ${player} queimou ${targetCard.value}${targetCard.suit} de Jogador ${opponent} e somou ${value} à Bola de Fogo (agora ${newFireball})`,
-      { player, cardValue: card.value }
+      { player, cardValue: card.value, cardSuit: card.suit }
     );
     return {
       ...state,
@@ -3502,7 +3512,7 @@ function handleExecuteMagic(
       state.log,
       'magic',
       `Jogador ${player} queimou uma horizontal de Jogador ${opponent} e somou ${value} à Bola de Fogo (agora ${newFireball})`,
-      { player, cardValue: card.value }
+      { player, cardValue: card.value, cardSuit: card.suit }
     );
     return {
       ...state,
@@ -3515,12 +3525,16 @@ function handleExecuteMagic(
   }
 
   // ----- Druida Q: Simbiose -----
-  // Fase de ESTRATÉGIA. Sempre 2 formas de ativar (mesmo espírito da escolha
-  // do Piromante acima, ver `selection.druidaGrowBroto`): reduza o Broto pela
+  // Fase de ESTRATÉGIA. FIX (pedido do usuário: "remova o segundo efeito de
+  // aumentar em 2 - plantar a própria carta como Broto é que deve ser o
+  // segundo efeito"): único efeito de ativação agora é reduzir o Broto pela
   // metade para adicionar um marcador de combate numa carta PRÓPRIA (vale a
-  // metade reduzida + nível de Fotossíntese), OU aumente o Broto em 2 (+
-  // nível de Fotossíntese) sem precisar de alvo nenhum. Precisa de um Broto
-  // ativo em algum slot do próprio campo pra qualquer uma das duas opções.
+  // metade reduzida + nível de Fotossíntese) - crescer o Broto sem sacrifício
+  // virou plantar/empilhar a própria carta Q no campo em vez de ativá-la (ver
+  // isDruidaBrotoCard mais abaixo). `canActivateMagic`/`getMagicActivationContext`
+  // já garantem um Broto com valor >= 2 e um alvo de verdade antes de chegar
+  // aqui, mas os `return state` abaixo continuam validando de novo - nunca
+  // confiar só na UI.
   if (character === 'druida' && magicType === 'Q') {
     const brotoSlotIndex = playerState.field.findIndex(isBrotoSlot);
     if (brotoSlotIndex === -1) return state;
@@ -3528,16 +3542,6 @@ function handleExecuteMagic(
     const brotoTop = brotoSlot.faceDownCard!;
     const brotoValue = brotoTop.transformedValue ?? 1;
     const level = playerState.druidaPhotosynthesisLevel;
-
-    if (selection.druidaGrowBroto) {
-      const growth = 2 + level;
-      const newValue = brotoValue + growth;
-      const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
-      newField[brotoSlotIndex] = { ...brotoSlot, faceDownCard: { ...brotoTop, transformedValue: newValue } };
-      const { deck, discardPile } = pushToDiscard(state, [card]);
-      const log = appendLog(state, state.log, 'magic', `Jogador ${player} aumentou o Broto em ${growth} (agora vale ${newValue})`, { player, cardValue: card.value });
-      return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic, field: newField } };
-    }
 
     const targetId = selectedCards?.[0];
     if (!targetId) return state;
@@ -3560,7 +3564,7 @@ function handleExecuteMagic(
       state.log,
       'magic',
       `Jogador ${player} reduziu o Broto para ${halved} e marcou ${targetCard.value}${targetCard.suit} com +${markerAmount}`,
-      { player, cardValue: card.value }
+      { player, cardValue: card.value, cardSuit: card.suit }
     );
     return {
       ...state,
@@ -3577,8 +3581,9 @@ function handleExecuteMagic(
   }
 
   // ----- Druida K: Urtiga -----
-  // Fase de COMBATE. Mesma escolha de Simbiose acima, mas o marcador (opção
-  // "reduzir") é NEGATIVO e mira uma carta do OPONENTE - primeira magia do
+  // Fase de COMBATE. FIX (pedido do usuário: mesma mudança de Simbiose acima
+  // - único efeito de ativação agora é reduzir o Broto pela metade): o
+  // marcador é NEGATIVO e mira uma carta do OPONENTE - primeira magia do
   // jogo a escrever em `combatModifiers` do adversário (Besta/Mosqueteiro só
   // se auto-buffam - ver comentário completo em CombatModifier).
   if (character === 'druida' && magicType === 'K') {
@@ -3588,16 +3593,6 @@ function handleExecuteMagic(
     const brotoTop = brotoSlot.faceDownCard!;
     const brotoValue = brotoTop.transformedValue ?? 1;
     const level = playerState.druidaPhotosynthesisLevel;
-
-    if (selection.druidaGrowBroto) {
-      const growth = 2 + level;
-      const newValue = brotoValue + growth;
-      const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
-      newField[brotoSlotIndex] = { ...brotoSlot, faceDownCard: { ...brotoTop, transformedValue: newValue } };
-      const { deck, discardPile } = pushToDiscard(state, [card]);
-      const log = appendLog(state, state.log, 'magic', `Jogador ${player} aumentou o Broto em ${growth} (agora vale ${newValue})`, { player, cardValue: card.value });
-      return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic, field: newField } };
-    }
 
     const targetId = selectedCards?.[0];
     if (!targetId) return state;
@@ -3622,7 +3617,7 @@ function handleExecuteMagic(
       state.log,
       'magic',
       `Jogador ${player} reduziu o Broto para ${halved} e enfraqueceu ${targetCard.value}${targetCard.suit} de Jogador ${opponent} em -${debuffAmount}`,
-      { player, cardValue: card.value }
+      { player, cardValue: card.value, cardSuit: card.suit }
     );
     return {
       ...state,
@@ -3783,7 +3778,7 @@ function maybeDeferForReaction(
     state.log,
     'magic',
     `Jogador ${player} anunciou uma magia (${card.value}) - Jogador ${opponent} pode reagir!`,
-    { player, cardValue: card.value }
+    { player, cardValue: card.value, cardSuit: card.suit }
   );
 
   return {
@@ -4225,7 +4220,7 @@ function handleTransformCoringaMagicCard(state: GameState, player: PlayerNumber,
     state.log,
     'magic',
     `Jogador ${player} transformou ${card.value}${card.suit} em uma carta de número ${targetValue}`,
-    { player, cardValue: card.value }
+    { player, cardValue: card.value, cardSuit: card.suit }
   );
 
   return {

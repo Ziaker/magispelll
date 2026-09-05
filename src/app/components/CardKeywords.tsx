@@ -98,7 +98,12 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
   // handleExecuteMagic.
   magicLocked: {
     icon: Lock,
-    color: '#9B6BD1',
+    // FIX (pedido do usuário: "esse roxo não tem nada a ver com ele [Anjo]") -
+    // a Visão Celestial é uma habilidade exclusiva do Anjo (ver comentário
+    // acima) - trocado o roxo genérico pelo dourado do próprio tema do Anjo
+    // (characterThemes.ts), pra ficar visualmente ligado a quem lança o
+    // efeito em vez de uma cor arbitrária sem relação nenhuma.
+    color: '#E2B84A',
     label: 'Trancada',
     description: 'Trancada pela Visão Celestial do Anjo: esta magia não pode ser ativada até o fim do turno.',
     position: 'bottom-right',

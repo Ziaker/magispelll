@@ -4118,6 +4118,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
   const brotoTop = makeCard('druida-simbiose-after-broto', 'J');
   const qCard = makeCard('druida-simbiose-after-q', 'Q');
+  const targetCard = makeCard('druida-simbiose-after-target', '4');
   state = {
     ...state,
     phase: 'strategy',
@@ -4126,7 +4127,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
       hand: [qCard],
       field: [
         { faceDownCard: { ...brotoTop, transformedValue: 8, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
-        { faceDownCard: makeCard('druida-simbiose-after-target', '4'), revealed: true, horizontalCards: [] },
+        { faceDownCard: targetCard, revealed: true, horizontalCards: [] },
         { revealed: false, horizontalCards: [] },
       ],
     },
@@ -4138,10 +4139,12 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     cardId: qCard.id,
     character: 'druida',
     magicType: 'Q',
-    selection: { druidaGrowBroto: true },
+    selection: { selectedCards: [targetCard.id] },
   });
 
-  assert(state.player1.field[0].faceDownCard?.transformedValue === 10, 'FIX: Simbiose (Q) continua funcionando normalmente (aumentar o Broto em 2) mesmo depois de Q/K ganharem a opção de plantar/empilhar');
+  assert(state.player1.field[0].faceDownCard?.transformedValue === 4, 'FIX: Simbiose (Q) continua reduzindo o Broto pela metade normalmente mesmo depois de Q/K ganharem a opção de plantar/empilhar');
+  const marker = state.player1.combatModifiers.find((m) => m.cardId === targetCard.id && m.source === 'druida' && m.label === 'Simbiose');
+  assert(marker?.amount === 4, 'O marcador de combate (+4, metade reduzida do Broto) foi criado na carta-alvo');
   assert(!state.player1.hand.some((c) => c.id === qCard.id), 'A Rainha usada como magia foi consumida normalmente (descartada), não foi "plantada"');
 })();
 
@@ -4404,7 +4407,14 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(!state.player1.hand.some((c) => c.id === qCard.id), 'A Rainha foi consumida (descartada)');
 })();
 
-(function testDruidaSimbioseGrowOption() {
+// FIX (pedido do usuário: "remova o segundo efeito de aumentar em 2 - plantar
+// a própria carta como Broto é que deve ser o segundo efeito") - Simbiose não
+// tem mais opção de "aumentar o Broto"; sem nenhum alvo além do próprio Broto
+// no campo, a ativação como MAGIA fica bloqueada (canActivateMagic) e o
+// motor não muda nada mesmo se alguém tentar mandar EXECUTE_MAGIC sem alvo -
+// crescer o Broto sem reduzi-lo agora significa jogar a própria carta Q no
+// campo (PLAY_CARD), testado logo abaixo.
+(function testDruidaSimbioseNoLongerGrows() {
   let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
   const qCard = makeCard('druida-simbiose-grow-q', 'Q');
   const brotoTop = makeCard('druida-simbiose-grow-broto', 'J');
@@ -4422,20 +4432,28 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     },
   };
 
-  state = gameReducer(state, {
+  const ctx = getMagicActivationContext(state, 1);
+  assert(!canActivateMagic('strategy', 'druida', 'Q', ctx), 'FIX Druida Simbiose: sem nenhum alvo além do próprio Broto, a ativação como magia fica bloqueada (botão desabilitado)');
+
+  const stateAfterNoopExecute = gameReducer(state, {
     type: 'EXECUTE_MAGIC',
     player: 1,
     cardId: qCard.id,
     character: 'druida',
     magicType: 'Q',
-    selection: { druidaGrowBroto: true },
+    selection: {},
   });
-
   assert(
-    state.player1.field[0].faceDownCard?.transformedValue === 7,
-    `FIX Druida Simbiose: opção "aumentar" soma +2 no Broto (5 -> 7, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
+    stateAfterNoopExecute.player1.field[0].faceDownCard?.transformedValue === 5,
+    'FIX: EXECUTE_MAGIC sem selectedCards não muda o Broto (motor rejeita de novo, nunca confia só na UI)'
   );
-  assert(state.player1.combatModifiers.length === 0, 'A opção de aumentar não cria nenhum marcador de combate');
+  assert(stateAfterNoopExecute.player1.hand.some((c) => c.id === qCard.id), 'A Rainha não foi consumida por uma ativação rejeitada');
+
+  const stateAfterPlant = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: qCard.id, slotIndex: 0, asHorizontal: false });
+  assert(
+    stateAfterPlant.player1.field[0].faceDownCard?.transformedValue === 6,
+    `FIX: crescer o Broto sem reduzi-lo agora é plantar/empilhar a própria carta Q no campo (5 -> 6, recebido: ${stateAfterPlant.player1.field[0].faceDownCard?.transformedValue})`
+  );
 })();
 
 (function testDruidaUrtigaWritesOpponentModifier() {

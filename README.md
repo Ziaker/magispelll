@@ -20,6 +20,7 @@ Cada jogador escolhe um personagem com um baralho e um estilo de jogo próprios.
 | **Mosqueteiro** | Descarte e precisão — troca cartas por reforço de campo e informação |
 | **Coringa** | Armadilhas e sabotagem — planta cartas viradas para baixo que explodem quando o oponente menos espera |
 | **Piromante** | Combustão e dano em área — acumula uma Bola de Fogo queimando cartas como combustível e a lança contra o campo do oponente |
+| **Druida** | Crescimento e simbiose — planta um Broto que cresce sozinho a cada turno e pode ser sacrificado pela metade para marcar cartas em combate |
 
 ### Modos e variantes
 
@@ -29,7 +30,7 @@ Cada jogador escolhe um personagem com um baralho e um estilo de jogo próprios.
 
 ## Baixar para Windows
 
-Um executável standalone (sem instalação, sem depender de Node/npm) fica disponível a cada atualização do jogo — peça a versão mais recente ou compile a sua própria (veja abaixo).
+Não há um executável pré-compilado distribuído automaticamente — gere o seu com `npm run build:exe` (veja abaixo). O resultado é um `Magispelll.exe` standalone (sem instalação, sem depender de Node/npm/internet para jogar).
 
 ## Desenvolvimento
 
@@ -38,8 +39,10 @@ npm install
 npm run dev          # servidor de desenvolvimento (Vite)
 npm run typecheck    # checagem de tipos
 npm test             # suíte de testes de sanidade do motor de regras
-npm run build         # build de produção (site estático)
-npm run build:exe    # empacota o executável de Windows (Go + WebView2)
+npm run fuzz         # harness de fuzzing (busca bugs de conservação/invariantes por simulação)
+npm run simulate     # estatísticas de comportamento da IA (confrontos personagem x personagem)
+npm run build        # build de produção (site estático)
+npm run build:exe    # empacota o executável de Windows (requer Go instalado - https://go.dev)
 ```
 
 Publicar no GitHub Pages é automático: todo push na branch `master` aciona o workflow em [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml).
@@ -51,4 +54,4 @@ React + TypeScript + Vite + Tailwind CSS, com [Radix UI](https://www.radix-ui.co
 ## Créditos
 
 - Componentes de interface: [shadcn/ui](https://ui.shadcn.com/) (MIT)
-- Efeitos sonoros: pacotes de áudio da [Kenney](https://kenney.nl) (Creative Commons CC0 1.0)
+- Efeitos sonoros: [Kenney](https://kenney.nl) e diversos autores do [OpenGameArt.org](https://opengameart.org) (Creative Commons CC0 1.0), além de trechos do [Mixkit](https://mixkit.co/free-sound-effects/) (Mixkit Sound Effects Free License) — fonte de cada arquivo em [`src/assets/sfx/LICENSE.txt`](src/assets/sfx/LICENSE.txt)

@@ -208,13 +208,13 @@ export const MAGIC_CARDS: Record<Character, Record<MagicCardType, MagicCardInfo>
       name: 'Rainha - Simbiose',
       phase: 'strategy',
       description:
-        'Reduza o Broto pela metade para adicionar um marcador de combate (vale a metade reduzida) numa carta sua no campo. OU: aumente o Broto em 2. Também pode ser POSICIONADA no campo em vez de ativada, plantando ou empilhando o Broto exatamente como um Valete.',
+        'Reduza o Broto pela metade para adicionar um marcador de combate (vale a metade reduzida) numa carta sua no campo. Ou, em vez de ativar, POSICIONE a carta no campo pra plantar ou empilhar o Broto exatamente como um Valete - essa é a forma de crescer o Broto sem reduzi-lo.',
     },
     K: {
       name: 'Rei - Urtiga',
       phase: 'combat',
       description:
-        'Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do oponente (vale a metade reduzida). OU: aumente o Broto em 2. Também pode ser POSICIONADO no campo em vez de ativado, plantando ou empilhando o Broto exatamente como um Valete.',
+        'Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do oponente (vale a metade reduzida). Ou, em vez de ativar, POSICIONE a carta no campo pra plantar ou empilhar o Broto exatamente como um Valete - essa é a forma de crescer o Broto sem reduzi-lo.',
     },
   },
 };
@@ -322,13 +322,21 @@ export interface MagicActivationContext {
   /** Bola de Fogo > 0 E existe pelo menos 1 slot do oponente com alguma carta pra mirar. */
   canLaunchFireball?: boolean;
   /**
-   * Druida (personagem novo) - Simbiose (Rainha) e Urtiga (Rei) só podem
-   * ativar com um Broto plantado em algum slot do próprio campo - a opção
-   * "aumentar o Broto em 2" já é válida sozinha assim que ele existe, sem
-   * precisar de nenhum alvo escolhido ainda (a escolha entre as 2 opções
-   * acontece no diálogo de ativação, não aqui - mesmo padrão do Piromante).
+   * FIX (pedido do usuário: "remova o segundo efeito de cada magia de
+   * aumentar em 2 - plantar a própria carta como Broto é que deve ser o
+   * segundo efeito") - Simbiose/Urtiga (Rainha/Rei do Druida) agora só têm UM
+   * efeito de ativação (reduzir o Broto pela metade pra criar o marcador de
+   * combate); crescer o Broto sem sacrifício passou a significar plantar/
+   * empilhar a própria carta Q/K no campo (PLAY_CARD, mesmo caminho do
+   * Valete - ver isDruidaBrotoCard em gameEngine.ts), não mais uma opção
+   * dentro de EXECUTE_MAGIC. Por isso a ativação como magia agora exige um
+   * Broto com pelo menos valor 2 (nada pra reduzir de um Broto valendo 1) E
+   * um alvo de verdade disponível - sem isso o botão ficaria habilitado sem
+   * nenhuma ação possível dentro do diálogo.
    */
-  hasActiveBroto?: boolean;
+  canReduceBroto?: boolean;
+  /** Simbiose (Rainha do Druida): existe alguma carta no PRÓPRIO campo (fora o próprio Broto) pra receber o marcador. */
+  hasSimbioseTarget?: boolean;
 }
 
 /**
@@ -543,12 +551,16 @@ export function canActivateMagic(
   // magias de verdade, tratadas abaixo).
   if (character === 'druida' && cardValue === 'J') return false;
 
-  // Druida Q (Simbiose) e K (Urtiga): as duas exigem um Broto ativo em algum
-  // slot do próprio campo - a opção "aumentar em 2" já é válida sozinha
-  // assim que ele existe (a escolha entre as 2 opções acontece no diálogo de
-  // ativação, não aqui).
+  // Druida Q (Simbiose) e K (Urtiga): único efeito agora é reduzir o Broto
+  // pela metade pra marcar um alvo - exige um Broto com valor >= 2 (nada pra
+  // reduzir de um Broto valendo 1) E um alvo de verdade (próprio campo pra
+  // Simbiose, campo desprotegido do oponente pra Urtiga). Crescer o Broto
+  // sem sacrifício virou plantar/empilhar a própria carta Q/K no campo
+  // (PLAY_CARD, ver isDruidaBrotoCard em gameEngine.ts) - fora do escopo
+  // desta função, que só valida a ativação como MAGIA.
   if (character === 'druida' && (cardValue === 'Q' || cardValue === 'K')) {
-    return ctx.hasActiveBroto ?? false;
+    if (!(ctx.canReduceBroto ?? false)) return false;
+    return cardValue === 'Q' ? (ctx.hasSimbioseTarget ?? false) : (ctx.hasUnprotectedCardInOpponentField ?? false);
   }
 
   // Sem condições especiais além da fase (Mago J, Anjo K)

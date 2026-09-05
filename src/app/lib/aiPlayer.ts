@@ -1987,27 +1987,76 @@ function shouldHoldBackField(state: GameState, ai: PlayerNumber): boolean {
 }
 
 /**
- * Druida (personagem novo) - Broto (Valete): planta assim que possível
- * (quanto mais cedo, mais trocas de fase ele acumula) e SEMPRE empilha outro
- * Valete no Broto já existente em vez de segurá-lo - crescer o Broto nunca
- * tem custo nenhum (ao contrário de Simbiose/Urtiga, que sacrificam metade
- * dele), então mais Valetes empilhados são estritamente melhores. Chamada
- * ANTES de decideFieldPlacement em decideStrategyPhase - o Valete nunca
- * seria elegível lá de qualquer forma (isFieldEligible sempre exclui J/Q/K).
+ * Druida (personagem novo) - Broto: planta assim que possível (quanto mais
+ * cedo, mais trocas de fase ele acumula) e SEMPRE empilha outra carta no
+ * Broto já existente em vez de segurá-la - crescer o Broto nunca tem custo
+ * (ao contrário de Simbiose/Urtiga, que sacrificam metade dele), então mais
+ * cartas empilhadas são estritamente melhores. Chamada ANTES de
+ * decideFieldPlacement em decideStrategyPhase - Valete/Rainha/Rei nunca
+ * seriam elegíveis lá de qualquer forma (isFieldEligible sempre exclui J/Q/K).
+ *
+ * FIX (pedido do usuário: "a ia do druida não joga as outras cartas como
+ * brotos, só a valete" - Simbiose/Urtiga (Rainha/Rei) também podem ser
+ * plantadas/empilhadas como Broto agora, ver isDruidaBrotoCard em
+ * gameEngine.ts, já que o efeito "aumentar o Broto" saiu de dentro da magia
+ * e virou justamente isto): considera as 3 cartas, com uma ordem de
+ * prioridade:
+ * 1. Valete - nunca serve pra outra coisa, sempre livre pra virar Broto.
+ * 2. Rainha (Simbiose, fase de Estratégia) - só chega até aqui se
+ *    decideStrategyMagic/decideDruidaQ (chamada ANTES desta função em
+ *    decideStrategyPhase) já decidiu que não vale a pena ativar agora (sem
+ *    alvo bom o bastante) - "sobra" natural, sem lógica extra necessária
+ *    aqui.
+ * 3. Rei (Urtiga, fase de Combate) - diferente da Rainha, nunca passa por
+ *    decideDruidaK ANTES desta função (Urtiga só é avaliada na fase de
+ *    Combate, uma chamada de decideAiAction totalmente separada) - sem
+ *    reservar, o Druida plantaria todo Rei assim que chegasse à mão, na
+ *    Estratégia, e nunca sobraria nenhum pra ativar Urtiga de verdade no
+ *    Combate. `wouldUrtigaBeWorthKeeping` refaz o mesmo teste de viabilidade
+ *    de decideDruidaK (sem o bônus de `combatSelection`, que só existe
+ *    DEPOIS que o Combate começa) só pra decidir se vale a pena guardar.
  */
 function decideDruidaBroto(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
   const valete = me.hand.find((c) => c.value === 'J');
-  if (!valete) return null;
+  const rainha = me.hand.find((c) => c.value === 'Q');
+  const rei = me.hand.find((c) => c.value === 'K');
+
+  let brotoCard = valete ?? rainha;
+  if (!brotoCard && rei && !wouldUrtigaBeWorthKeeping(state, ai)) brotoCard = rei;
+  if (!brotoCard) return null;
 
   const brotoSlotIndex = me.field.findIndex(isBrotoSlot);
   if (brotoSlotIndex !== -1) {
-    return { type: 'PLAY_CARD', player: ai, cardId: valete.id, slotIndex: brotoSlotIndex, asHorizontal: false };
+    return { type: 'PLAY_CARD', player: ai, cardId: brotoCard.id, slotIndex: brotoSlotIndex, asHorizontal: false };
   }
 
   const emptySlotIndex = me.field.findIndex((slot) => !slot.faceDownCard);
   if (emptySlotIndex === -1) return null;
-  return { type: 'PLAY_CARD', player: ai, cardId: valete.id, slotIndex: emptySlotIndex, asHorizontal: false };
+  return { type: 'PLAY_CARD', player: ai, cardId: brotoCard.id, slotIndex: emptySlotIndex, asHorizontal: false };
+}
+
+/**
+ * Ver comentário de decideDruidaBroto acima (item 3) - mesmo limiar/critério
+ * de alvo de decideDruidaK, avaliado antecipadamente na fase de Estratégia
+ * pra decidir se vale reservar o Rei em vez de plantá-lo como Broto agora.
+ */
+function wouldUrtigaBeWorthKeeping(state: GameState, ai: PlayerNumber): boolean {
+  const me = state[playerKeyOf(ai)];
+  const brotoSlot = me.field.find(isBrotoSlot);
+  const brotoValue = brotoSlot?.faceDownCard?.transformedValue ?? 1;
+  const halved = Math.floor(brotoValue / 2);
+  const delta = livesDelta(state, ai);
+  const markerThreshold = delta < 0 ? 2 : delta >= 2 ? 4 : 3;
+  if (halved < markerThreshold) return false;
+
+  const opponent = opponentOf(ai);
+  const opponentField = state[opponentKeyOf(ai)].field;
+  return opponentField.some(
+    (slot, i) =>
+      !isSlotProtected(state, opponent, i) &&
+      ((slot.faceDownCard?.revealed ?? false) || slot.horizontalCards.some((c) => c.revealed))
+  );
 }
 
 /**
@@ -2020,10 +2069,12 @@ function decideDruidaBroto(state: GameState, ai: PlayerNumber): GameAction | nul
  * nenhum de esperar.
  *
  * FIX (item 3 do Grupo A, pedido do usuário: "IA do Druida mais
- * inteligente"): segura o Monstro até o Broto valer pelo menos 4 (já passou
- * por pelo menos 1 ciclo de crescimento) - EXCETO perdendo no placar
- * (`livesDelta < 0`), quando a presença extra em campo agora vale mais que
- * esperar um valor maior depois (pode nem haver "depois").
+ * inteligente"; limiar revisado depois - pedido do usuário: "a ia continua
+ * jogando o monstro como um número baixo, faça com que a IA só jogue se for
+ * maior ou igual a 8"): segura o Monstro até o Broto valer pelo menos 8,
+ * SEMPRE - a versão anterior tinha uma exceção "perdendo no placar" que
+ * deixava travar em qualquer valor (visto travando em 2 numa partida real),
+ * pior que simplesmente esperar mais um pouco mesmo perdendo.
  */
 function decideDruidaMonster(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
@@ -2035,8 +2086,8 @@ function decideDruidaMonster(state: GameState, ai: PlayerNumber): GameAction | n
 
   const brotoSlot = me.field.find(isBrotoSlot);
   const brotoValue = brotoSlot?.faceDownCard?.transformedValue ?? 1;
-  const MIN_SNAPSHOT_VALUE = 4;
-  if (brotoValue < MIN_SNAPSHOT_VALUE && livesDelta(state, ai) >= 0) return null;
+  const MIN_SNAPSHOT_VALUE = 8;
+  if (brotoValue < MIN_SNAPSHOT_VALUE) return null;
 
   return { type: 'PLAY_CARD', player: ai, cardId: monster.id, slotIndex: emptySlotIndex, asHorizontal: false };
 }
@@ -2045,9 +2096,15 @@ function decideDruidaMonster(state: GameState, ai: PlayerNumber): GameAction | n
  * Druida - Simbiose (Rainha, Estratégia): reduzir o Broto pela metade só
  * vale a pena quando (a) o Broto já está grande o bastante pro marcador
  * resultante importar E (b) existe uma carta própria em campo pra receber o
- * marcador que não seja o próprio Broto - caso contrário, aumentar o Broto
- * em 2 é estritamente melhor (nenhum sacrifício, mais Broto pra crescer/
- * reduzir depois).
+ * marcador que não seja o próprio Broto - caso contrário, NÃO ativa (retorna
+ * null) e deixa a carta na mão; decideDruidaBroto (chamada depois em
+ * decideStrategyPhase) considera plantá-la como Broto em vez disso.
+ *
+ * FIX (pedido do usuário: "remova o segundo efeito de aumentar em 2 - plantar
+ * a própria carta como Broto é que deve ser o segundo efeito"): a magia só
+ * fazia sentido ter esse fallback quando "aumentar o Broto" era uma opção de
+ * ATIVAÇÃO; agora que crescer sem sacrifício significa plantar a carta física
+ * (PLAY_CARD), forçar uma ativação sem alvo bom não faz mais sentido nenhum.
  *
  * FIX (item 1 do Grupo A, pedido do usuário: "IA do Druida mais
  * inteligente"): o limiar de "vale a pena" agora reage ao placar
@@ -2085,21 +2142,19 @@ function decideDruidaQ(state: GameState, ai: PlayerNumber): GameAction | null {
     };
   }
 
-  return {
-    type: 'EXECUTE_MAGIC',
-    player: ai,
-    cardId: qCard.id,
-    character: 'druida',
-    magicType: 'Q',
-    selection: { druidaGrowBroto: true },
-  };
+  return null;
 }
 
 /**
  * Druida - Urtiga (Rei, Combate): mesma lógica de decideDruidaQ, mas mirando
  * a carta REVELADA mais valiosa do OPONENTE (nunca mira às cegas - a IA não
  * lê valor de carta ainda oculta, mesmo princípio de todo o resto deste
- * arquivo). Sem nenhum alvo revelado disponível, sempre cresce o Broto.
+ * arquivo). Sem nenhum alvo revelado disponível ou marcador pequeno demais,
+ * NÃO ativa (retorna null, mesmo motivo de decideDruidaQ acima) - o Rei fica
+ * na mão até a próxima fase de Estratégia, quando decideDruidaBroto decide se
+ * vale a pena plantá-lo como Broto (ver wouldUrtigaBeWorthKeeping lá, que
+ * reaproveita este mesmo limiar/critério de alvo pra decidir se vale reservar
+ * o Rei em vez disso).
  *
  * FIX (itens 1 e 2 do Grupo A, pedido do usuário: "IA do Druida mais
  * inteligente"):
@@ -2155,14 +2210,7 @@ function decideDruidaK(state: GameState, ai: PlayerNumber): GameAction | null {
     };
   }
 
-  return {
-    type: 'EXECUTE_MAGIC',
-    player: ai,
-    cardId: kCard.id,
-    character: 'druida',
-    magicType: 'K',
-    selection: { druidaGrowBroto: true },
-  };
+  return null;
 }
 
 function decideFieldPlacement(state: GameState, ai: PlayerNumber, character: CharacterId): GameAction | null {

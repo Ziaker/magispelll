@@ -1,24 +1,31 @@
 /**
- * handSelection.ts - Decide o que um clique numa carta da mão deve fazer na
- * fase de Estratégia (Modo Towers).
+ * handSelection.ts - Decide o que um toque numa carta da mão deve fazer na
+ * fase de Estratégia.
  *
- * FIX (pedido do usuário: "era pra ser possível selecionar duas cartas
- * apenas clicando nelas, caso tenha mais do que uma carta igual a ela na
- * mão") - extraído de GameBoard.tsx pra virar uma função PURA e testável
- * isoladamente (ver scripts/sanity-test.ts) - essa lógica de "juntar ou
- * substituir a seleção" tem vários casos de borda sutis (reclicar pra
- * desmarcar, trocar de valor no meio, reforçar uma torre já formada com só 1
- * carta) fáceis de quebrar silenciosamente numa refatoração futura sem um
- * teste dedicado.
- *
- * Substitui o antigo Ctrl/Shift+clique (nunca óbvio pro jogador) por uma
- * inferência automática: um clique simples numa carta com outra igual na
- * mão (ou que reforça uma torre já formada neste turno) entra na seleção de
- * torre; senão, segue a seleção normal de carta única de sempre.
+ * FIX (overhaul completo do Modo Towers, pedido do usuário: "a atual [forma
+ * de formar torre] é completamente anti-intuitiva... procure uma solução
+ * que seja também capaz de ser realizada para o mobile") - a versão
+ * anterior tentava ADIVINHAR, num único toque na carta, se a intenção era
+ * posicionar normalmente ou juntar numa torre (com base em "existe outra
+ * carta igual na mão?" ou "já existe uma torre formada neste turno?") - uma
+ * regra completamente invisível pro jogador, que quebrava justamente o caso
+ * mais comum (querer jogar uma carta normal que por acaso tem uma duplicata
+ * na mão - aí o toque simplesmente não fazia o que se esperava, e só
+ * arrastar funcionava). Agora as duas ações têm controles FÍSICOS separados
+ * na interface (ver PlayerZone.tsx):
+ *   - Tocar o CORPO da carta sempre faz seleção normal de carta única
+ *     (`decideHandCardSelection` abaixo) - o mesmo comportamento simples e
+ *     previsível de sempre, sem nenhuma exceção pra Towers.
+ *   - Tocar o selo "🗼" (só aparece em cartas elegíveis pra torre, com o
+ *     Modo Towers ligado) alterna essa carta dentro/fora do grupo de torre
+ *     (`toggleTowerCardSelection` abaixo) - uma ação explícita e sempre
+ *     visível (o próprio selo acende quando marcado), nunca inferida.
+ * As duas seleções continuam mutuamente exclusivas (nunca as duas ativas ao
+ * mesmo tempo, mesmo invariante de sempre) - cada uma só muda através do
+ * controle dedicado a ela, nunca como efeito colateral do outro.
  */
 import type { Card } from './cardUtils';
-import { towerEligibleValue, isTowerSlot, type FieldSlot } from './gameEngine';
-import { getEffectiveCardValue } from './cardUtils';
+import { towerEligibleValue } from './gameEngine';
 
 export interface HandSelectionState {
   selectedCardId: string | null;
@@ -26,81 +33,55 @@ export interface HandSelectionState {
 }
 
 /**
- * @param hand - mão atual do jogador que clicou.
- * @param field - campo atual do MESMO jogador (pra checar reforço de torre).
- * @param towerSlotThisTurn - `PlayerState.towerSlotThisTurn` do mesmo jogador.
- * @param current - seleção atual (`selectedCardId`/`selectedForTower`).
- * @param clickedCardId - id da carta clicada agora.
- * @param towersModeEnabled - `gameConfig.towersMode` desta partida. FIX
- *   (bug real reportado pelo usuário: "clicar na carta... não está
- *   funcionando corretamente, a opção só aparece quando o jogador faz
- *   drag") - esta função nunca checava se a variante Towers estava
- *   LIGADA - qualquer clique numa carta com outra de mesmo valor na mão
- *   (bem comum, sem relação nenhuma com Towers estar ativo ou não) caía em
- *   `selectedForTower` em vez de `selectedCardId`, deixando o painel
- *   "Posicionar/Horizontal" (que só olha `selectedCardId`) sem nada pra
- *   mostrar - e como Towers estava desligado, o botão "Empilhar" também
- *   nunca aparecia, então o clique simplesmente não fazia NADA visível.
- *   Arrastar a carta continuava funcionando porque `onDragStart` seleciona
- *   direto via `onCardSelect`, sem passar por esta função - só por isso o
- *   bug parecia "só acontecer no clique". Com Towers desligado, esta
- *   função agora ignora inteiramente a lógica de agrupamento e sempre
- *   segue a seleção normal de carta única, não importa quantas cópias do
- *   mesmo valor existam na mão.
- * @returns a NOVA seleção resultante - sempre com exatamente um dos dois
- *   campos "ativo" (o outro fica null/vazio), nunca os dois ao mesmo tempo.
+ * Toque no CORPO da carta - sempre seleção normal de carta única (nunca
+ * agrupa em torre; ver comentário do arquivo). Reclicar na já selecionada
+ * desmarca. Qualquer seleção de torre em andamento é limpa (as duas
+ * seleções são mutuamente exclusivas).
  */
-export function decideHandCardSelection(
-  hand: Card[],
-  field: [FieldSlot, FieldSlot, FieldSlot],
-  towerSlotThisTurn: number | undefined,
-  current: HandSelectionState,
-  clickedCardId: string,
-  towersModeEnabled: boolean
-): HandSelectionState {
+export function decideHandCardSelection(current: HandSelectionState, clickedCardId: string): HandSelectionState {
+  return {
+    selectedCardId: current.selectedCardId === clickedCardId ? null : clickedCardId,
+    selectedForTower: new Set(),
+  };
+}
+
+/**
+ * Toque no selo "🗼" de uma carta elegível pra torre - alterna essa carta
+ * dentro/fora do grupo (`selectedForTower`), sempre explícito (nunca
+ * inferido a partir do conteúdo da mão).
+ *
+ * @param hand - mão atual do jogador que tocou.
+ * @param current - seleção atual (`selectedCardId`/`selectedForTower`).
+ * @param clickedCardId - id da carta cujo selo foi tocado.
+ * @returns a NOVA seleção - `selectedCardId` sempre `null` (mutuamente
+ *   exclusiva com a seleção de torre). Cartas de valor não elegível pra
+ *   torre (magia, Monstro) devolvem `current` sem nenhuma mudança - o selo
+ *   nunca aparece nelas de qualquer forma (ver PlayerZone.tsx), então isto é
+ *   só uma proteção defensiva.
+ */
+export function toggleTowerCardSelection(hand: Card[], current: HandSelectionState, clickedCardId: string): HandSelectionState {
   const card = hand.find((c) => c.id === clickedCardId);
   if (!card) return current;
-
   const value = towerEligibleValue(card);
+  if (value === null) return current;
 
-  // Cartas não elegíveis pra torre (magia, Monstro) sempre seguem a seleção
-  // normal de carta única - nunca entram em `selectedForTower`. Com Towers
-  // desligado na partida, TODA carta segue esse mesmo caminho simples (ver
-  // FIX acima) - reclicar na já selecionada ainda desmarca normalmente.
-  if (value === null || !towersModeEnabled) {
-    return {
-      selectedCardId: current.selectedCardId === clickedCardId ? null : clickedCardId,
-      selectedForTower: new Set(),
-    };
+  // Já marcada - o toque desmarca só ela, mantendo o resto do grupo intacto.
+  if (current.selectedForTower.has(clickedCardId)) {
+    const next = new Set(current.selectedForTower);
+    next.delete(clickedCardId);
+    return { selectedCardId: null, selectedForTower: next };
   }
 
-  // Reclicar em QUALQUER carta já selecionada (de qualquer um dos dois
-  // jeitos) sempre desmarca só ela.
-  if (current.selectedForTower.has(clickedCardId) || current.selectedCardId === clickedCardId) {
-    const nextTower = new Set(current.selectedForTower);
-    nextTower.delete(clickedCardId);
-    return {
-      selectedCardId: current.selectedCardId === clickedCardId ? null : current.selectedCardId,
-      selectedForTower: nextTower,
-    };
-  }
+  const currentGroup = current.selectedForTower;
+  const currentValue = currentGroup.size > 0 ? towerEligibleValue(hand.find((c) => currentGroup.has(c.id))!) : null;
 
-  const currentGroup =
-    current.selectedForTower.size > 0
-      ? current.selectedForTower
-      : current.selectedCardId
-      ? new Set([current.selectedCardId])
-      : new Set<string>();
-  const currentValue = currentGroup.size > 0 ? towerEligibleValue(hand.find((c) => currentGroup.has(c.id)) as Card) : null;
-
-  const myTower = towerSlotThisTurn !== undefined ? field[towerSlotThisTurn] : null;
-  const canReinforceMyTower = Boolean(myTower && isTowerSlot(myTower) && getEffectiveCardValue(myTower.faceDownCard!) === value);
-  const hasDuplicateInHand = hand.some((c) => c.id !== clickedCardId && towerEligibleValue(c) === value);
-
-  const shouldJoinTowerGroup = currentValue === value || (currentGroup.size === 0 && (hasDuplicateInHand || canReinforceMyTower));
-
-  if (shouldJoinTowerGroup) {
+  // Grupo vazio, ou mesmo valor do que já está marcado - entra no grupo.
+  // Valor diferente - reinicia o grupo só com esta carta (nunca mistura
+  // valores diferentes; o motor rejeitaria a torre de qualquer forma, e
+  // manter as duas seleções "presas" numa combinação impossível de
+  // confirmar seria mais confuso que simplesmente recomeçar).
+  if (currentGroup.size === 0 || currentValue === value) {
     return { selectedCardId: null, selectedForTower: new Set([...currentGroup, clickedCardId]) };
   }
-  return { selectedCardId: clickedCardId, selectedForTower: new Set() };
+  return { selectedCardId: null, selectedForTower: new Set([clickedCardId]) };
 }

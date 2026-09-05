@@ -13,7 +13,7 @@ import { MagicCalloutLabel } from './MagicCalloutLabel';
 import { HandCardView } from './HandCardView';
 import { getCharacterTheme, getCharacterIconBackground, getCharacterPanelBackground } from '../lib/characterThemes';
 import type { PlayerState, CharacterId, Phase, PendingReaction } from '../lib/gameEngine';
-import { getEffectiveDiscardLimit, getEffectiveDrawLimit, isBrotoSlot } from '../lib/gameEngine';
+import { getEffectiveDiscardLimit, getEffectiveDrawLimit, isBrotoSlot, towerEligibleValue } from '../lib/gameEngine';
 import { useEffect, useRef, useState } from 'react';
 import { canActivateMagic, getMagicCardInfo, type MagicActivationContext } from '../lib/magicCards';
 import { canActivateNumeralSpell, getNumeralSpellInfo, formatNumeralRequirement } from '../lib/numeralSpells';
@@ -103,6 +103,16 @@ interface PlayerZoneProps {
   onReactToMagic?: (cardId: string) => void;
   selectedForTower: Set<string>;
   onSelectCardForField: (cardId: string) => void;
+  /**
+   * FIX (overhaul completo do Modo Towers, pedido do usuário: "a atual é
+   * completamente anti-intuitiva... capaz de ser realizada também no
+   * mobile") - toca o selo "🗼" dedicado que aparece em cada carta elegível
+   * pra torre (Modo Towers ligado, fase de Estratégia) - ÚNICA forma de
+   * entrar/sair do grupo de torre agora; tocar o CORPO da carta (
+   * `onSelectCardForField` acima) nunca mais agrupa implicitamente, sempre
+   * faz seleção normal de carta única. Ver handSelection.ts.
+   */
+  onToggleTowerCard: (cardId: string) => void;
   onDrawCards: (count: number) => void;
   /**
    * FIX (pedido do usuário: variante "Fusão") - verdadeiro quando
@@ -260,6 +270,7 @@ export function PlayerZone({
   onReactToMagic,
   selectedForTower,
   onSelectCardForField,
+  onToggleTowerCard,
   fusionEnabled,
   fusionLimit,
   discardLimit,
@@ -1586,8 +1597,33 @@ export function PlayerZone({
                   const deckRemainingCount = countRemainingInDeck(deck, card);
                   const deckRemainingLabel = `${getDisplayValue(card)}${card.suit} · Restam ${deckRemainingCount} no baralho`;
 
+                  // FIX (overhaul completo do Modo Towers, pedido do
+                  // usuário: "a atual é completamente anti-intuitiva...
+                  // capaz de ser realizada também no mobile") - selo
+                  // dedicado, só nas cartas realmente elegíveis pra torre -
+                  // ver comentário completo em handSelection.ts.
+                  const towerBadgeEligible = towersMode && phase === 'strategy' && !isAiControlled && towerEligibleValue(card) !== null;
+                  const isMarkedForTower = selectedForTower.has(card.id);
+
                   return (
                     <div key={card.id} className="relative">
+                      {towerBadgeEligible && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleTowerCard(card.id);
+                          }}
+                          title={isMarkedForTower ? 'Remover do grupo de torre' : 'Marcar para formar/reforçar uma torre'}
+                          className={`absolute -top-1.5 -right-1.5 z-30 w-6 h-6 rounded-full flex items-center justify-center border-2 shadow-md transition-all hover:scale-110 ${
+                            isMarkedForTower
+                              ? 'bg-[#7AA7C4] border-[#7AA7C4] text-[#0F1113]'
+                              : 'bg-[#1E1A16] border-[#7AA7C4]/50 text-[#7AA7C4]/70 hover:border-[#7AA7C4]'
+                          }`}
+                        >
+                          <span className="text-[11px] leading-none">🗼</span>
+                        </button>
+                      )}
                       <HandCardView
                         card={card}
                         phase={phase}

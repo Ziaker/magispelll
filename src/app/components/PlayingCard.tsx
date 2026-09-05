@@ -67,6 +67,19 @@ interface PlayingCardProps {
    * o `CharacterId` cru.
    */
   backTheme?: { primary: string; secondary: string };
+  /**
+   * FIX (pedido do usuário: "última magia usada... mude a cor da carta se
+   * possível para a cor referente ao personagem, no momento é amarela para
+   * ambos") - a carta de magia (`isMagic` abaixo) sempre usa o dourado
+   * genérico (#C59E4F) pra borda/naipe/valor, o mesmo em toda a mão/campo de
+   * qualquer personagem - este prop opcional troca essa cor SÓ nesta
+   * instância (borda, naipe/valor, brilho de fundo), sem afetar nenhum outro
+   * lugar que renderiza a mesma carta sem passar o prop. `undefined` cai no
+   * dourado de sempre. Não se aplica aos estados de Vencedor/Trancada
+   * (`winner`/`card.magicLocked` abaixo), que continuam sendo indicadores de
+   * ESTADO, não de identidade do personagem.
+   */
+  accentColor?: string;
 }
 
 /** Gradiente dourado genérico de sempre - usado quando `backTheme` não é passado (ver comentário acima). */
@@ -130,6 +143,7 @@ export function PlayingCard({
   emptySlotCombatHint,
   spotlight,
   backTheme = DEFAULT_BACK_THEME,
+  accentColor,
 }: PlayingCardProps) {
   const [hovering, setHovering] = useState(false);
   const suit = card ? getDisplaySuit(card) : suitProp;
@@ -268,8 +282,11 @@ export function PlayingCard({
   ];
 
   if (isMagic) {
-    // Cartas mágicas: fundo escuro com texto/naipe dourado. Só saem da mão
-    // ativando o efeito de magia (nunca são posicionadas no campo).
+    // Cartas mágicas: fundo escuro com texto/naipe dourado (ou a cor do
+    // personagem, via `accentColor` - ver comentário completo no prop). Só
+    // saem da mão ativando o efeito de magia (nunca são posicionadas no campo).
+    const magicAccent = accentColor ?? '#C59E4F';
+    const useAccentBorder = !isMagicLocked && !winner && Boolean(accentColor);
     return (
       <TooltipProvider>
         <Tooltip>
@@ -278,10 +295,11 @@ export function PlayingCard({
               className={cn(
                 "w-28 h-40 bg-gradient-to-br from-[#1E1A16] to-[#0F1113] rounded-lg flex flex-col items-center justify-between p-3",
                 "border-2 shadow-lg transition-all relative overflow-hidden cursor-pointer",
-                isMagicLocked ? "border-[#9B6BD1]" : winner ? "border-[#C59E4F] rune-glow animate-pulse" : "border-[#C59E4F]",
+                isMagicLocked ? "border-[#E2B84A]" : winner ? "border-[#C59E4F] rune-glow animate-pulse" : !useAccentBorder && "border-[#C59E4F]",
                 canActivateMagic && !isMagicLocked && !hovering && "animate-pulse rune-glow",
                 className
               )}
+              style={useAccentBorder ? { borderColor: magicAccent } : undefined}
               onMouseEnter={() => setHovering(true)}
               onMouseLeave={() => setHovering(false)}
               // FIX (item 9 da 2ª rodada): o clique de ativar magia vivia
@@ -297,34 +315,38 @@ export function PlayingCard({
               // clique passar normalmente para o pai (seleção/descarte).
             >
               {/* Padrão de fundo mágico */}
-              <div className="absolute inset-0 opacity-10">
-                <div className="absolute top-2 left-2 text-[#C59E4F] text-[16px] font-display">✦</div>
-                <div className="absolute top-2 right-2 text-[#C59E4F] text-[16px] font-display">✦</div>
-                <div className="absolute bottom-2 left-2 text-[#C59E4F] text-[16px] font-display">✦</div>
-                <div className="absolute bottom-2 right-2 text-[#C59E4F] text-[16px] font-display">✦</div>
+              <div className="absolute inset-0 opacity-10" style={{ color: magicAccent }}>
+                <div className="absolute top-2 left-2 text-[16px] font-display">✦</div>
+                <div className="absolute top-2 right-2 text-[16px] font-display">✦</div>
+                <div className="absolute bottom-2 left-2 text-[16px] font-display">✦</div>
+                <div className="absolute bottom-2 right-2 text-[16px] font-display">✦</div>
               </div>
 
               {/* FIX (pedido do usuário: "efeito visual de correntes... para
                   indicar" a Visão Celestial do Anjo) - duas correntes em X
                   cruzando a carta, por cima de tudo (z-20), com um véu
-                  violeta translúcido reforçando que a magia está trancada. */}
+                  translúcido reforçando que a magia está trancada.
+                  FIX (pedido do usuário: "esse roxo não tem nada a ver com
+                  ele [Anjo]") - trocado o roxo genérico pelo dourado do tema
+                  do Anjo (#E2B84A/#8A742E, characterThemes.ts), já que a
+                  habilidade é exclusiva dele. */}
               {isMagicLocked && (
                 <div className="absolute inset-0 z-20 pointer-events-none">
-                  <div className="absolute inset-0 bg-[#2A1A3D]/35" />
+                  <div className="absolute inset-0 bg-[#3D3319]/35" />
                   <div
                     className="absolute top-1/2 left-1/2 w-[135%] h-[3px] -translate-x-1/2 -translate-y-1/2 rotate-45"
-                    style={{ background: 'repeating-linear-gradient(90deg, #9B6BD1 0 8px, #6B4A96 8px 12px)', boxShadow: '0 0 6px #9B6BD1' }}
+                    style={{ background: 'repeating-linear-gradient(90deg, #E2B84A 0 8px, #8A742E 8px 12px)', boxShadow: '0 0 6px #E2B84A' }}
                   />
                   <div
                     className="absolute top-1/2 left-1/2 w-[135%] h-[3px] -translate-x-1/2 -translate-y-1/2 -rotate-45"
-                    style={{ background: 'repeating-linear-gradient(90deg, #9B6BD1 0 8px, #6B4A96 8px 12px)', boxShadow: '0 0 6px #9B6BD1' }}
+                    style={{ background: 'repeating-linear-gradient(90deg, #E2B84A 0 8px, #8A742E 8px 12px)', boxShadow: '0 0 6px #E2B84A' }}
                   />
                 </div>
               )}
 
               <CardKeywords active={magicKeywords} />
 
-              <div className="text-[18px] font-bold text-[#C59E4F] z-10">
+              <div className="text-[18px] font-bold z-10" style={{ color: magicAccent }}>
                 {value}
                 <span className="ml-0.5">{suit}</span>
               </div>
@@ -366,10 +388,10 @@ export function PlayingCard({
                 </div>
               )}
 
-              <div className="text-[48px] leading-none text-[#C59E4F] z-10">
+              <div className="text-[48px] leading-none z-10" style={{ color: magicAccent }}>
                 {suit}
               </div>
-              <div className="text-[18px] font-bold rotate-180 text-[#C59E4F] z-10">
+              <div className="text-[18px] font-bold rotate-180 z-10" style={{ color: magicAccent }}>
                 {value}
                 <span className="ml-0.5">{suit}</span>
               </div>
