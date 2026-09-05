@@ -821,8 +821,22 @@ function applyCoringaTrapReaction(
   const slot = ownerState.field[slotIndex];
   const newField = [...ownerState.field] as [FieldSlot, FieldSlot, FieldSlot];
 
+  // FIX (bug real encontrado por simulação IA vs IA - conservação de cartas):
+  // uma carta horizontal empilhada sobre a carta PRINCIPAL do slot (ex.: um
+  // reforço qualquer colocado em cima da Rainha/Rei/Monstro armadilha do
+  // Coringa) não tinha pra onde ir quando `kind === 'main'` - `removeFromField`
+  // só limpava `faceDownCard`, deixando `horizontalCards` intacto no slot,
+  // um slot "órfão" (mesmo estado inconsistente que o comentário de
+  // handleReturnCardToHand já alertava). Como `canActivateNumeralSpell` só
+  // olha `faceDownCard` pra decidir se o campo está "vazio", esse slot órfão
+  // passava despercebido - e a Magia Numeral seguinte sobrescrevia o campo
+  // inteiro (`field: newField`), descartando a carta horizontal órfã sem
+  // nunca a mandar pra mão/descarte, sumindo do jogo de vez. Agora qualquer
+  // horizontal presente é devolvida pra mão do dono junto com a reação
+  // (mesmo destino de handleReturnCardToHand), nunca deixada pra trás.
+  const orphanedHorizontal = kind === 'main' ? slot.horizontalCards : [];
   const removeFromField = (): FieldSlot => {
-    if (kind === 'main') return { ...slot, faceDownCard: undefined, revealed: false };
+    if (kind === 'main') return { ...slot, faceDownCard: undefined, revealed: false, horizontalCards: [] };
     return { ...slot, horizontalCards: slot.horizontalCards.filter((c) => c.id !== card.id) };
   };
 
@@ -849,14 +863,14 @@ function applyCoringaTrapReaction(
       deck: remaining,
       discardPile: ensuredDiscard,
       log,
-      [ownerKey]: { ...ownerState, field: newField, hand: [...ownerState.hand, ...drawn] },
+      [ownerKey]: { ...ownerState, field: newField, hand: [...ownerState.hand, ...orphanedHorizontal, ...drawn] },
     };
   }
 
   if (card.value === 'Q' || card.isMonster) {
     newField[slotIndex] = removeFromField();
     const returnedCard: Card = { ...card, revealed: false };
-    const newHand = shuffle([...ownerState.hand, returnedCard]);
+    const newHand = shuffle([...ownerState.hand, returnedCard, ...orphanedHorizontal]);
     const label = card.value === 'Q' ? 'A Rainha armadilha' : 'O Monstro';
     const log = appendLog(
       state,
@@ -893,7 +907,13 @@ function applyCoringaTrapReaction(
       aceIndex = aceDeck.findIndex((c) => c.value === 'A');
     }
     if (aceIndex === -1 || ownerState.hand.length >= ownerState.handLimit) {
-      return { ...state, deck: aceDeck, discardPile: aceDiscard, log, [ownerKey]: { ...ownerState, field: newField } };
+      return {
+        ...state,
+        deck: aceDeck,
+        discardPile: aceDiscard,
+        log,
+        [ownerKey]: { ...ownerState, field: newField, hand: [...ownerState.hand, ...orphanedHorizontal] },
+      };
     }
     const ace = aceDeck[aceIndex];
     const remainingDeck = [...aceDeck.slice(0, aceIndex), ...aceDeck.slice(aceIndex + 1)];
@@ -903,7 +923,7 @@ function applyCoringaTrapReaction(
       deck: remainingDeck,
       discardPile: aceDiscard,
       log,
-      [ownerKey]: { ...ownerState, field: newField, hand: [...ownerState.hand, ace] },
+      [ownerKey]: { ...ownerState, field: newField, hand: [...ownerState.hand, ...orphanedHorizontal, ace] },
     };
   }
 
