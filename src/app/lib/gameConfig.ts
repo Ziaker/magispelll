@@ -92,6 +92,23 @@ export interface GameConfig {
   spotlightNegative: boolean;
   reactionsMode: boolean;
   reactionsLimit: number;
+  /**
+   * FIX (item 23 do Grupo F da lista de afazeres, "intervalo mínimo pós
+   * ativação de alguma magia... trava as ações... com um pop-up mostrando o
+   * efeito e os alvos"): 0 = desligado (padrão, comportamento de sempre).
+   * Fica só no pré-jogo de propósito (pedido explícito do usuário) - não é
+   * uma preferência de dispositivo (`Settings`), é o RITMO da partida
+   * combinado antes de começar, igual às outras variantes desta tela.
+   * CHECAGEM COM O MODO REAÇÕES (pedido explícito do usuário, "para que não
+   * conflite"): a apresentação de um efeito de magia (`applyMagicEffectPresentation`,
+   * GameBoard.tsx) já É suprimida enquanto existe `pendingReaction` (a magia
+   * pode ainda ser negada pelo oponente) - só roda de verdade DEPOIS da
+   * janela de reação de 3s resolver. Como esta pausa é disparada de DENTRO
+   * dessa mesma função, ela herda essa ordem de graça: nunca aparece
+   * ANTES da reação, nunca soma seu próprio timer em cima do de 3s (só um
+   * intervalo bloqueando por vez).
+   */
+  postMagicPauseMs: number;
 }
 
 /** Mínimo permitido para `discardLimit` - "como no jogo normal" (pedido do usuário). */
@@ -122,4 +139,5 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   spotlightNegative: false,
   reactionsMode: false,
   reactionsLimit: 1,
+  postMagicPauseMs: 0,
 };

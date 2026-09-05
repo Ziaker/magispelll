@@ -141,6 +141,27 @@ export function Settings({ onBack }: SettingsProps) {
                   />
                 </div>
 
+                {/* FIX (item 22 do Grupo F da lista de afazeres, "o jogador
+                    poder decidir a velocidade de pensamento da IA") - mesmo
+                    componente/convenção do slider de Velocidade de Animação
+                    acima (100% = padrão, maior = mais rápido) - baixar o
+                    valor aumenta o tempo de resposta da IA, exatamente o
+                    pedido do usuário. Também disponível no pré-jogo
+                    (GameConfig.tsx), mesma preferência persistida. */}
+                <div className="space-y-3">
+                  <Label htmlFor="aiThinkSpeed" className="text-[#BFB6A6]">
+                    Velocidade de Pensamento da IA: {settings.aiThinkSpeed}%
+                  </Label>
+                  <Slider
+                    id="aiThinkSpeed"
+                    value={[settings.aiThinkSpeed]}
+                    onValueChange={([value]) => updateSetting('aiThinkSpeed', value)}
+                    min={30}
+                    max={300}
+                    step={10}
+                  />
+                </div>
+
                 {/* FIX (pedido do usuário: "remover shaking") - controle
                     dedicado, separado de "Animações" (ver settings.ts para
                     o porquê) - também disponível direto no menu de Pausa

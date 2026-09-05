@@ -3,6 +3,7 @@ import { ArrowLeft, Pencil, Bot } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import type { GameConfig as GameConfigType } from '../lib/gameConfig';
 import type { CharacterId } from '../lib/gameEngine';
+import { PreGameSteps } from './PreGameSteps';
 
 interface GameSummaryProps {
   config: GameConfigType;
@@ -67,6 +68,12 @@ export function GameSummary({ config, selectedCharacters, aiPlayers, onEditConfi
           </Button>
           <h2 className="font-display text-[40px] text-[#C59E4F]">Resumo da Partida</h2>
         </div>
+
+        {/* FIX (item 28 do Grupo G, "indicador de progresso 1/2/3") - esta
+            tela nunca aparece no atalho de Partida Rápida (App.tsx pula
+            direto pra 'game'), então o indicador vale sempre aqui, sem
+            precisar de um prop condicional como em GameConfig/CharacterSelection. */}
+        <PreGameSteps current={3} />
 
         <div className="bg-[#1E1A16] border border-[#C59E4F]/30 rounded-lg p-8 space-y-8">
           <div className="space-y-4">

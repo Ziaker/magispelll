@@ -4440,8 +4440,10 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 
 (function testDruidaUrtigaWritesOpponentModifier() {
   // Primeira magia do jogo a escrever no `combatModifiers` do OPONENTE -
-  // Besta/Mosqueteiro só se auto-buffam (ver comentário completo em
-  // CombatModifier, gameEngine.ts) - merece verificação dedicada.
+  // Besta só se auto-buffa (ver comentário completo em CombatModifier,
+  // gameEngine.ts); o Tiro Certeiro do Mosqueteiro passou a fazer o mesmo
+  // depois (mudança de planos, ver testMosqueteiroKWritesOpponentModifier
+  // logo abaixo) - merece verificação dedicada de qualquer forma.
   let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
   const kCard = makeCard('druida-urtiga-k', 'K');
   const brotoTop = makeCard('druida-urtiga-broto', 'J');
@@ -4485,6 +4487,94 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(Boolean(debuff), 'FIX Druida Urtiga: um marcador foi criado no array de combatModifiers do OPONENTE (primeiro personagem a escrever lá, não no próprio)');
   assert(debuff?.amount === -3, `O marcador é NEGATIVO, valendo a metade reduzida do Broto (recebido: ${debuff?.amount})`);
   assert(state.player1.combatModifiers.length === 0, 'Nenhum marcador foi criado no PRÓPRIO array do Druida (Urtiga mira só o oponente)');
+})();
+
+(function testMosqueteiroKWritesOpponentModifier() {
+  // MUDANÇA DE PLANOS (pedido explícito do usuário): Tiro Certeiro deixou de
+  // reforçar (positivo) uma carta do PRÓPRIO campo e passou a enfraquecer
+  // (negativo) uma carta do campo do OPONENTE - mesmo padrão de Urtiga do
+  // Druida (ver teste logo acima). Cobre também: proteção divina bloqueia o
+  // alvo, e reativar na MESMA carta soma (aprofunda) a penalidade.
+  let state = createInitialState('mosqueteiro', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard1 = makeCard('mosq-k-1', 'K');
+  const kCard2 = makeCard('mosq-k-2', 'K');
+  const opponentTarget = makeCard('mosq-k-target', '9');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      hand: [kCard1, kCard2],
+      mosqueteiroDiscardsThisTurn: 2,
+      mosqueteiroDiscardsTurnMinus1: 1,
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: { ...opponentTarget, revealed: true }, revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: kCard1.id,
+    character: 'mosqueteiro',
+    magicType: 'K',
+    selection: { selectedCards: [opponentTarget.id] },
+  });
+
+  const debuff = state.player2.combatModifiers.find((m) => m.cardId === opponentTarget.id && m.source === 'mosqueteiro');
+  assert(Boolean(debuff), 'FIX Tiro Certeiro: um marcador foi criado no array de combatModifiers do OPONENTE, não mais no próprio');
+  assert(debuff?.amount === -3, `O marcador é NEGATIVO, valendo -(descartes do turno + turno anterior) (recebido: ${debuff?.amount})`);
+  assert(state.player1.combatModifiers.length === 0, 'Nenhum marcador foi criado no PRÓPRIO array do Mosqueteiro (Tiro Certeiro agora mira só o oponente)');
+
+  // Reativar na MESMA carta deve SOMAR (aprofundar), não substituir.
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: kCard2.id,
+    character: 'mosqueteiro',
+    magicType: 'K',
+    selection: { selectedCards: [opponentTarget.id] },
+  });
+  const debuffAfter = state.player2.combatModifiers.find((m) => m.cardId === opponentTarget.id && m.source === 'mosqueteiro');
+  assert(debuffAfter?.amount === -6, `FIX: reativar na mesma carta SOMA à penalidade existente, nunca substitui (-3 -> -6, recebido: ${debuffAfter?.amount})`);
+})();
+
+(function testMosqueteiroKBlockedByProtectedSlot() {
+  let state = createInitialState('mosqueteiro', 'anjo', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('mosq-k-protected', 'K');
+  const opponentTarget = makeCard('mosq-k-protected-target', '9');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: { ...state.player1, hand: [kCard], mosqueteiroDiscardsThisTurn: 2, mosqueteiroDiscardsTurnMinus1: 0 },
+    player2: {
+      ...state.player2,
+      monsterProtectedSlots: [0],
+      field: [
+        { faceDownCard: { ...opponentTarget, revealed: true }, revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  const stateAfter = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: kCard.id,
+    character: 'mosqueteiro',
+    magicType: 'K',
+    selection: { selectedCards: [opponentTarget.id] },
+  });
+
+  assert(stateAfter.player2.combatModifiers.length === 0, 'FIX: Tiro Certeiro nunca mira um slot protegido por Proteção Divina');
+  assert(stateAfter.player1.hand.some((c) => c.id === kCard.id), 'A carta K não é gasta quando o alvo está protegido');
 })();
 
 (function testDruidaFotossinteseRequiresDistinctValues() {

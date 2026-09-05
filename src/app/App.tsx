@@ -94,6 +94,17 @@ export default function App() {
    * as Regras e só queria espiar a ficha de um personagem específico.
    */
   const [characterSheetOrigin, setCharacterSheetOrigin] = useState<'characters' | 'rules'>('characters');
+  /**
+   * FIX (item 30b do Grupo H da lista de afazeres, "link direto do diálogo
+   * 'Visão completa' pra seção correspondente em Rules.tsx") - mesmo padrão
+   * de `characterSheetOrigin` acima: pra onde "Voltar" leva depois de sair
+   * de Regras (normalmente 'home', mas 'character-selection' quando veio de
+   * lá) e o texto pra pré-preencher a busca de Regras (o próprio filtro de
+   * texto já existente na tela, reaproveitado em vez de inventar um
+   * mecanismo de "rolar até a seção X" à parte).
+   */
+  const [rulesOrigin, setRulesOrigin] = useState<Screen>('home');
+  const [rulesInitialSearch, setRulesInitialSearch] = useState('');
   
   /**
    * Armazena os personagens escolhidos por cada jogador
@@ -213,7 +224,11 @@ export default function App() {
         return (
           <Splash
             onStart={() => setCurrentScreen('home')}
-            onRules={() => setCurrentScreen('rules')}
+            onRules={() => {
+              setRulesOrigin('home');
+              setRulesInitialSearch('');
+              setCurrentScreen('rules');
+            }}
           />
         );
 
@@ -223,7 +238,11 @@ export default function App() {
           <Home
             onNewGame={() => setCurrentScreen('config')}
             onQuickStart={handleQuickStart}
-            onRules={() => setCurrentScreen('rules')}
+            onRules={() => {
+              setRulesOrigin('home');
+              setRulesInitialSearch('');
+              setCurrentScreen('rules');
+            }}
             onCharacters={() => setCurrentScreen('characters')}
             onSettings={() => setCurrentScreen('settings')}
             onDebugStart={() => setCurrentScreen('debug')}
@@ -248,6 +267,12 @@ export default function App() {
             onContinue={handleCharacterSelectionContinue}
             selectedCharacters={selectedCharacters}
             aiPlayers={gameConfig?.mode === 'vsAI' ? [2] : gameConfig?.mode === 'spectator' ? [1, 2] : []}
+            showSteps={!quickStart}
+            onOpenRules={(searchTerm) => {
+              setRulesOrigin('character-selection');
+              setRulesInitialSearch(searchTerm);
+              setCurrentScreen('rules');
+            }}
           />
         );
 
@@ -290,7 +315,8 @@ export default function App() {
       case 'rules':
         return (
           <Rules
-            onBack={() => setCurrentScreen('home')}
+            onBack={() => setCurrentScreen(rulesOrigin)}
+            initialSearch={rulesInitialSearch}
             onViewCharacter={(character) => {
               setSelectedCharacter(character);
               setCharacterSheetOrigin('rules');

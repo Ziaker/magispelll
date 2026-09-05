@@ -4,7 +4,7 @@ import { useDrop } from 'react-dnd';
 import { PlayingCard, PHASE_DISPLAY } from './PlayingCard';
 import { getCharacterTheme } from '../lib/characterThemes';
 import type { Card } from '../lib/cardUtils';
-import type { CharacterId } from '../lib/gameEngine';
+import { isBrotoSlot, type CharacterId, type FieldSlot } from '../lib/gameEngine';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { getMonsterEffect } from '../lib/monsterCards';
 import { MAX_MONSTER_USES } from '../lib/gameEngine';
@@ -22,6 +22,17 @@ interface MonsterZoneProps {
   monsterTargetSelection?: { playerNumber: 1 | 2 } | null;
   onMonsterZoneClick: (playerNumber: 1 | 2) => void;
   onMonsterCardDrop?: (playerNumber: 1 | 2, cardId: string) => void;
+  /**
+   * Druida (item 5 do Grupo B da lista de afazeres, "personagens que não
+   * usam o Monstro em sua zona podem tirar proveito de suas gimmicks na
+   * região"): o Broto Espelhado NUNCA passa por esta zona - `monsterCard`
+   * fica pra sempre `undefined` pro Druida (ver handlePlaceMonsterCard,
+   * gameEngine.ts), deixando esta caixa eternamente "vazio" sem nenhuma
+   * utilidade. Com `field`/`photosynthesisLevel` passados, o Druida troca o
+   * slot de carta vazio por um HUD de verdade do próprio Broto.
+   */
+  field?: [FieldSlot, FieldSlot, FieldSlot];
+  photosynthesisLevel?: number;
 }
 
 /**
@@ -54,9 +65,14 @@ export function MonsterZone({
   monsterTargetSelection,
   onMonsterZoneClick,
   onMonsterCardDrop,
+  field,
+  photosynthesisLevel = 0,
 }: MonsterZoneProps) {
   const theme = getCharacterTheme(character);
   const monsterEffect = getMonsterEffect(character);
+  const brotoSlot = field?.find(isBrotoSlot);
+  const brotoValue = brotoSlot?.faceDownCard?.transformedValue ?? null;
+  const brotoGrowthRate = brotoSlot ? 1 + (brotoSlot.brotoReserve?.length ?? 0) + photosynthesisLevel : 0;
 
   const isMonsterTargetChoice = monsterTargetSelection?.playerNumber === playerNumber;
   const monsterReady = Boolean(monsterCard && !monsterCard.monsterUsed);
@@ -107,6 +123,48 @@ export function MonsterZone({
     return () => unregisterDropTarget(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canDropMonsterHere, playerNumber, onMonsterCardDrop]);
+
+  // Druida - HUD do Broto em vez do slot de carta (ver comentário de
+  // `field`/`photosynthesisLevel` na interface acima - `monsterCard` nunca
+  // existe pra este personagem, a caixa ficaria sempre "vazio" sem isto).
+  if (character === 'druida') {
+    return (
+      <div className="bg-[#1E1A16]/50 rounded-lg p-3 flex items-center gap-3" style={{ border: `1px solid ${theme.primary}33` }}>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className={`w-14 h-14 rounded-lg border flex items-center justify-center cursor-help ${brotoValue !== null ? 'animate-pulse' : ''}`}
+                style={{ borderColor: theme.primary, color: theme.primary, boxShadow: brotoValue !== null ? `0 0 12px ${theme.primary}55` : undefined }}
+              >
+                {brotoValue !== null ? <span className="text-[20px] font-bold">{brotoValue}</span> : <span className="text-[20px]">🌱</span>}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[240px]">
+              <p className="text-[10px] font-semibold mb-1 uppercase tracking-wide" style={{ color: theme.primary }}>
+                🌱 Broto
+              </p>
+              {brotoValue !== null ? (
+                <>
+                  <p className="text-[#EFE7D6] text-[11px]">Valor atual: {brotoValue}</p>
+                  <p className="text-[#EFE7D6] text-[11px]">Cresce +{brotoGrowthRate} por troca de fase</p>
+                </>
+              ) : (
+                <p className="text-[#EFE7D6] text-[11px]">Nenhum Broto ativo no campo ainda.</p>
+              )}
+              {photosynthesisLevel > 0 && <p className="text-[#EFE7D6] text-[11px]">Fotossíntese: nível {photosynthesisLevel}</p>}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <div>
+          <p className="text-[11px] font-medium" style={{ color: theme.primary }}>
+            {brotoValue !== null ? `Broto (valor ${brotoValue})` : 'Sem Broto ativo'}
+          </p>
+          {brotoValue !== null && <p className="text-[10px] text-[#BFB6A6]">+{brotoGrowthRate}/fase{photosynthesisLevel > 0 ? ` · Fotossíntese ${photosynthesisLevel}` : ''}</p>}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-[#1E1A16]/50 border border-[#C59E4F]/20 rounded-lg p-3 flex items-center gap-3">

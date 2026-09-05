@@ -111,18 +111,25 @@ const anjoQFieldRule: DragActivationRule = {
 };
 
 /**
- * Mosqueteiro K - Tiro Certeiro: reforça uma carta do PRÓPRIO campo
- * (`selectedCards`, não `selectedSlot` - a ativação por clique deixa
- * escolher a principal OU uma horizontal específica dentro do slot).
- * Arrastar e soltar sempre mira a carta PRINCIPAL do slot - simplificação
- * deliberada (soltar "no slot" não distingue qual das cartas dentro dele);
- * reforçar uma horizontal específica continua exigindo o fluxo de clique.
+ * Mosqueteiro K - Tiro Certeiro - MUDANÇA DE PLANOS (pedido do usuário):
+ * antes reforçava uma carta do PRÓPRIO campo; agora enfraquece uma carta do
+ * campo do OPONENTE (`selectedCards`, não `selectedSlot` - a ativação por
+ * clique deixa escolher a principal OU uma horizontal específica dentro do
+ * slot). Mesma checagem de Proteção Divina que o motor exige (ver
+ * druidaKRule, o mesmo padrão de "marcador negativo no adversário"). Arrastar
+ * e soltar sempre mira a carta PRINCIPAL do slot - simplificação deliberada
+ * (soltar "no slot" não distingue qual das cartas dentro dele); mirar uma
+ * horizontal específica continua exigindo o fluxo de clique.
  */
 const mosqueteiroKRule: DragActivationRule = {
-  side: 'own',
-  isValidSlotTarget: (state, player, slotIndex) => Boolean(state[playerKeyOf(player)].field[slotIndex].faceDownCard),
+  side: 'opponent',
+  isValidSlotTarget: (state, player, slotIndex) => {
+    const opponent = opponentOf(player);
+    if (isSlotProtected(state, opponent, slotIndex)) return false;
+    return Boolean(state[playerKeyOf(opponent)].field[slotIndex].faceDownCard);
+  },
   buildSelection: (state, player, slotIndex) => ({
-    selectedCards: [state[playerKeyOf(player)].field[slotIndex].faceDownCard!.id],
+    selectedCards: [state[playerKeyOf(opponentOf(player))].field[slotIndex].faceDownCard!.id],
   }),
 };
 

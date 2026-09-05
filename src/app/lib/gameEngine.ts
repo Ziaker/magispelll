@@ -219,8 +219,12 @@ export interface PlayerState {
    * 'besta' }`.
    *
    * Mosqueteiro - Tiro Certeiro fica registrado como `{ kind: 'add', amount:
-   * <congelado no instante da ativação>, source: 'mosqueteiro' }`. Zerado a
-   * cada turno junto com o resto do estado por-turno (ver `resetForNewTurn`).
+   * <congelado no instante da ativação>, source: 'mosqueteiro' }`. MUDANÇA DE
+   * PLANOS (pedido do usuário): antes reforçava (`amount` positivo) uma
+   * carta do PRÓPRIO array; agora enfraquece (`amount` NEGATIVO) uma carta
+   * do array do OPONENTE - mesmo padrão de Urtiga do Druida (ver mais abaixo
+   * neste arquivo), só a Besta ainda se auto-buffa de verdade. Zerado a cada
+   * turno junto com o resto do estado por-turno (ver `resetForNewTurn`).
    */
   combatModifiers: CombatModifier[];
   /**
@@ -1399,6 +1403,18 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
     // do oponente revelado mas protegido.
     hasRevealedUnprotectedCardInOpponentField: opponentState.field.some(
       (slot, i) => slot.faceDownCard && slot.revealed && !isSlotProtected(state, opponent, i)
+    ),
+    // FIX (mudança de planos do Tiro Certeiro, pedido do usuário: "marcadores
+    // negativos nas cartas do campo do oponente"): diferente do campo acima,
+    // NÃO exige revelada - Tiro Certeiro sempre pôde mirar carta oculta
+    // (antes, a própria; a identidade não importava porque era sempre a
+    // MESMA carta do dono ativando). Mudar só o "de quem" é o campo, mantendo
+    // a mesma regra de visibilidade de sempre, é a leitura mais fiel ao
+    // pedido (nunca restringiu a alvo revelado) - e é o que torna a escolha
+    // ALEATÓRIA da IA (também pedida) genuinamente necessária: sem ver o
+    // valor de uma carta oculta, não há "melhor alvo" possível de calcular.
+    hasUnprotectedCardInOpponentField: opponentState.field.some(
+      (slot, i) => (slot.faceDownCard || slot.horizontalCards.length > 0) && !isSlotProtected(state, opponent, i)
     ),
     // FIX (pedido do usuário: "a rainha do anjo impede a ativação de um
     // efeito... até o fim do turno") - ver Card.magicLocked (cardUtils.ts) e
@@ -3295,26 +3311,34 @@ function handleExecuteMagic(
   }
 
   // ----- Mosqueteiro K: Tiro Certeiro -----
-  // Fase de COMBATE (como Mago K/Besta K - ver MAGIC_CARDS): reforça uma
-  // carta do PRÓPRIO campo (principal ou horizontal, revelada ou não - ver
-  // resposta do usuário "a qualquer momento do combate") em +N, onde N é
-  // `mosqueteiroDiscardsThisTurn + mosqueteiroDiscardsTurnMinus1` NO INSTANTE
-  // da ativação (quantas cartas as magias do Mosqueteiro descartaram NESTE
-  // turno E no ANTERIOR - FIX pedido do usuário: "o valor extra também conta
-  // o turno anterior" - antes só contava este turno) - lido e congelado
-  // aqui num `CombatModifier` (`combatModifiers`, ver PlayerState), aplicado
-  // de verdade na resolução de combate (ver handleResolveCombat). Só os 2 turnos mais recentes contam
-  // aqui - a janela de 3 turnos (T-2 incluso) é só da Magia Numeral, ver
-  // handleFinalizeNumeralSpell.
+  // Fase de COMBATE (como Mago K/Besta K - ver MAGIC_CARDS).
+  //
+  // MUDANÇA DE PLANOS (pedido explícito do usuário): antes reforçava uma
+  // carta do PRÓPRIO campo em +N; agora enfraquece uma carta do campo do
+  // OPONENTE em -N - mesmo padrão de Urtiga do Druida (ver bloco logo
+  // abaixo), inclusive a mesma checagem de Proteção Divina do Anjo (nunca
+  // existia antes, já que mirar o próprio campo nunca precisou disso). N é
+  // `mosqueteiroDiscardsThisTurn + mosqueteiroDiscardsTurnMinus1` NO
+  // INSTANTE da ativação (quantas cartas as magias do Mosqueteiro
+  // descartaram NESTE turno E no ANTERIOR) - lido e congelado aqui num
+  // `CombatModifier` (`combatModifiers`, ver PlayerState), aplicado de
+  // verdade na resolução de combate (ver handleResolveCombat). Só os 2
+  // turnos mais recentes contam aqui - a janela de 3 turnos (T-2 incluso) é
+  // só da Magia Numeral, ver handleFinalizeNumeralSpell.
   if (character === 'mosqueteiro' && magicType === 'K') {
     const targetId = selectedCards?.[0];
     if (!targetId) return state;
-    const mainCard = playerState.field.find((slot) => slot.faceDownCard?.id === targetId)?.faceDownCard;
-    const horizontalCard = playerState.field.flatMap((slot) => slot.horizontalCards).find((c) => c.id === targetId);
-    const targetCard = mainCard ?? horizontalCard;
+    const opponentState = state[opponentKey];
+    const targetSlotIndex = opponentState.field.findIndex((s) => s.faceDownCard?.id === targetId || s.horizontalCards.some((c) => c.id === targetId));
+    if (targetSlotIndex === -1) return state;
+    if (isSlotProtected(state, opponent, targetSlotIndex)) {
+      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+    }
+    const targetSlot = opponentState.field[targetSlotIndex];
+    const targetCard = targetSlot.faceDownCard?.id === targetId ? targetSlot.faceDownCard : targetSlot.horizontalCards.find((c) => c.id === targetId);
     // FIX (checagem extensa por bugs - interação Piromante x Mosqueteiro):
-    // Tiro Certeiro foi desenhado pra reforçar uma carta numeral de verdade
-    // no combate - uma carta-token de Bola de Fogo (`isFireToken`) nunca
+    // Tiro Certeiro foi desenhado pra mirar uma carta numeral de verdade no
+    // combate - uma carta-token de Bola de Fogo (`isFireToken`) nunca
     // deveria ser um alvo válido (cosmético, mas inconsistente com a
     // identidade visual/temática do efeito).
     if (!targetCard || targetCard.isFireToken) return state;
@@ -3327,17 +3351,17 @@ function handleExecuteMagic(
     // MESMA carta não acumulava nada (só recomputava o mesmo valor), e
     // reativar sobre outra carta simplesmente MOVIA o bônus, nunca somava.
     // Agora o marcador é procurado por `cardId`: reativar sobre a carta já
-    // marcada SOMA ao valor existente; mirar uma carta diferente cria um
-    // marcador independente, permitindo vários "Tiro Certeiro" simultâneos
-    // em cartas diferentes no mesmo campo.
-    const existingMarker = playerState.combatModifiers.find((m) => m.source === 'mosqueteiro' && m.cardId === targetId);
-    const newAmount = (existingMarker?.amount ?? 0) + boostAmount;
+    // marcada SOMA (nesse sentido, aprofunda) o valor existente; mirar uma
+    // carta diferente cria um marcador independente, permitindo vários
+    // "Tiro Certeiro" simultâneos em cartas diferentes do campo do oponente.
+    const existingMarker = opponentState.combatModifiers.find((m) => m.source === 'mosqueteiro' && m.cardId === targetId);
+    const newAmount = (existingMarker?.amount ?? 0) - boostAmount;
     const { deck, discardPile } = pushToDiscard(state, [card]);
     const log = appendLog(
       state,
       state.log,
       'magic',
-      `Jogador ${player} ativou Tiro Certeiro - a carta ${targetCard.value}${targetCard.suit} recebe +${boostAmount} de valor no combate (total: +${newAmount})`,
+      `Jogador ${player} ativou Tiro Certeiro e enfraqueceu ${targetCard.value}${targetCard.suit} de Jogador ${opponent} em -${boostAmount} de valor no combate (total: ${newAmount})`,
       { player, cardValue: card.value }
     );
 
@@ -3346,11 +3370,11 @@ function handleExecuteMagic(
       deck,
       discardPile,
       log,
-      [playerKey]: {
-        ...playerState,
-        hand: handWithoutMagic,
+      [playerKey]: { ...playerState, hand: handWithoutMagic },
+      [opponentKey]: {
+        ...opponentState,
         combatModifiers: [
-          ...playerState.combatModifiers.filter((m) => !(m.source === 'mosqueteiro' && m.cardId === targetId)),
+          ...opponentState.combatModifiers.filter((m) => !(m.source === 'mosqueteiro' && m.cardId === targetId)),
           { cardId: targetId, kind: 'add', amount: newAmount, source: 'mosqueteiro', label: 'Tiro Certeiro' },
         ],
       },
@@ -4623,10 +4647,25 @@ function slotCombatTotal(
     const card = allCards.find((c) => c.id === modifier.cardId);
     if (!card) continue;
     const base = getSpotlightAdjustedValue(card, spotlight);
+    // FIX (bug real exposto pela mudança de planos do Tiro Certeiro do
+    // Mosqueteiro, "marcadores negativos nas cartas do campo do oponente"):
+    // esta linha sempre disse "reforçou... em +{amount}", certo enquanto o
+    // ÚNICO modificador 'add' fora Simbiose (sempre positivo) era o Tiro
+    // Certeiro antigo (também sempre positivo) - com Urtiga do Druida
+    // (já existia, sempre negativo) e agora Tiro Certeiro (negativo também)
+    // usando o mesmo `kind: 'add'`, um `amount` negativo produzia "reforçou
+    // ... em +-3" (sinal duplicado, verbo errado). Agora escolhe o verbo e o
+    // sinal certos conforme o valor de verdade.
     nextLog =
       modifier.kind === 'multiply'
         ? appendLog(state, nextLog, 'monster', `${modifier.label} dobrou a carta ${card.value}${card.suit} de Jogador ${player} (${base} → ${base * modifier.amount})`, { player })
-        : appendLog(state, nextLog, 'magic', `${modifier.label} reforçou a carta ${card.value}${card.suit} de Jogador ${player} em +${modifier.amount}`, { player });
+        : appendLog(
+            state,
+            nextLog,
+            'magic',
+            `${modifier.label} ${modifier.amount >= 0 ? 'reforçou' : 'enfraqueceu'} a carta ${card.value}${card.suit} de Jogador ${player} em ${modifier.amount >= 0 ? '+' : ''}${modifier.amount}`,
+            { player }
+          );
   }
   const mainValue = slot.faceDownCard ? applyCombatModifiers(getSpotlightAdjustedValue(slot.faceDownCard, spotlight), slot.faceDownCard.id, modifiers) : 1;
   const horizontalValue = horizontalCards.reduce((sum, c) => sum + applyCombatModifiers(getSpotlightAdjustedValue(c, spotlight), c.id, modifiers), 0);

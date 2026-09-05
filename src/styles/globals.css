@@ -171,6 +171,33 @@ html {
   font-size: var(--font-size);
 }
 
+/* FIX (item 19 do Grupo D da lista de afazeres, "Alto Contraste não faz
+   nada"): a classe era alternada em document.documentElement
+   (SettingsContext.tsx) há muito tempo, mas nunca existiu NENHUMA regra CSS
+   pra ela em lugar nenhum do projeto - o toggle nas Configurações sempre foi
+   inerte. A imensa maioria do texto/borda "apagada" do jogo usa um punhado
+   de cores literais repetidas centenas de vezes via classes arbitrárias do
+   Tailwind (`text-[#BFB6A6]` sozinho aparece 168x só em src/app/components),
+   não variáveis CSS - por isso a correção mira essas classes GERADAS
+   diretamente (única forma de afetar o app inteiro sem reescrever centena de
+   componentes um a um), em vez de tentar reaproveitar `--muted-foreground`/
+   `--text-secondary` em :root (que quase nenhum componente realmente
+   consome). Sobe o texto secundário (cinza-bege apagado) pra quase branco,
+   o texto terciário (o marrom apagado de separadores/labels) pra um dourado
+   bem mais legível, e reforça bordas fracas (dourado a 20-30% de opacidade,
+   quase invisíveis) - cobre a maior fonte de baixo contraste do jogo sem
+   alterar a paleta de quem não ligar o modo. */
+.high-contrast .text-\[\#BFB6A6\] {
+  color: #F3EFE6 !important;
+}
+.high-contrast .text-\[\#8F6A30\] {
+  color: #E8C87A !important;
+}
+.high-contrast .border-\[\#C59E4F\]\/20,
+.high-contrast .border-\[\#C59E4F\]\/30 {
+  border-color: rgba(197, 158, 79, 0.7) !important;
+}
+
 /* FIX (bug real reportado pelo usuário: "quando arrasta uma carta o
    navegador faz o sublinhado/destaque de seleção de texto em cima das
    coisas") - o arraste de carta (HandCardView.tsx/CardDragLayer.tsx) usa

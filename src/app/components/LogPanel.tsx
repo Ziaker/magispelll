@@ -151,7 +151,17 @@ export function LogPanel({ log, player1Character, player2Character, screenReader
         })}
       </div>
 
-      <ScrollArea className="h-[520px]" aria-live={screenReaderMode ? 'polite' : undefined}>
+      {/* FIX (item 13 do Grupo D da lista de afazeres, "log com espaço morto
+          abaixo dele"): altura fixa de 520px sempre deixava sobrando um vão
+          vazio na coluna quando o tabuleiro é mais alto que isso (Modo
+          Espectador, com 2 mãos de IA) - a coluna inteira já estica pra
+          altura do grid (ver comentário em GameBoard.tsx), mas o conteúdo
+          dela nunca acompanhava. Como esta caixa é `sticky top-0` (segue o
+          scroll da página, não do grid), a altura certa pra "preencher de
+          verdade" é relativa à VIEWPORT, não à altura (potencialmente bem
+          maior) da coluna - `calc(100vh-220px)` cobre o espaço real visível
+          abaixo do cabeçalho/filtros, com um piso de 300px pra telas baixas. */}
+      <ScrollArea className="h-[calc(100vh-220px)] min-h-[300px]" aria-live={screenReaderMode ? 'polite' : undefined}>
         <div className="space-y-2">
           {turnGroups.length === 0 && <p className="text-[11px] text-[#BFB6A6]/60 pl-1">Nada por aqui com esses filtros.</p>}
           {turnGroups.map(([turn, entries]) => {

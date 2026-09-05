@@ -18,20 +18,49 @@ function TooltipProvider({
   );
 }
 
+/**
+ * FIX (item 9 do Grupo B da lista de afazeres, "tooltips sem fallback de
+ * toque pra mobile"): o Radix só abre um Tooltip no hover - sem estado de
+ * hover no toque, TODA explicação de magia/efeito do jogo (selos J/Q/K,
+ * Zona Monstro, cartas na mão etc. - todos usam este mesmo componente
+ * compartilhado) ficava simplesmente inacessível num celular, apesar do
+ * jogo já suportar toque (TouchBackend do react-dnd). Este contexto deixa o
+ * `Tooltip` controlado (`open`/`onOpenChange` próprios) e o `TooltipTrigger`
+ * alterna esse estado no toque/clique, virando "toque pra abrir, toque de
+ * novo (ou em outro lugar) pra fechar" - continua abrindo no hover normal
+ * em desktop, já que o Root controlado ainda recebe as mudanças de estado
+ * que o próprio Radix dispara via `onOpenChange` a cada hover.
+ */
+const TooltipOpenContext = React.createContext<{ open: boolean; setOpen: (open: boolean) => void } | null>(null);
+
 function Tooltip({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+  const [open, setOpen] = React.useState(false);
   return (
     <TooltipProvider>
-      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+      <TooltipOpenContext.Provider value={{ open, setOpen }}>
+        <TooltipPrimitive.Root data-slot="tooltip" open={open} onOpenChange={setOpen} {...props} />
+      </TooltipOpenContext.Provider>
     </TooltipProvider>
   );
 }
 
 function TooltipTrigger({
+  onClick,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+  const ctx = React.useContext(TooltipOpenContext);
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      onClick={(event) => {
+        onClick?.(event);
+        ctx?.setOpen(!ctx.open);
+      }}
+      {...props}
+    />
+  );
 }
 
 function TooltipContent({

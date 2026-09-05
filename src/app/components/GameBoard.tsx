@@ -29,7 +29,7 @@ import { Badge } from './ui/badge';
 import { Switch } from './ui/switch';
 import { Slider } from './ui/slider';
 import { Label } from './ui/label';
-import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box, Settings as SettingsIcon, Sparkles } from 'lucide-react';
+import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box, Settings as SettingsIcon, Sparkles, ScrollText } from 'lucide-react';
 import { PlayerZone } from './PlayerZone';
 import { BattleField } from './BattleField';
 import { CharacterMagicReference } from './CharacterMagicReference';
@@ -64,7 +64,7 @@ import { getDragActivationRule } from '../lib/dragActivation';
 import { getMonsterEffect } from '../lib/monsterCards';
 import type { GameConfig } from '../lib/gameConfig';
 import { useSettings } from '../context/SettingsContext';
-import { getAnimationDurationScale } from '../lib/settings';
+import { getAnimationDurationScale, getAiThinkTimeScale } from '../lib/settings';
 import { soundManager, magicSoundFor, monsterSoundFor, numeralSoundFor } from '../lib/soundManager';
 import { motion } from 'motion/react';
 import {
@@ -145,11 +145,36 @@ interface PendingMagic {
 }
 
 export function GameBoard({ onBack, player1Character, player2Character, gameConfig }: GameBoardProps) {
-  const [gameState, rawDispatch] = useReducer(
+  const [gameState, reducerDispatch] = useReducer(
     gameReducer,
     undefined,
     () => createInitialState(player1Character, player2Character, gameConfig)
   );
+  /**
+   * FIX (item 32 da lista de afazeres, "sistema de replay... especialmente
+   * pra questões de erros/debug"): em vez de vídeo (caro de gerar, ruim pra
+   * debug de estado exato), grava a sequência de `GameAction`s desta partida
+   * - o motor já é um reducer puro e determinístico (`gameReducer`), então
+   * "replay" = redespachar essa sequência a partir do MESMO estado inicial
+   * até qualquer passo, reproduzindo o estado exato de um bug em vez de uma
+   * gravação de pixels. `rawDispatch` (usado em TODO o resto deste arquivo)
+   * vira este wrapper - único ponto de estrangulamento por onde toda ação
+   * de verdade passa (humano, IA, ou os próprios comandos de debug como
+   * DEBUG_FORCE_STATE), sem precisar tocar em nenhum outro call site.
+   * `initialStateRef` guarda o estado real com que esta partida começou
+   * (capturado uma única vez, na primeira renderização - `createInitialState`
+   * de novo aqui daria um baralho embaralhado DIFERENTE, por isso não
+   * recalcula, só lê o que já veio do `useReducer` acima). Ver
+   * window.__debug.getReplayLog/loadReplayLog/replayToStep mais abaixo.
+   */
+  const initialStateRef = useRef<GameState | null>(null);
+  if (initialStateRef.current === null) initialStateRef.current = gameState;
+  const recordedActionsRef = useRef<GameAction[]>([]);
+  const loadedReplayRef = useRef<{ initialState: GameState; actions: GameAction[] } | null>(null);
+  const rawDispatch = (action: GameAction) => {
+    recordedActionsRef.current.push(action);
+    reducerDispatch(action);
+  };
   // Item 5 do plano de melhoria do debug mode (window.__debug.checkInvariants/
   // fuzz) - quantas cartas "reais" esta partida específica começou com
   // (varia com a config: Modo Towers soma cartas extras ao baralho, ver
@@ -165,6 +190,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
 
   const { settings, updateSetting } = useSettings();
   const animScale = getAnimationDurationScale(settings);
+  const aiThinkScale = getAiThinkTimeScale(settings);
   // FIX (checagem extensa por bugs): `animScale || 0.35` tratava o `0`
   // devolvido de propósito por getAnimationDurationScale (settings.ts:
   // "efetivamente instantâneo" quando `settings.animations` está desligado)
@@ -189,6 +215,17 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [showDiscardPile, setShowDiscardPile] = useState(false);
   const [showPhaseTransition, setShowPhaseTransition] = useState(false);
   /**
+   * FIX (item 23 do Grupo F da lista de afazeres, "intervalo mínimo pós
+   * ativação de magia... trava as ações... com um pop-up mostrando o efeito
+   * e os alvos, sem obscurecer"): só existe quando `gameConfig.postMagicPauseMs
+   * > 0` (opção do pré-jogo) - `title`/`detail` alimentam um banner FINO no
+   * topo do tabuleiro (nunca um overlay que cobre o campo, ver JSX mais
+   * abaixo), e a MERA presença deste estado trava `dispatch` (mesmo guard
+   * de `showPhaseTransition` logo abaixo) até o timer da própria duração
+   * escolhida zerar.
+   */
+  const [postMagicPause, setPostMagicPause] = useState<{ title: string; detail: string } | null>(null);
+  /**
    * FIX (pedido do usuário: "só permita movimento de cartas ou efeitos após
    * o fim da notificação [de troca de fase], não durante") - o popup de
    * transição (PhaseTransition.tsx) é puramente visual (`pointer-events-none`),
@@ -204,6 +241,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    */
   const dispatch = (action: GameAction) => {
     if (showPhaseTransition) return;
+    if (postMagicPause) return;
     rawDispatch(action);
   };
   /**
@@ -293,6 +331,20 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    *     (rng.ts) - a MESMA semente reproduz a MESMA sequência de decisões
    *     aleatórias (incluindo a moeda de substituição do fuzz acima) daqui
    *     em diante. `clearSeed()` volta pro `Math.random()` cru normal.
+   *   window.__debug.getReplayLog() -> { initialState, actions } gravados
+   *     desde o início desta partida (ou desde o último `restart()`) - TODA
+   *     ação que passou pelo reducer, humana ou da IA. `JSON.stringify` isso
+   *     salva um relato de bug reproduzível de verdade (item 32 da lista de
+   *     afazeres, "sistema de replay... especialmente pra questões de erros/
+   *     debug" - deterministico em vez de vídeo, já que o motor é um reducer
+   *     puro).
+   *   window.__debug.loadReplayLog(log) -> troca a fonte usada por
+   *     `replayToStep` pra um log EXTERNO (ex.: colado de um relato de bug),
+   *     sem mexer na partida atual.
+   *   window.__debug.replayToStep(n?) -> redespacha o log carregado (ou o
+   *     desta sessão, se nenhum foi carregado) do zero até o passo `n`
+   *     (padrão: o log inteiro) e aplica via forceState, sempre pausado -
+   *     reproduz o estado EXATO de qualquer ponto da partida gravada.
    */
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -332,6 +384,29 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       return { steps: result.steps, stuck: result.stuck, rejectedActions: result.rejectedActions, violation: result.violation, gameOver: result.state.gameOver };
     };
 
+    // FIX (item 32, "sistema de replay"): getReplayLog exporta a gravação
+    // desta sessão (dá pra `JSON.stringify` e salvar/colar num relato de
+    // bug); loadReplayLog troca a fonte usada por replayToStep pra um log
+    // EXTERNO (ex.: um que alguém mandou), sem precisar reiniciar a partida
+    // atual; replayToStep redespacha `actions` do zero a partir do
+    // `initialState` do log até o índice pedido (via o MESMO gameReducer
+    // puro) e aplica o resultado via forceState (sempre pausado, pra
+    // examinar com calma) - `Infinity` (padrão) reproduz o log inteiro.
+    const getReplayLog = () => ({ initialState: initialStateRef.current!, actions: [...recordedActionsRef.current] });
+    const loadReplayLog = (log: { initialState: GameState; actions: GameAction[] }) => {
+      loadedReplayRef.current = log;
+    };
+    const replayToStep = (step: number = Infinity) => {
+      const log = loadedReplayRef.current ?? getReplayLog();
+      const targetStep = Math.max(0, Math.min(step, log.actions.length));
+      let replayState = log.initialState;
+      for (let i = 0; i < targetStep; i++) {
+        replayState = gameReducer(replayState, log.actions[i]);
+      }
+      rawDispatch({ type: 'DEBUG_FORCE_STATE', state: { ...replayState, paused: true } });
+      return { step: targetStep, totalSteps: log.actions.length, gameOver: replayState.gameOver };
+    };
+
     (window as unknown as { __debug: unknown }).__debug = {
       state: gameState,
       dispatch,
@@ -341,7 +416,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // que despachar TOGGLE_PAUSE às cegas do console sem saber o estado atual).
       pause: () => rawDispatch({ type: 'DEBUG_FORCE_STATE', state: { ...gameState, paused: true } }),
       resume: () => rawDispatch({ type: 'DEBUG_FORCE_STATE', state: { ...gameState, paused: false } }),
-      restart: () => rawDispatch({ type: 'DEBUG_FORCE_STATE', state: createInitialState(player1Character, player2Character, gameConfig) }),
+      restart: () => {
+        const freshState = createInitialState(player1Character, player2Character, gameConfig);
+        // FIX (item 32, "sistema de replay"): sem isto, reiniciar a partida
+        // deixaria a gravação com o `initialState` da partida ANTERIOR mas
+        // ações da NOVA em cima - um replay corrompido, nunca reproduzível.
+        initialStateRef.current = freshState;
+        recordedActionsRef.current = [];
+        loadedReplayRef.current = null;
+        rawDispatch({ type: 'DEBUG_FORCE_STATE', state: freshState });
+      },
       setAnimationsEnabled: (enabled: boolean) => updateSetting('animations', enabled),
       // Itens 1/2/6 do plano de melhoria do debug mode - ver o comentário
       // completo acima desta função pra cada um.
@@ -353,6 +437,9 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       getSeed,
       clearSeed,
       characters: { player1: player1Character, player2: player2Character },
+      getReplayLog,
+      loadReplayLog,
+      replayToStep,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState]);
@@ -659,7 +746,17 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // lista de modos ativos e as mãos enchendo (ver JSX abaixo), e 900ms não
     // é suficiente pra ler tudo isso.
     const popupDurationMs = isGameStart ? Math.max(2200, basePopupDurationMs) : basePopupDurationMs;
-    const t = setTimeout(() => setShowPhaseTransition(false), delay(popupDurationMs));
+    // FIX (pedido do usuário: "aumento de velocidade das animações... não
+    // chegamos a ver o resultado [do Spotlight], teoricamente não é pra ser
+    // afetável") - `delay()` reescala QUALQUER duração pela preferência de
+    // velocidade, incluindo o tempo garantido acima pra caber a "roleta"
+    // inteira - com a velocidade no máximo, esse piso podia encolher até os
+    // 150ms mínimos de `delay()`, cortando a cutscene antes do resultado
+    // aparecer. Enquanto a cutscene está rodando (`spotlightNumberCount > 0`),
+    // a duração fica de fora do `delay()` - sempre o tempo cheio, não importa
+    // a Velocidade de Animação. Qualquer outra transição de fase continua
+    // respeitando a preferência normalmente.
+    const t = setTimeout(() => setShowPhaseTransition(false), spotlightNumberCount > 0 ? popupDurationMs : delay(popupDurationMs));
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.phase]);
@@ -1328,6 +1425,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     if (gameState.pendingReaction) return;
     if (pendingMagic || pendingAceTransform || pendingMonsterEffect || pendingMonsterTarget || pendingBestaMonsterTarget || pendingCoringaQChoice) return;
     if (showPhaseTransition) return; // ver comentário do `dispatch` guardado acima
+    if (postMagicPause) return; // idem - ver comentário do `dispatch` guardado acima
 
     const timers: ReturnType<typeof setTimeout>[] = [];
     for (const ai of aiPlayers) {
@@ -1335,7 +1433,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       if (decision.type === 'wait') continue;
       if (decision.type === 'ready' && gameState[playerKeyOf(ai)].readyForNextPhase) continue;
 
-      const baseMs = decision.type === 'action' ? decision.thinkTimeMs ?? 700 + Math.random() * 500 : 450;
+      // FIX (item 22 do Grupo F, "velocidade de pensamento da IA
+      // configurável"): `aiThinkScale` (settings.ts) reescala TODO atraso de
+      // "pensando..." aqui, no único ponto que os despacha de verdade -
+      // cobre uniformemente os valores fixos (450/700-1200ms padrão) e
+      // qualquer `thinkTimeMs` específico que uma decisão já define (inclusive
+      // 0, que continua instantâneo: 0 × qualquer escala = 0).
+      const baseMs = (decision.type === 'action' ? decision.thinkTimeMs ?? 700 + Math.random() * 500 : 450) * aiThinkScale;
       const t = setTimeout(() => {
         if (decision.type === 'action') {
           // FIX (pedido do usuário: relato de que ativações da IA não tinham
@@ -1389,7 +1493,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // Agora, ao voltar a `false`, este efeito roda de novo e agenda a próxima
     // decisão normalmente.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, aiPlayers, pendingMagic, pendingAceTransform, pendingMonsterEffect, pendingMonsterTarget, pendingBestaMonsterTarget, pendingCoringaQChoice, showPhaseTransition]);
+  }, [gameState, aiPlayers, pendingMagic, pendingAceTransform, pendingMonsterEffect, pendingMonsterTarget, pendingBestaMonsterTarget, pendingCoringaQChoice, showPhaseTransition, postMagicPause]);
 
   // FIX (pedido do usuário: "ainda ocorre softlocks no espectador... adicione
   // um timer de 10 segundos pra IA rever o que está ou deveria fazer, caso
@@ -1686,7 +1790,29 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       if (pm.selectedCards?.length) cardIds.push(...pm.selectedCards);
       if (pm.selectedRevealCardIds?.length) cardIds.push(...pm.selectedRevealCardIds);
     } else if (pm.character === 'mosqueteiro' && pm.type === 'K') {
-      if (pm.selectedCards?.[0]) cardIds.push(pm.selectedCards[0]);
+      // FIX (mudança de planos do Tiro Certeiro, "mira uma carta do OPONENTE
+      // agora, não mais uma da mão/campo próprio"): mesmo cuidado já
+      // corrigido pro Druida (ver comentário logo abaixo) - o burst da carta
+      // PRINCIPAL de um slot só acende via `effectFlashSlots` (slots.push),
+      // nunca por `cardIds`, que só cobre horizontais/mão. Sem procurar o
+      // slot certo, o flash nunca aparecia quando o alvo era a carta
+      // principal (não-horizontal) de um slot.
+      const targetId = pm.selectedCards?.[0];
+      if (targetId) {
+        const opponentNum = opponentOf(pm.playerNumber);
+        const opponentField = gameState[opponentKeyOf(pm.playerNumber)].field;
+        let foundSlot = false;
+        opponentField.forEach((slot, slotIndex) => {
+          if (slot.faceDownCard?.id === targetId) {
+            slots.push({ player: opponentNum, slotIndex });
+            foundSlot = true;
+          } else if (slot.horizontalCards.some((c) => c.id === targetId)) {
+            cardIds.push(targetId);
+            foundSlot = true;
+          }
+        });
+        if (!foundSlot) cardIds.push(targetId); // fallback defensivo
+      }
     } else if (pm.character === 'piromante') {
       if (pm.fireballLaunch) {
         // Lançamento da Bola de Fogo: mira o slot único escolhido, ou os 3
@@ -1936,6 +2062,24 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         // na hora em vez de ficar mudo.
         soundManager.play(magicSoundFor(character, type));
       }
+    }
+
+    // FIX (item 23 do Grupo F, "intervalo mínimo pós ativação de magia") -
+    // disparado daqui de propósito: `applyMagicEffectPresentation` só roda
+    // DEPOIS de qualquer `pendingReaction` resolver (a apresentação inteira
+    // é suprimida durante a janela de 3s - ver comentários no restante desta
+    // função e em GameBoard.tsx), então esta pausa nunca aparece antes do
+    // Modo Reações decidir, herdando essa ordem sem nenhuma checagem extra.
+    if (gameConfig.postMagicPauseMs > 0) {
+      const targetDescriptions = [
+        ...targets.slots.map((s) => `Jogador ${s.player}, Slot ${s.slotIndex + 1}`),
+        ...(targets.cardIds.length > 0 ? [`${targets.cardIds.length} carta(s)`] : []),
+      ];
+      setPostMagicPause({
+        title: `${characterOf(gameState, pm.playerNumber).toUpperCase()} ativou ${getMagicCardInfo(character, type).name}`,
+        detail: targetDescriptions.length > 0 ? `Alvo(s): ${targetDescriptions.join(', ')}` : 'Sem alvo específico',
+      });
+      setTimeout(() => setPostMagicPause(null), gameConfig.postMagicPauseMs);
     }
   };
 
@@ -2766,6 +2910,41 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               </div>
             </div>
 
+            {/* FIX (itens 12/20/21 da lista de afazeres: "adicione uma opção
+                in-game de fechar/abrir o log", "Pontuação flutuante", "painel
+                de última magia") - 3 toggles rápidos direto na barra de
+                status, ao lado dos indicadores de IA/Pronto, cada um lendo/
+                gravando na MESMA config persistida que o diálogo de
+                Configurações usa (`updateSetting`) - o estado nunca diverge
+                entre os dois lugares, só é mais rápido chegar até ele aqui. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => updateSetting('showActionLog', !settings.showActionLog)}
+              className={settings.showActionLog ? 'text-[#C59E4F]' : 'text-[#BFB6A6]/50'}
+              title={settings.showActionLog ? 'Ocultar Log de Ações' : 'Mostrar Log de Ações'}
+            >
+              <ScrollText className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => updateSetting('showFloatingScore', !settings.showFloatingScore)}
+              className={settings.showFloatingScore ? 'text-[#C59E4F]' : 'text-[#BFB6A6]/50'}
+              title={settings.showFloatingScore ? 'Ocultar Pontuação' : 'Mostrar Pontuação'}
+            >
+              <Trophy className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => updateSetting('showLastMagicPanel', !settings.showLastMagicPanel)}
+              className={settings.showLastMagicPanel ? 'text-[#C59E4F]' : 'text-[#BFB6A6]/50'}
+              title={settings.showLastMagicPanel ? 'Ocultar última magia usada' : 'Mostrar última magia usada'}
+            >
+              <Sparkles className="w-4 h-4" />
+            </Button>
+
             {/* FIX (pedido do usuário: "atalho de Configurações direto no
                 topo... sem passar pelo 'Jogo Pausado'") - abre o MESMO
                 Dialog do botão de pausa ao lado, mas sem pausar a partida
@@ -2921,6 +3100,17 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   visível - ver SpotlightSidebar.tsx. */}
               <div className="flex gap-3 items-stretch">
                 <div className="flex-1 min-w-0">
+                  {/* FIX (mudança de planos do Tiro Certeiro, "marcadores
+                      negativos nas cartas do campo do oponente"): as props
+                      `player{1,2}BoostedCardId`/`BoostAmount` abaixo antes só
+                      filtravam por `kind === 'add'`, o que bastava porque só
+                      o Tiro Certeiro (sempre positivo, sempre no PRÓPRIO
+                      array) usava esse kind num array próprio - agora Urtiga
+                      do Druida TAMBÉM deixa um marcador negativo `kind: 'add'`
+                      no array do alvo (a vítima), exatamente onde este lookup
+                      procura. Sem o filtro extra por `source === 'mosqueteiro'`,
+                      um debuff de Urtiga recebido seria mostrado com o selo
+                      cinza-aço do Mosqueteiro por engano. */}
                   <BattleField
                     player1Character={player1Character}
                     player2Character={player2Character}
@@ -2950,10 +3140,10 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     burningSlots={burningSlots}
                     player1DoubledCardId={gameState.player1.combatModifiers.find((m) => m.kind === 'multiply')?.cardId}
                     player2DoubledCardId={gameState.player2.combatModifiers.find((m) => m.kind === 'multiply')?.cardId}
-                    player1BoostedCardId={gameState.player1.combatModifiers.find((m) => m.kind === 'add')?.cardId}
-                    player1BoostAmount={gameState.player1.combatModifiers.find((m) => m.kind === 'add')?.amount ?? 0}
-                    player2BoostedCardId={gameState.player2.combatModifiers.find((m) => m.kind === 'add')?.cardId}
-                    player2BoostAmount={gameState.player2.combatModifiers.find((m) => m.kind === 'add')?.amount ?? 0}
+                    player1BoostedCardId={gameState.player1.combatModifiers.find((m) => m.kind === 'add' && m.source === 'mosqueteiro')?.cardId}
+                    player1BoostAmount={gameState.player1.combatModifiers.find((m) => m.kind === 'add' && m.source === 'mosqueteiro')?.amount ?? 0}
+                    player2BoostedCardId={gameState.player2.combatModifiers.find((m) => m.kind === 'add' && m.source === 'mosqueteiro')?.cardId}
+                    player2BoostAmount={gameState.player2.combatModifiers.find((m) => m.kind === 'add' && m.source === 'mosqueteiro')?.amount ?? 0}
                     combatValueSpec={combatValueReveal}
                     spotlight={gameState.spotlight}
                     towersMode={gameConfig.towersMode}
@@ -3056,7 +3246,15 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 magias dele, acima de "Pontuação"), e a do Jogador 1 no
                 bloco de BAIXO (junto com a referência de magias dele,
                 abaixo de "Baralho & Descarte") - ver MonsterZone.tsx. */}
-            <div className="h-full flex flex-col justify-between gap-4">
+            {/* FIX (item 14 do Grupo D, "vão elástico entre painéis") -
+                `justify-between` distribuía os 3 blocos abaixo esticando os
+                2 vãos entre eles pra preencher a altura toda da coluna, que
+                no Modo Espectador é bem mais alta que os 3 blocos juntos -
+                cada vão virava um espaço morto enorme (era ONDE a Pontuação
+                morava antes de virar flutuante, ver mais abaixo). `gap-4`
+                simples empilha os 3 blocos com um respiro fixo entre eles,
+                sem inventar espaço vazio pra preencher a coluna. */}
+            <div className="h-full flex flex-col gap-4">
               <div className="space-y-3">
                 <MonsterZone
                   playerNumber={2}
@@ -3067,57 +3265,70 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   monsterTargetSelection={pendingMonsterTarget}
                   onMonsterZoneClick={handleMonsterZoneClick}
                   onMonsterCardDrop={handleMonsterCardDrop}
+                  field={gameState.player2.field}
+                  photosynthesisLevel={gameState.player2.druidaPhotosynthesisLevel}
                 />
-                <CharacterMagicReference character={player2Character} />
+                <CharacterMagicReference character={player2Character} gameState={gameState} playerNumber={2} />
               </div>
 
               <div className="space-y-6">
-              <div className="bg-[#1E1A16]/50 border border-[#C59E4F]/20 rounded-lg p-4">
-                <p className="text-[12px] text-[#BFB6A6] mb-3">Pontuação</p>
-                <div className="space-y-3">
+              {/* FIX (item 21 do Grupo E, ideia do usuário): "última carta
+                  mágica usada" no lugar que a Pontuação ocupava (ela virou
+                  janela flutuante, ver mais abaixo) - mostra a última magia
+                  J/Q/K de cada jogador (nunca Monstro/Magia Numeral, tipos de
+                  log diferentes, ver LogEventType em gameEngine.ts) e se o
+                  efeito dela ainda está em vigor: procura um combatModifier
+                  (de QUALQUER dos dois jogadores, já que Urtiga escreve no do
+                  OPONENTE) cujo `label` bate com o nome da magia - as únicas
+                  4 magias do jogo que criam um marcador que sobrevive além da
+                  própria ativação (Simbiose/Urtiga/Tiro Certeiro/Fúria
+                  Selvagem). Pras outras 17 combinações (a maioria - efeitos
+                  instantâneos: revelar, trocar, descartar, comprar...), "já
+                  resolvido" é o estado correto de verdade, não uma
+                  simplificação. Escondida quando `showLastMagicPanel` está
+                  desligado (ver toggle na barra de status do topo). */}
+              {settings.showLastMagicPanel && (() => {
+                const lastMagicFor = (playerNumber: PlayerNumber) => {
+                  const entries = gameState.log.filter((l) => l.type === 'magic' && l.player === playerNumber && l.cardValue);
+                  const last = entries[entries.length - 1];
+                  if (!last) return null;
+                  const character = characterOf(gameState, playerNumber);
+                  const info = getMagicCardInfo(character, last.cardValue as MagicCardType);
+                  const stillActive =
+                    gameState.player1.combatModifiers.some((m) => m.label === info.name) ||
+                    gameState.player2.combatModifiers.some((m) => m.label === info.name);
+                  return { info, turn: last.turn, stillActive };
+                };
+                const p1Last = lastMagicFor(1);
+                const p2Last = lastMagicFor(2);
+                const renderRow = (theme: typeof p1Theme, last: ReturnType<typeof lastMagicFor>) => (
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-[11px]" style={{ color: p1Theme.primary }}>
-                        {p1Theme.name}
-                      </p>
-                      <div className="flex items-center gap-1">
-                        {[...Array(3)].map((_, i) => (
-                          <Heart
-                            key={i}
-                            className={`w-3 h-3 ${i < gameState.player1.lives ? 'fill-current' : 'opacity-20'}`}
-                            style={{ color: p1Theme.primary }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                    <p className="text-[10px] text-[#BFB6A6]">
-                      Vitórias: {gameState.player1.combatWins}/2
+                    <p className="text-[11px] mb-1" style={{ color: theme.primary }}>
+                      {theme.name}
                     </p>
+                    {last ? (
+                      <>
+                        <p className="text-[11px] text-[#EFE7D6]">{last.info.name}</p>
+                        <p className="text-[10px]" style={{ color: last.stillActive ? '#6CC47A' : '#BFB6A6' }}>
+                          {last.stillActive ? 'Efeito ainda ativo' : 'Já resolvido'} · turno {last.turn}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-[10px] text-[#BFB6A6]">Nenhuma magia usada ainda</p>
+                    )}
                   </div>
-
-                  <div className="h-px bg-[#C59E4F]/20" />
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-[11px]" style={{ color: p2Theme.primary }}>
-                        {p2Theme.name}
-                      </p>
-                      <div className="flex items-center gap-1">
-                        {[...Array(3)].map((_, i) => (
-                          <Heart
-                            key={i}
-                            className={`w-3 h-3 ${i < gameState.player2.lives ? 'fill-current' : 'opacity-20'}`}
-                            style={{ color: p2Theme.primary }}
-                          />
-                        ))}
-                      </div>
+                );
+                return (
+                  <div className="bg-[#1E1A16]/50 border border-[#C59E4F]/20 rounded-lg p-4">
+                    <p className="text-[12px] text-[#BFB6A6] mb-3">Última Magia Usada</p>
+                    <div className="space-y-3">
+                      {renderRow(p1Theme, p1Last)}
+                      <div className="h-px bg-[#C59E4F]/20" />
+                      {renderRow(p2Theme, p2Last)}
                     </div>
-                    <p className="text-[10px] text-[#BFB6A6]">
-                      Vitórias: {gameState.player2.combatWins}/2
-                    </p>
                   </div>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Baralho e Cemitério (pedido do usuário: "overhaul completo
                   dessa região") - as duas pilhas agora leem como LUGARES
@@ -3252,7 +3463,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               ))}
 
               <div className="space-y-3">
-                <CharacterMagicReference character={player1Character} />
+                <CharacterMagicReference character={player1Character} gameState={gameState} playerNumber={1} />
                 <MonsterZone
                   playerNumber={1}
                   character={player1Character}
@@ -3262,6 +3473,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   monsterTargetSelection={pendingMonsterTarget}
                   onMonsterZoneClick={handleMonsterZoneClick}
                   onMonsterCardDrop={handleMonsterCardDrop}
+                  field={gameState.player1.field}
+                  photosynthesisLevel={gameState.player1.druidaPhotosynthesisLevel}
                 />
               </div>
             </div>
@@ -3425,7 +3638,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   return gameState[playerKeyOf(pendingMagic.playerNumber)].mosqueteiroRedirectNextDiscard
                     ? 'Selecione (às cegas) até 3 cartas da mão do oponente para descartar, depois escolha o que revelar'
                     : 'Selecione até 3 cartas da sua mão para descartar, depois escolha o que revelar';
-                if (character === 'mosqueteiro' && type === 'K') return 'Selecione uma carta do seu campo para reforçar';
+                if (character === 'mosqueteiro' && type === 'K') return 'Selecione uma carta do campo do oponente para enfraquecer';
                 if (character === 'piromante') return 'Escolha entre o efeito próprio (alimentar a Bola de Fogo) ou lançar a Bola de Fogo já acumulada';
                 return '';
               })()}
@@ -4015,12 +4228,15 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   );
                 })()}
 
-                {/* Mosqueteiro K - Tiro Certeiro: uma carta do PRÓPRIO campo
-                    (principal ou horizontal, revelada ou não) recebe o
-                    bônus. */}
+                {/* Mosqueteiro K - Tiro Certeiro (MUDANÇA DE PLANOS, pedido
+                    do usuário): uma carta do campo do OPONENTE (principal ou
+                    horizontal, revelada ou não, nunca protegida por Proteção
+                    Divina) recebe a penalidade. */}
                 {pendingMagic.character === 'mosqueteiro' && pendingMagic.type === 'K' && (() => {
+                  const opponentNum = opponentOf(pendingMagic.playerNumber);
                   const candidates: { id: string; label: string; card: Card }[] = [];
-                  gameState[ownKey].field.forEach((slot, slotIdx) => {
+                  gameState[opponentKey].field.forEach((slot, slotIdx) => {
+                    if (isSlotProtected(gameState, opponentNum, slotIdx)) return;
                     if (slot.faceDownCard) candidates.push({ id: slot.faceDownCard.id, label: `Slot ${slotIdx + 1}`, card: slot.faceDownCard });
                     slot.horizontalCards.forEach((h, hIdx) => candidates.push({ id: h.id, label: `Slot ${slotIdx + 1} (horiz. ${hIdx + 1})`, card: h }));
                   });
@@ -4031,28 +4247,51 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   // verdade na ativação (gameEngine.ts), senão o número
                   // mostrado no diálogo diverge do que realmente é aplicado.
                   const boostAmount = gameState[ownKey].mosqueteiroDiscardsThisTurn + gameState[ownKey].mosqueteiroDiscardsTurnMinus1;
+                  // FIX (pedido do usuário: "os marcadores estão trocando em
+                  // vez de acumular quando o alvo é a mesma carta") - o motor
+                  // (handleExecuteMagic) já soma corretamente numa penalidade
+                  // repetida na mesma carta; o que faltava era a IA/UI
+                  // deixarem isso visível ANTES de confirmar. Cada carta
+                  // candidata mostra seu marcador atual (se houver) e o
+                  // resumo abaixo mostra o total resultante ao selecionar uma
+                  // já marcada. Marcadores aqui são sempre negativos ou zero.
+                  const existingMarkerFor = (cardId: string) =>
+                    gameState[opponentKey].combatModifiers.find((m) => m.source === 'mosqueteiro' && m.cardId === cardId)?.amount ?? 0;
+                  const selectedExistingMarker = selectedId ? existingMarkerFor(selectedId) : 0;
                   return (
                     <div className="space-y-3">
                       <p className="text-[#BFB6A6] text-[12px]">
-                        Selecione a carta do seu campo que vai receber +{boostAmount} de valor no combate:
+                        Selecione a carta do campo do oponente que vai perder -{boostAmount} de valor no combate
+                        {selectedExistingMarker < 0
+                          ? ` (essa carta já tem ${selectedExistingMarker} - somando, fica ${selectedExistingMarker - boostAmount})`
+                          : ''}
+                        :
                       </p>
                       <div className="flex gap-2 flex-wrap">
-                        {candidates.map((c) => (
-                          <button
-                            key={c.id}
-                            onClick={() => setPendingMagic({ ...pendingMagic, selectedCards: [c.id] })}
-                            className={`w-16 h-24 border-2 rounded flex flex-col items-center justify-center ${
-                              selectedId === c.id ? 'border-[#6CC47A] bg-[#6CC47A]/10' : 'border-[#C59E4F]/30 hover:border-[#C59E4F]'
-                            } transition-all text-[10px] text-[#BFB6A6]`}
-                          >
-                            <span className="text-[14px]">
-                              {c.card.revealed ? `${getDisplayValue(c.card)}${c.card.suit}` : '🂠'}
-                            </span>
-                            <span className="text-[8px]">{c.label}</span>
-                          </button>
-                        ))}
+                        {candidates.map((c) => {
+                          const existingMarker = existingMarkerFor(c.id);
+                          return (
+                            <button
+                              key={c.id}
+                              onClick={() => setPendingMagic({ ...pendingMagic, selectedCards: [c.id] })}
+                              className={`relative w-16 h-24 border-2 rounded flex flex-col items-center justify-center ${
+                                selectedId === c.id ? 'border-[#6CC47A] bg-[#6CC47A]/10' : 'border-[#C59E4F]/30 hover:border-[#C59E4F]'
+                              } transition-all text-[10px] text-[#BFB6A6]`}
+                            >
+                              {existingMarker < 0 && (
+                                <span className="absolute -top-2 -right-2 bg-[#D45D4A] text-[#EFE7D6] text-[9px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                                  {existingMarker}
+                                </span>
+                              )}
+                              <span className="text-[14px]">
+                                {c.card.revealed ? `${getDisplayValue(c.card)}${c.card.suit}` : '🂠'}
+                              </span>
+                              <span className="text-[8px]">{c.label}</span>
+                            </button>
+                          );
+                        })}
                       </div>
-                      {candidates.length === 0 && <p className="text-[#8A5A5A] text-[11px]">Nenhuma carta no seu campo ainda.</p>}
+                      {candidates.length === 0 && <p className="text-[#8A5A5A] text-[11px]">Nenhuma carta elegível no campo do oponente.</p>}
                     </div>
                   );
                 })()}
@@ -4708,6 +4947,25 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 disabled={!settings.animations}
               />
             </div>
+            {/* FIX (item 22 do Grupo F, "velocidade de pensamento da IA
+                ajustável... durante a partida") - mesma preferência/slider
+                do diálogo de Configurações (Settings.tsx), duplicado aqui
+                porque este diálogo de pausa é o outro lugar onde as mesmas
+                preferências já vivem em par (ver Velocidade de Animação
+                logo acima). */}
+            <div className="space-y-2">
+              <Label htmlFor="pauseAiThinkSpeed" className="text-[#BFB6A6]">
+                Velocidade de Pensamento da IA: {settings.aiThinkSpeed}%
+              </Label>
+              <Slider
+                id="pauseAiThinkSpeed"
+                value={[settings.aiThinkSpeed]}
+                onValueChange={([value]) => updateSetting('aiThinkSpeed', value)}
+                min={30}
+                max={300}
+                step={10}
+              />
+            </div>
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label htmlFor="pauseScreenShake" className="text-[#BFB6A6]">
@@ -4869,6 +5127,74 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     {fireballProjectiles.map((spec) => (
       <FireballProjectile key={spec.key} spec={spec} />
     ))}
+    {/* FIX (itens 14/20 do Grupo D/E, "Pontuação como objeto flutuante em
+        vez de ocupar espaço fixo"): antes vivia dentro da coluna lateral,
+        contribuindo pro vão vazio de `justify-between` (ver comentário mais
+        acima) - virou uma janelinha `position: fixed`, ligada/desligada
+        pela mesma barra de status do topo. MESMO motivo de CardDragLayer/
+        BulletImpactBurst acima pra viver AQUI, como irmã da árvore com
+        `zoom` (não dentro dela): `position: fixed` calculado a partir de
+        `getBoundingClientRect()` (px de tela real) nasce fora do lugar
+        quando aninhado dentro do wrapper zoomado. */}
+    {settings.showFloatingScore && (
+      <div
+        className="fixed top-16 right-4 z-40 bg-[#1E1A16]/90 border border-[#C59E4F]/40 rounded-lg p-3 shadow-xl backdrop-blur-sm"
+        style={{ width: 200 }}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[11px] text-[#BFB6A6] flex items-center gap-1">
+            <Trophy className="w-3 h-3" /> Pontuação
+          </p>
+          <button
+            onClick={() => updateSetting('showFloatingScore', false)}
+            className="text-[#BFB6A6]/60 hover:text-[#BFB6A6] text-[10px]"
+            title="Ocultar Pontuação"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="space-y-2">
+          <div>
+            <div className="flex items-center justify-between mb-0.5">
+              <p className="text-[11px]" style={{ color: p1Theme.primary }}>{p1Theme.name}</p>
+              <div className="flex items-center gap-0.5">
+                {[...Array(3)].map((_, i) => (
+                  <Heart key={i} className={`w-3 h-3 ${i < gameState.player1.lives ? 'fill-current' : 'opacity-20'}`} style={{ color: p1Theme.primary }} />
+                ))}
+              </div>
+            </div>
+            <p className="text-[10px] text-[#BFB6A6]">Vitórias: {gameState.player1.combatWins}/2</p>
+          </div>
+          <div className="h-px bg-[#C59E4F]/20" />
+          <div>
+            <div className="flex items-center justify-between mb-0.5">
+              <p className="text-[11px]" style={{ color: p2Theme.primary }}>{p2Theme.name}</p>
+              <div className="flex items-center gap-0.5">
+                {[...Array(3)].map((_, i) => (
+                  <Heart key={i} className={`w-3 h-3 ${i < gameState.player2.lives ? 'fill-current' : 'opacity-20'}`} style={{ color: p2Theme.primary }} />
+                ))}
+              </div>
+            </div>
+            <p className="text-[10px] text-[#BFB6A6]">Vitórias: {gameState.player2.combatWins}/2</p>
+          </div>
+        </div>
+      </div>
+    )}
+    {/* FIX (item 23 do Grupo F, "pop-up mostrando o efeito e os alvos, sem
+        obscurecer"): banner FINO no topo, nunca um overlay/backdrop cobrindo
+        o campo - o jogador continua vendo tudo, só não consegue AGIR
+        enquanto ele estiver na tela (ver guard em `dispatch` acima). Mesmo
+        motivo de viver fora da árvore com `zoom` que a Pontuação flutuante/
+        CardDragLayer/BulletImpactBurst logo acima. */}
+    {postMagicPause && (
+      <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#1E1A16]/95 border border-[#C59E4F] rounded-lg px-4 py-2 shadow-xl flex items-center gap-3">
+        <Sparkles className="w-4 h-4 text-[#C59E4F] flex-shrink-0" />
+        <div>
+          <p className="text-[12px] text-[#EFE7D6] font-semibold">{postMagicPause.title}</p>
+          <p className="text-[11px] text-[#BFB6A6]">{postMagicPause.detail}</p>
+        </div>
+      </div>
+    )}
     </>
   );
 }

@@ -1922,11 +1922,19 @@ function decideDruidaBroto(state: GameState, ai: PlayerNumber): GameAction | nul
 }
 
 /**
- * Druida - Monstro (Broto Espelhado): joga assim que houver um Broto ativo E
- * um slot vazio - ao contrário do Monstro dos outros personagens (zona
- * própria, ativa a QUALQUER momento), este é jogado uma única vez como carta
- * de campo comum, então não há razão pra segurar (o valor travado só piora
- * esperando - o Broto pode ser combatido/reduzido antes de jogar o Monstro).
+ * Druida - Monstro (Broto Espelhado): trava o valor do Broto NO INSTANTE em
+ * que é jogado (snapshot, ver handlePlaceMonsterCard) - diferente de
+ * qualquer outro Monstro do jogo, esperar aqui tem um benefício real e de
+ * graça, já que o Broto cresce sozinho a cada troca de fase (ver
+ * resetForNewTurn). Jogar assim que possível travava esse valor cedo demais,
+ * quase sempre baixo (1-3), desperdiçando crescimento futuro sem custo
+ * nenhum de esperar.
+ *
+ * FIX (item 3 do Grupo A, pedido do usuário: "IA do Druida mais
+ * inteligente"): segura o Monstro até o Broto valer pelo menos 4 (já passou
+ * por pelo menos 1 ciclo de crescimento) - EXCETO perdendo no placar
+ * (`livesDelta < 0`), quando a presença extra em campo agora vale mais que
+ * esperar um valor maior depois (pode nem haver "depois").
  */
 function decideDruidaMonster(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
@@ -1935,16 +1943,30 @@ function decideDruidaMonster(state: GameState, ai: PlayerNumber): GameAction | n
   if (!monster) return null;
   const emptySlotIndex = me.field.findIndex((slot) => !slot.faceDownCard);
   if (emptySlotIndex === -1) return null;
+
+  const brotoSlot = me.field.find(isBrotoSlot);
+  const brotoValue = brotoSlot?.faceDownCard?.transformedValue ?? 1;
+  const MIN_SNAPSHOT_VALUE = 4;
+  if (brotoValue < MIN_SNAPSHOT_VALUE && livesDelta(state, ai) >= 0) return null;
+
   return { type: 'PLAY_CARD', player: ai, cardId: monster.id, slotIndex: emptySlotIndex, asHorizontal: false };
 }
 
 /**
  * Druida - Simbiose (Rainha, Estratégia): reduzir o Broto pela metade só
  * vale a pena quando (a) o Broto já está grande o bastante pro marcador
- * resultante importar (metade >= 3) E (b) existe uma carta própria em campo
- * pra receber o marcador que não seja o próprio Broto - caso contrário,
- * aumentar o Broto em 2 é estritamente melhor (nenhum sacrifício, mais
- * Broto pra crescer/reduzir depois).
+ * resultante importar E (b) existe uma carta própria em campo pra receber o
+ * marcador que não seja o próprio Broto - caso contrário, aumentar o Broto
+ * em 2 é estritamente melhor (nenhum sacrifício, mais Broto pra crescer/
+ * reduzir depois).
+ *
+ * FIX (item 1 do Grupo A, pedido do usuário: "IA do Druida mais
+ * inteligente"): o limiar de "vale a pena" agora reage ao placar
+ * (`livesDelta`), mesmo sinal já usado no resto do arquivo pra "estou
+ * perdendo/ganhando" - perdendo, aceita um marcador menor (efeito imediato
+ * importa mais que crescer o investimento); ganhando com folga, exige um
+ * marcador maior antes de sacrificar o Broto (o crescimento composto vale
+ * mais a longo prazo quando já não há pressa).
  */
 function decideDruidaQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
@@ -1955,13 +1977,15 @@ function decideDruidaQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const brotoSlot = me.field.find(isBrotoSlot);
   const brotoValue = brotoSlot?.faceDownCard?.transformedValue ?? 1;
   const halved = Math.floor(brotoValue / 2);
+  const delta = livesDelta(state, ai);
+  const markerThreshold = delta < 0 ? 2 : delta >= 2 ? 4 : 3;
 
   const ownTargets = me.field.flatMap((slot) =>
     [...(slot.faceDownCard && slot.faceDownCard.id !== brotoSlot?.faceDownCard?.id ? [slot.faceDownCard] : []), ...slot.horizontalCards]
   );
   const bestTarget = ownTargets.length > 0 ? pickHighestBy(ownTargets, (c) => getEffectiveCardValue(c)) : null;
 
-  if (halved >= 3 && bestTarget) {
+  if (halved >= markerThreshold && bestTarget) {
     return {
       type: 'EXECUTE_MAGIC',
       player: ai,
@@ -1987,6 +2011,21 @@ function decideDruidaQ(state: GameState, ai: PlayerNumber): GameAction | null {
  * a carta REVELADA mais valiosa do OPONENTE (nunca mira às cegas - a IA não
  * lê valor de carta ainda oculta, mesmo princípio de todo o resto deste
  * arquivo). Sem nenhum alvo revelado disponível, sempre cresce o Broto.
+ *
+ * FIX (itens 1 e 2 do Grupo A, pedido do usuário: "IA do Druida mais
+ * inteligente"):
+ * 1. Mesmo limiar sensível a `livesDelta` de decideDruidaQ (ver comentário
+ *    lá) - perdendo aceita um marcador menor, ganhando com folga exige um
+ *    maior.
+ * 2. `combatModifiers` zeram na virada pra Fase de Compra (ver
+ *    resetForNewTurn) - um marcador em uma carta do oponente que já
+ *    resolveu a disputa DELA nesta partida de Combate (ou que nunca chega a
+ *    disputar por algum motivo) evapora sem nunca ter feito diferença.
+ *    `state.combatSelection[opponentKey]` é o slot que o oponente JÁ travou
+ *    pra disputa atual quando disponível - o único alvo com garantia real de
+ *    brigar agora. Prioriza esse alvo sobre "maior valor" quando os dois
+ *    coincidem em slots diferentes; sem essa informação ainda (oponente não
+ *    selecionou), cai de volta no critério de sempre.
  */
 function decideDruidaK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
@@ -1997,17 +2036,26 @@ function decideDruidaK(state: GameState, ai: PlayerNumber): GameAction | null {
   const brotoSlot = me.field.find(isBrotoSlot);
   const brotoValue = brotoSlot?.faceDownCard?.transformedValue ?? 1;
   const halved = Math.floor(brotoValue / 2);
+  const delta = livesDelta(state, ai);
+  const markerThreshold = delta < 0 ? 2 : delta >= 2 ? 4 : 3;
 
   const opponent = opponentOf(ai);
-  const opponentField = state[opponentKeyOf(ai)].field;
+  const opponentKey = opponentKeyOf(ai);
+  const opponentField = state[opponentKey].field;
+  const opponentSelectedSlot = state.combatSelection[opponentKey];
   const opponentTargets = opponentField.flatMap((slot, slotIdx) =>
     isSlotProtected(state, opponent, slotIdx)
       ? []
-      : [...(slot.faceDownCard?.revealed ? [slot.faceDownCard] : []), ...slot.horizontalCards.filter((c) => c.revealed)]
+      : [
+          ...(slot.faceDownCard?.revealed ? [{ card: slot.faceDownCard, slotIdx }] : []),
+          ...slot.horizontalCards.filter((c) => c.revealed).map((card) => ({ card, slotIdx })),
+        ]
   );
-  const bestTarget = opponentTargets.length > 0 ? pickHighestBy(opponentTargets, (c) => getEffectiveCardValue(c)) : null;
+  const confirmedTargets = opponentSelectedSlot !== undefined ? opponentTargets.filter((t) => t.slotIdx === opponentSelectedSlot) : [];
+  const targetPool = confirmedTargets.length > 0 ? confirmedTargets : opponentTargets;
+  const bestTarget = targetPool.length > 0 ? pickHighestBy(targetPool, (t) => getEffectiveCardValue(t.card)).card : null;
 
-  if (halved >= 3 && bestTarget) {
+  if (halved >= markerThreshold && bestTarget) {
     return {
       type: 'EXECUTE_MAGIC',
       player: ai,
@@ -2426,24 +2474,23 @@ function decideBestaK(state: GameState, ai: PlayerNumber): GameAction | null {
 }
 
 /**
- * Mosqueteiro K (Tiro Certeiro): reforça a carta do PRÓPRIO campo (principal
- * ou horizontal, revelada ou não - usuário confirmou "a qualquer momento do
- * combate") em +N, onde N é quantas cartas as próprias magias descartaram
- * NESTE turno E NO ANTERIOR (FIX pedido do usuário: "o valor extra também
- * conta o turno anterior" - antes só contava este turno, mesma janela de 2
- * turnos usada de verdade em handleExecuteMagic/gameEngine.ts). Só ativa se
- * já houver ALGUM descarte acumulado nessa janela (senão o Rei seria gasto
- * por +0, puro desperdício) e prefere reforçar a carta de MAIOR valor já em
- * campo - consolidar numa disputa que já tende a vencer rende mais do que
- * tentar "salvar" a mais fraca com um bônus fixo.
+ * Mosqueteiro K (Tiro Certeiro) - MUDANÇA DE PLANOS (pedido explícito do
+ * usuário): antes reforçava a carta de MAIOR valor do PRÓPRIO campo; agora
+ * enfraquece uma carta do campo do OPONENTE (principal ou horizontal,
+ * revelada ou não, nunca protegida por Proteção Divina) em -N, onde N é
+ * quantas cartas as próprias magias descartaram NESTE turno E NO ANTERIOR
+ * (mesma janela de 2 turnos usada de verdade em handleExecuteMagic/
+ * gameEngine.ts). Só ativa se já houver ALGUM descarte acumulado nessa
+ * janela (senão o Rei seria gasto por -0, puro desperdício).
  *
- * FIX (pedido do usuário: "variar mais os alvos dos marcadores" - agora que
- * o motor SOMA reativações sobre a mesma carta em vez de substituir, ver
- * handleExecuteMagic/gameEngine.ts): empilhar tudo sempre na mesma carta já
- * marcada satura rápido (ela já tende a vencer sozinha) - a IA agora prefere
- * a carta de maior valor entre as que AINDA NÃO têm um marcador 'mosqueteiro'
- * (espalhando o reforço por mais disputas), só voltando a reforçar uma carta
- * já marcada quando TODAS as candidatas já têm marcador.
+ * FIX (pedido do usuário, "quanto à IA, faça ela ser aleatória quanto à
+ * escolha destas cartas"): mirando o campo do OPONENTE, a IA não tem como
+ * saber o valor de uma carta ainda oculta (mesmo princípio de todo o resto
+ * deste arquivo: nunca lê valor de carta escondida do adversário) - não
+ * existe "melhor alvo" calculável de verdade, só um alvo válido qualquer.
+ * Escolhe puramente ao acaso entre os candidatos elegíveis, em vez de tentar
+ * simular uma heurística de valor que seria, na prática, um palpite às
+ * cegas disfarçado de decisão informada.
  */
 function decideMosqueteiroK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
@@ -2454,33 +2501,27 @@ function decideMosqueteiroK(state: GameState, ai: PlayerNumber): GameAction | nu
 
   // FIX (falha intermitente da suíte, "a IA nunca propõe uma ação que o motor
   // rejeita em silêncio"): handleExecuteMagic recusa uma carta-token de Bola
-  // de Fogo (`isFireToken`, Piromante) como alvo do Tiro Certeiro, mas esta
-  // lista de candidatos aceitava qualquer carta do campo - contra o Piromante,
-  // um slot reduzido a token virava o "melhor alvo" (valor restante alto) e a
-  // IA propunha uma ativação que o motor devolvia sem mudar nada, travando a
-  // vez dela. Mesmo critério do motor aqui.
-  const candidates: { id: string; value: number }[] = [];
-  me.field.forEach((slot) => {
-    if (slot.faceDownCard && !slot.faceDownCard.isFireToken) {
-      candidates.push({ id: slot.faceDownCard.id, value: getSpotlightAdjustedValue(slot.faceDownCard, state.spotlight) });
-    }
-    slot.horizontalCards
-      .filter((h) => !h.isFireToken)
-      .forEach((h) => candidates.push({ id: h.id, value: getSpotlightAdjustedValue(h, state.spotlight) }));
+  // de Fogo (`isFireToken`, Piromante) como alvo do Tiro Certeiro - mesmo
+  // critério do motor aqui. Slots protegidos por Proteção Divina também
+  // ficam de fora, mesmo padrão de Urtiga do Druida/Besta K/Mago K.
+  const opponent = opponentOf(ai);
+  const opponentState = state[opponentKeyOf(ai)];
+  const candidateIds: string[] = [];
+  opponentState.field.forEach((slot, i) => {
+    if (isSlotProtected(state, opponent, i)) return;
+    if (slot.faceDownCard && !slot.faceDownCard.isFireToken) candidateIds.push(slot.faceDownCard.id);
+    slot.horizontalCards.filter((h) => !h.isFireToken).forEach((h) => candidateIds.push(h.id));
   });
-  if (candidates.length === 0) return null;
+  if (candidateIds.length === 0) return null;
 
-  const alreadyMarked = new Set(me.combatModifiers.filter((m) => m.source === 'mosqueteiro').map((m) => m.cardId));
-  const unmarkedCandidates = candidates.filter((c) => !alreadyMarked.has(c.id));
-  const pool = unmarkedCandidates.length > 0 ? unmarkedCandidates : candidates;
-  const best = pickHighestBy(pool, (c) => c.value);
+  const target = candidateIds[Math.floor(random() * candidateIds.length)];
   return {
     type: 'EXECUTE_MAGIC',
     player: ai,
     cardId: kCard.id,
     character: 'mosqueteiro',
     magicType: 'K',
-    selection: { selectedCards: [best.id] },
+    selection: { selectedCards: [target] },
   };
 }
 

@@ -121,6 +121,37 @@ export interface Settings {
    * Desligado por padrão, mesmo padrão "opt-in" de `hotseatPrivacyMode`.
    */
   spectatorRevealHands: boolean;
+  /**
+   * FIX (itens 14/20 do Grupo D/E da lista de afazeres, "Pontuação como
+   * objeto flutuante em vez de ocupar espaço fixo"): a caixa "Pontuação" saiu
+   * da coluna lateral (onde só ajudava a criar o vão vazio de `justify-
+   * between` entre os outros painéis - ver GameBoard.tsx) e virou uma janela
+   * flutuante (`position: fixed`) por cima do tabuleiro, ligada por padrão -
+   * este toggle mora na barra de status do topo, ao lado dos botões de IA.
+   */
+  showFloatingScore: boolean;
+  /**
+   * FIX (item 22 do Grupo F da lista de afazeres, "o jogador poder decidir a
+   * velocidade de pensamento da IA... aumentando o tempo de resposta") -
+   * mesma convenção de `animationSpeed` (percentual, 100 = ritmo padrão,
+   * MAIOR = mais rápido, MENOR = mais devagar/deliberado) pra não introduzir
+   * uma segunda convenção invertida no mesmo painel de Configurações -
+   * "aumentar o tempo de resposta" pedido pelo usuário = simplesmente baixar
+   * o valor abaixo de 100. Multiplica o atraso "pensando..." de toda decisão
+   * da IA (ver getAiThinkTimeScale abaixo e o único ponto de consumo em
+   * GameBoard.tsx) - ajustável tanto no pré-jogo (GameConfig.tsx) quanto
+   * durante a partida (Configurações), pedido explícito do usuário.
+   */
+  aiThinkSpeed: number; // 30-300, percentual da velocidade padrão de "pensamento"
+  /**
+   * FIX (item 21 do Grupo E, ideia do usuário): substitui a Pontuação no
+   * espaço que ela ocupava na coluna lateral - mostra a última magia
+   * ativada por cada jogador e se o efeito dela ainda está em vigor (ex.:
+   * marcador de Simbiose/Urtiga/Tiro Certeiro ainda no campo) ou já
+   * resolveu. Colapsável via ícone na mesma barra de status, pra quem
+   * preferir a tela mais limpa.
+   */
+  showLastMagicPanel: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -140,6 +171,9 @@ export const DEFAULT_SETTINGS: Settings = {
   confirmBeforeDiscard: false,
   hotseatPrivacyMode: false,
   spectatorRevealHands: false,
+  showFloatingScore: true,
+  showLastMagicPanel: true,
+  aiThinkSpeed: 100,
 };
 
 const STORAGE_KEY = 'magispelll:settings';
@@ -170,4 +204,9 @@ export function saveSettings(settings: Settings): void {
 export function getAnimationDurationScale(settings: Settings): number {
   if (!settings.animations) return 0; // efetivamente instantâneo
   return 100 / Math.max(50, Math.min(200, settings.animationSpeed));
+}
+
+/** Multiplicador do atraso "pensando..." de cada decisão da IA - mesma convenção de getAnimationDurationScale (maior = mais rápido). */
+export function getAiThinkTimeScale(settings: Settings): number {
+  return 100 / Math.max(30, Math.min(300, settings.aiThinkSpeed));
 }

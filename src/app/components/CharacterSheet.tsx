@@ -205,13 +205,13 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
           card: 'Rei (K)',
           phase: 'Combate',
           name: 'Tiro Certeiro',
-          description: 'Uma carta sua no campo (revelada ou não) recebe +1 de valor para cada carta que suas magias descartaram neste turno e no anterior.',
+          description: 'Uma carta do OPONENTE no campo (revelada ou não) perde 1 de valor para cada carta que suas magias descartaram neste turno e no anterior. Nunca mira um slot protegido por Proteção Divina.',
         },
       ],
       strategies: [
         {
           title: 'Acumule Antes de Atirar',
-          description: 'Use Tiro de Cobertura e Rajada Reveladora cedo na Estratégia para inflar o contador de descartes antes de reforçar uma carta com o Rei no Combate.',
+          description: 'Use Tiro de Cobertura e Rajada Reveladora cedo na Estratégia para inflar o contador de descartes antes de enfraquecer a carta certa do oponente com o Rei no Combate.',
         },
         {
           title: 'Recarga Rápida Ofensiva',

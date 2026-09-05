@@ -27,6 +27,11 @@ export function Home({ onNewGame, onQuickStart, onRules, onCharacters, onSetting
       <div className="relative z-10 w-full max-w-2xl px-4 space-y-12">
         <div className="text-center space-y-4">
           <GameTitle className="font-display text-[64px] md:text-[80px] tracking-wider drop-shadow-[0_0_20px_rgba(197,158,79,0.4)]" />
+          {/* FIX (item 31 do Grupo H da lista de afazeres, "número da versão
+              abaixo do título") - texto puramente informativo, sem link/ação
+              nenhuma (diferente do atalho de Partida Rápida logo abaixo) -
+              por isso mais discreto ainda, sem hover nem ícone. */}
+          <p className="text-[11px] text-[#8F6A30]/70">v0.8888888</p>
           {/* FIX (pedido do usuário: "atalho de Partida Rápida") - pula
               Configuração (usa a última usada ou o padrão) e Resumo, indo
               direto pra escolha de personagem - ver handleQuickStart em

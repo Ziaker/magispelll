@@ -212,7 +212,7 @@ interface FieldSlotViewProps {
   isBurning?: boolean;
   /** Efeitos de status contínuos (pedido do usuário): id da carta (principal OU horizontal, deste MESMO jogador) atualmente sob a Fúria Selvagem da Besta - ver BattleField.tsx/GameBoard.tsx (`monsterTargetCardId`). */
   doubledCardId?: string;
-  /** Mosqueteiro (personagem novo) - id da carta (principal OU horizontal, deste MESMO jogador) reforçada pelo Tiro Certeiro (Rei), e o valor extra que ela recebe - ver BattleField.tsx/GameBoard.tsx (`mosqueteiroBoostedCardId`). */
+  /** Mosqueteiro - id da carta (principal OU horizontal, deste MESMO jogador) enfraquecida pelo Tiro Certeiro (Rei) DE UM OPONENTE (mudança de planos: o marcador é negativo e mira o campo alvo, não mais o próprio) - `boostAmount` já vem negativo. Ver GameBoard.tsx/BattleField.tsx. */
   boostedCardId?: string;
   boostAmount?: number;
   /**
@@ -988,11 +988,16 @@ export function FieldSlotView({
                     });
                   }
                   if (isMainBoosted) {
+                    // FIX (mudança de planos do Tiro Certeiro, "marcadores
+                    // negativos"): `boostAmount` agora é sempre negativo (ou o
+                    // selo nem aparece) - o próprio número já carrega o sinal
+                    // de menos, sem precisar de um "+" hardcoded que ficaria
+                    // errado ("+-3").
                     statusBadges.push({
                       key: 'boosted',
                       colors: STATUS_COLORS.boosted,
-                      title: `Tiro Certeiro: esta carta recebe +${boostAmount ?? 0} de valor`,
-                      content: <span className="text-[12px] font-black">+{boostAmount ?? 0}</span>,
+                      title: `Tiro Certeiro: esta carta perde ${boostAmount ?? 0} de valor`,
+                      content: <span className="text-[12px] font-black">{boostAmount ?? 0}</span>,
                     });
                   }
                   // Druida (personagem novo, pedido do usuário: "só ser um J
@@ -1162,15 +1167,15 @@ export function FieldSlotView({
                       </span>
                     </div>
                   )}
-                  {/* Mosqueteiro - Tiro Certeiro mirando uma horizontal específica. */}
+                  {/* Mosqueteiro - Tiro Certeiro mirando uma horizontal específica do OPONENTE (mudança de planos - ver comentário na variante "principal" acima). */}
                   {isThisHorizontalBoosted && (
                     <div
                       className="absolute -top-3 -left-3 z-20 rounded-full px-1.5 py-0.5 flex items-center justify-center"
                       style={{ backgroundColor: STATUS_COLORS.boosted.ring, border: '1.5px solid #0F1113' }}
-                      title={`Tiro Certeiro: esta carta recebe +${boostAmount ?? 0} de valor`}
+                      title={`Tiro Certeiro: esta carta perde ${boostAmount ?? 0} de valor`}
                     >
                       <span className="text-[8px] font-black" style={{ color: '#0F1113' }}>
-                        +{boostAmount ?? 0}
+                        {boostAmount ?? 0}
                       </span>
                     </div>
                   )}

@@ -11,6 +11,7 @@ import { getMonsterEffect } from '../lib/monsterCards';
 import { getNumeralSpellInfo, formatNumeralRequirement, numeralDisplayLabel } from '../lib/numeralSpells';
 import { PHASE_DISPLAY } from './PlayingCard';
 import type { CharacterId } from '../lib/gameEngine';
+import { PreGameSteps } from './PreGameSteps';
 
 interface CharacterSelectionProps {
   onBack: () => void;
@@ -39,6 +40,10 @@ interface CharacterSelectionProps {
    * (a IA joga com o personagem escolhido aqui, ver GameBoard.tsx).
    */
   aiPlayers?: (1 | 2)[];
+  /** FIX (item 28 do Grupo G): omitido no atalho de Partida Rápida (App.tsx). */
+  showSteps?: boolean;
+  /** FIX (item 30b do Grupo G): "Ver nas Regras" no diálogo de Visão completa - navega pra Regras já com esse termo de busca preenchido. */
+  onOpenRules?: (searchTerm: string) => void;
 }
 
 // FIX (pedido do usuário: "use esses ícones" - imagem de referência com
@@ -77,6 +82,23 @@ const CHARACTER_TAGLINE: Record<CharacterId, string> = {
   coringa: 'Armadilhas e sabotagem',
   piromante: 'Combustível e destruição em área',
   druida: 'Crescimento e simbiose',
+};
+
+/**
+ * FIX (item 30c do Grupo G da lista de afazeres, "filtro/agrupamento por
+ * mecânica"): com 7 personagens de mecânicas bem diferentes numa grade só,
+ * fica denso pra quem não conhece todos ainda. Uma categoria PRINCIPAL por
+ * personagem (a mecânica que mais o define, não uma lista exaustiva) alimenta
+ * um filtro rápido acima do grid - "Todos" continua mostrando os 7.
+ */
+const CHARACTER_MECHANIC: Record<CharacterId, string> = {
+  mago: 'Informação',
+  besta: 'Recursos',
+  anjo: 'Recursos',
+  mosqueteiro: 'Descarte',
+  coringa: 'Armadilhas',
+  piromante: 'Área',
+  druida: 'Campo',
 };
 
 /**
@@ -195,10 +217,12 @@ function DetailsDialog({
   character,
   open,
   onOpenChange,
+  onOpenRules,
 }: {
   character: CharacterId;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onOpenRules?: (searchTerm: string) => void;
 }) {
   const theme = getCharacterTheme(character);
   const monsterEffect = getMonsterEffect(character);
@@ -208,10 +232,30 @@ function DetailsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-[#1E1A16] border-[#C59E4F] max-w-lg max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="font-display text-[28px]" style={{ color: theme.primary }}>
-            {theme.name}
-          </DialogTitle>
-          <DialogDescription className="text-[#BFB6A6]">Visão completa das habilidades</DialogDescription>
+          <div className="flex items-center justify-between gap-3 pr-6">
+            <div>
+              <DialogTitle className="font-display text-[28px]" style={{ color: theme.primary }}>
+                {theme.name}
+              </DialogTitle>
+              <DialogDescription className="text-[#BFB6A6]">Visão completa das habilidades</DialogDescription>
+            </div>
+            {/* FIX (item 30b do Grupo G, "link direto do diálogo pra seção
+                correspondente em Rules.tsx") - reaproveita a busca já
+                existente em Regras em vez de duplicar a descrição aqui de
+                outro jeito; qualquer seção que cite o nome do personagem
+                aparece, sem precisar de um mecanismo de "rolar até a seção
+                X" novo. */}
+            {onOpenRules && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenRules(theme.name)}
+                className="flex-shrink-0 border-[#C59E4F]/50 text-[#C59E4F] hover:bg-[#C59E4F]/10 text-[11px]"
+              >
+                Ver nas Regras
+              </Button>
+            )}
+          </div>
         </DialogHeader>
         <ScrollArea className="flex-1 pr-4 -mr-4">
           <div className="space-y-6 py-1">
@@ -264,7 +308,7 @@ function DetailsDialog({
   );
 }
 
-export function CharacterSelection({ onBack, onSelect, onContinue, selectedCharacters, aiPlayers = [] }: CharacterSelectionProps) {
+export function CharacterSelection({ onBack, onSelect, onContinue, selectedCharacters, aiPlayers = [], showSteps = true, onOpenRules }: CharacterSelectionProps) {
   // FIX (pedido do usuário: "escolher os 2 personagens na mesma tela") -
   // substitui o antigo `currentPlayer` (prop controlada por App.tsx,
   // trocando de tela inteira entre as 2 etapas) por um "slot ativo" local -
@@ -284,6 +328,11 @@ export function CharacterSelection({ onBack, onSelect, onContinue, selectedChara
   // de 'visão completa das habilidades'") - qual personagem (se algum) tem o
   // diálogo de detalhes aberto agora.
   const [detailsOpenFor, setDetailsOpenFor] = useState<CharacterId | null>(null);
+  // FIX (item 30c do Grupo G, "filtro por mecânica") - 'Todos' (padrão) não
+  // esconde ninguém; qualquer outro valor restringe o grid aos personagens
+  // daquela categoria (ver CHARACTER_MECHANIC acima).
+  const [mechanicFilter, setMechanicFilter] = useState<string>('Todos');
+  const mechanicOptions = ['Todos', ...Array.from(new Set(Object.values(CHARACTER_MECHANIC)))];
 
   const slotKey = (slot: 1 | 2): 'player1' | 'player2' => (slot === 1 ? 'player1' : 'player2');
   const slotCharacter = (slot: 1 | 2) => selectedCharacters[slotKey(slot)];
@@ -321,6 +370,11 @@ export function CharacterSelection({ onBack, onSelect, onContinue, selectedChara
           </Button>
           <h2 className="font-display text-[40px] text-[#C59E4F]">Escolha os Personagens</h2>
         </div>
+
+        {/* FIX (item 28 do Grupo G da lista de afazeres, "indicador de
+            progresso 1/2/3") - só quando `showSteps` é true (fluxo completo,
+            não o atalho de Partida Rápida - ver App.tsx). */}
+        {showSteps && <PreGameSteps current={2} />}
 
         {/* FIX (pedido do usuário: "escolher os 2 personagens na mesma
             tela") - as 2 abas de slot substituem as antigas 2 telas
@@ -376,25 +430,51 @@ export function CharacterSelection({ onBack, onSelect, onContinue, selectedChara
           })}
         </div>
 
-        {isAiSlot(activeSlot) && (
-          <div className="flex items-center justify-between gap-4 bg-[#1E1A16] border border-[#C59E4F]/30 rounded-lg px-6 py-4">
-            <p className="text-[#BFB6A6] text-[14px]">
-              A IA vai jogar com o personagem escolhido aqui ({slotLabel(activeSlot)}). Prefere não decidir? Deixe o destino escolher.
-            </p>
-            <Button
-              onClick={() => {
-                const available = characterIds.filter((id) => !isTakenByOther(id));
-                const pick = available[Math.floor(Math.random() * available.length)];
-                handlePick(pick);
-              }}
-              variant="outline"
-              className="border-[#C59E4F] text-[#C59E4F] hover:bg-[#C59E4F]/10 flex-shrink-0"
+        {/* FIX (item 30d do Grupo G da lista de afazeres, "estender o
+            Sortear personagem também pro jogador humano") - antes só existia
+            pra slots de IA (`isAiSlot`) - o mesmo botão/lógica agora vale
+            pros dois casos, só o texto muda pra deixar claro de quem é a
+            escolha em cada caso. */}
+        <div className="flex items-center justify-between gap-4 bg-[#1E1A16] border border-[#C59E4F]/30 rounded-lg px-6 py-4">
+          <p className="text-[#BFB6A6] text-[14px]">
+            {isAiSlot(activeSlot)
+              ? `A IA vai jogar com o personagem escolhido aqui (${slotLabel(activeSlot)}). Prefere não decidir? Deixe o destino escolher.`
+              : `Não sabe qual personagem escolher (${slotLabel(activeSlot)})? Deixe o destino decidir por você.`}
+          </p>
+          <Button
+            onClick={() => {
+              const available = characterIds.filter((id) => !isTakenByOther(id));
+              const pick = available[Math.floor(Math.random() * available.length)];
+              handlePick(pick);
+            }}
+            variant="outline"
+            className="border-[#C59E4F] text-[#C59E4F] hover:bg-[#C59E4F]/10 flex-shrink-0"
+          >
+            <Dices className="w-4 h-4 mr-2" />
+            {isAiSlot(activeSlot) ? 'Sortear personagem da IA' : 'Sortear meu personagem'}
+          </Button>
+        </div>
+
+        {/* FIX (item 30c do Grupo G, "filtro/agrupamento por mecânica") -
+            chips simples, "Todos" sempre disponível pra desfazer o filtro.
+            Não esconde um personagem já escolhido em outro slot - só afeta
+            o QUE é mostrado no grid pra escolher, nunca o estado real de
+            seleção. */}
+        <div className="flex flex-wrap gap-2">
+          {mechanicOptions.map((option) => (
+            <button
+              key={option}
+              onClick={() => setMechanicFilter(option)}
+              className={`px-3 py-1 rounded-full text-[12px] border transition-colors ${
+                mechanicFilter === option
+                  ? 'bg-[#C59E4F] border-[#C59E4F] text-[#0F1113] font-semibold'
+                  : 'border-[#C59E4F]/40 text-[#BFB6A6] hover:border-[#C59E4F]'
+              }`}
             >
-              <Dices className="w-4 h-4 mr-2" />
-              Sortear personagem da IA
-            </Button>
-          </div>
-        )}
+              {option}
+            </button>
+          ))}
+        </div>
 
         {/* FIX (pedido do usuário: "volte atrás com a ideia da escolha de
             personagem ser horizontal") - de volta ao grid original (1
@@ -404,7 +484,9 @@ export function CharacterSelection({ onBack, onSelect, onContinue, selectedChara
             independente da largura do card - ver `whitespace-normal` no
             próprio botão, mais abaixo. */}
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-8">
-          {characterIds.map((charId) => {
+          {characterIds
+            .filter((id) => mechanicFilter === 'Todos' || CHARACTER_MECHANIC[id] === mechanicFilter)
+            .map((charId) => {
             const Icon = CHARACTER_ICONS[charId];
             const theme = getCharacterTheme(charId);
             const disabled = isTakenByOther(charId);
@@ -526,6 +608,7 @@ export function CharacterSelection({ onBack, onSelect, onContinue, selectedChara
                   character={charId}
                   open={detailsOpenFor === charId}
                   onOpenChange={(open) => setDetailsOpenFor(open ? charId : null)}
+                  onOpenRules={onOpenRules}
                 />
               </div>
             );

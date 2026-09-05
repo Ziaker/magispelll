@@ -17,6 +17,14 @@ interface RulesProps {
    * SECTION_CHARACTER_ICONS abaixo) levam direto pra lá.
    */
   onViewCharacter?: (character: CharacterId) => void;
+  /**
+   * FIX (item 30b do Grupo G da lista de afazeres, "link direto do diálogo
+   * 'Visão completa' pra seção correspondente em Rules.tsx"): pré-preenche a
+   * busca já existente nesta tela (reaproveitada, não uma "rolar até a seção
+   * X" nova) - vindo do nome do personagem, já surfaça toda seção que cita
+   * ele pelo nome.
+   */
+  initialSearch?: string;
 }
 
 /** Mesmo mapa de ícones por personagem usado em CharacterSelection.tsx - reconstruído aqui (não exportado de lá) por ser só isto, um lookup pequeno. */
@@ -49,8 +57,8 @@ interface RuleSection {
   characters?: CharacterId[];
 }
 
-export function Rules({ onBack, onViewCharacter }: RulesProps) {
-  const [searchTerm, setSearchTerm] = useState('');
+export function Rules({ onBack, onViewCharacter, initialSearch }: RulesProps) {
+  const [searchTerm, setSearchTerm] = useState(initialSearch ?? '');
   // FIX (pedido do usuário: "indicador de seção lida") - persistido em
   // localStorage (preferência de dispositivo, mesmo padrão de settings.ts/
   // gamePreferences.ts) - uma seção entra aqui quando fica >=50% visível na
@@ -231,8 +239,9 @@ RAINHA (Fase de Estratégia):
 
 REI (Fase de Combate):
 • Tiro Certeiro
-• 1 carta sua no campo recebe +1 de valor pra cada carta que suas magias descartaram neste turno e no anterior
-• Reativar mirando a MESMA carta soma ao marcador já ali; mirando outra carta, cria um marcador independente - dá pra ter mais de 1 carta reforçada ao mesmo tempo`,
+• 1 carta do OPONENTE no campo (revelada ou não) perde 1 de valor pra cada carta que suas magias descartaram neste turno e no anterior
+• Nunca mira um slot protegido por Proteção Divina
+• Reativar mirando a MESMA carta soma à penalidade já ali; mirando outra carta, cria um marcador independente - dá pra ter mais de 1 carta enfraquecida ao mesmo tempo`,
     },
     {
       id: 'coringa-armadilhas',
@@ -606,7 +615,7 @@ ANJO:
 MOSQUETEIRO:
 • Descarte estratégico é sua fonte de poder - toda magia sua fica mais forte quanto mais você já descartou
 • Recarga Rápida (Monstro) antes de um Valete ou Rainha vira o descarte contra o oponente
-• Tiro Certeiro (K) recompensa um turno inteiro de descartes calculados
+• Tiro Certeiro (K) recompensa um turno inteiro de descartes calculados, enfraquecendo a carta do oponente que mais importa
 
 CORINGA:
 • Suas magias são armadilhas, não ativações - pense em ONDE e QUANDO elas vão ser reveladas, não só no efeito

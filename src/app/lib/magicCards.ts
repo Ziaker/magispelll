@@ -124,7 +124,7 @@ export const MAGIC_CARDS: Record<Character, Record<MagicCardType, MagicCardInfo>
     K: {
       name: 'Rei - Tiro Certeiro',
       phase: 'combat',
-      description: 'Uma carta sua no campo (revelada ou não) recebe +1 de valor para cada carta que suas magias descartaram neste turno e no anterior.',
+      description: 'Uma carta do OPONENTE no campo (revelada ou não) perde 1 de valor para cada carta que suas magias descartaram neste turno e no anterior. Nunca mira um slot protegido por Proteção Divina.',
     },
   },
 
@@ -258,6 +258,8 @@ export interface MagicActivationContext {
    * (oculto ou protegido).
    */
   hasRevealedUnprotectedCardInOpponentField?: boolean;
+  /** Mosqueteiro K (Tiro Certeiro, redesenhado - ver gameEngine.ts): qualquer carta do campo do oponente, revelada ou não, que não esteja protegida por Proteção Divina. */
+  hasUnprotectedCardInOpponentField?: boolean;
   hasUnbattledHorizontalCardsInOpponentField?: boolean;
   /**
    * Anjo (Rainha - Visão Celestial): valores de magia (J/Q/K) pra quem TODA
@@ -480,9 +482,13 @@ export function canActivateMagic(
     return hasDiscardSource && (ctx.hasRevealableOpponentCards ?? false);
   }
 
-  // Mosqueteiro K (Tiro Certeiro): precisa de uma carta no PRÓPRIO campo pra reforçar.
+  // Mosqueteiro K (Tiro Certeiro) - MUDANÇA DE PLANOS (pedido do usuário):
+  // antes reforçava uma carta do PRÓPRIO campo; agora enfraquece uma carta
+  // do campo do OPONENTE (revelada ou não, mas nunca protegida por Proteção
+  // Divina) - mesmo padrão de "escreve no combatModifiers do adversário" já
+  // usado por Urtiga do Druida.
   if (character === 'mosqueteiro' && cardValue === 'K') {
-    return ctx.hasCardsInOwnField ?? false;
+    return ctx.hasUnprotectedCardInOpponentField ?? false;
   }
 
   // Coringa (redesenho completo, "armadilhas"): J/Q/K nunca ativam efeito
