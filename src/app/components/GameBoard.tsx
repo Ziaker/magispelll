@@ -1711,6 +1711,21 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       } else if (pm.selectedCards?.[0]) {
         cardIds.push(pm.selectedCards[0]);
       }
+    } else if (pm.character === 'druida' && pm.druidaGrowBroto) {
+      // FIX (pedido do usuário: "a ia do druida não joga as magias" -
+      // investigação encontrou a IA ativando Simbiose/Urtiga normalmente por
+      // trás dos panos - ver diagnóstico com decideAiAction; o problema real
+      // era só de APRESENTAÇÃO: a opção "aumentar o Broto" (a mais escolhida
+      // pela IA, já que não exige alvo nem Broto grande) só acionava
+      // flashSelfEffect no retrato do jogador - nada acontecia visualmente
+      // EM CIMA do próprio Broto, que é onde o número realmente muda. Sem
+      // isto, um humano assistindo via IA vs IA facilmente lê como "não fez
+      // nada". Agora o slot do Broto entra como alvo aqui também, então
+      // flashEffectTargets abaixo acende a MESMA borda/glow de efeito que
+      // qualquer outra magia usa, direto no card que cresceu.
+      const ownField = gameState[playerKeyOf(pm.playerNumber)].field;
+      const brotoSlotIndex = ownField.findIndex(isBrotoSlot);
+      if (brotoSlotIndex !== -1) slots.push({ player: pm.playerNumber, slotIndex: brotoSlotIndex });
     } else if (pm.character === 'druida' && !pm.druidaGrowBroto) {
       // Druida (personagem novo) - Simbiose/Urtiga na opção "marcador" miram
       // uma carta concreta (própria, na Simbiose; do oponente, na Urtiga - ver
