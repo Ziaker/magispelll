@@ -3384,10 +3384,10 @@ function handleExecuteMagic(
             state,
             state.log,
             'magic',
-            `Combustão: Jogador ${player} queimou ${fuelCards.length} carta(s) da mão e somou ${fuelSum} à Bola de Fogo (agora ${newFireball})`,
+            `Jogador ${player} queimou ${fuelCards.length} carta(s) da mão e somou ${fuelSum} à Bola de Fogo (agora ${newFireball})`,
             { player, cardValue: card.value }
           )
-        : appendLog(state, state.log, 'magic', `Combustão: Jogador ${player} não tinha cartas pequenas na mão pra queimar`, { player, cardValue: card.value });
+        : appendLog(state, state.log, 'magic', `Jogador ${player} não tinha cartas pequenas na mão pra queimar`, { player, cardValue: card.value });
     return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: newHand, fireballValue: newFireball } };
   }
 
@@ -3434,7 +3434,7 @@ function handleExecuteMagic(
       state,
       state.log,
       'magic',
-      `Roubo Flamejante: Jogador ${player} queimou ${targetCard.value}${targetCard.suit} de Jogador ${opponent} e somou ${value} à Bola de Fogo (agora ${newFireball})`,
+      `Jogador ${player} queimou ${targetCard.value}${targetCard.suit} de Jogador ${opponent} e somou ${value} à Bola de Fogo (agora ${newFireball})`,
       { player, cardValue: card.value }
     );
     return {
@@ -3477,7 +3477,7 @@ function handleExecuteMagic(
       state,
       state.log,
       'magic',
-      `Queima do Reforço: Jogador ${player} queimou uma horizontal de Jogador ${opponent} e somou ${value} à Bola de Fogo (agora ${newFireball})`,
+      `Jogador ${player} queimou uma horizontal de Jogador ${opponent} e somou ${value} à Bola de Fogo (agora ${newFireball})`,
       { player, cardValue: card.value }
     );
     return {
@@ -3511,7 +3511,7 @@ function handleExecuteMagic(
       const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
       newField[brotoSlotIndex] = { ...brotoSlot, faceDownCard: { ...brotoTop, transformedValue: newValue } };
       const { deck, discardPile } = pushToDiscard(state, [card]);
-      const log = appendLog(state, state.log, 'magic', `Simbiose: Jogador ${player} aumentou o Broto em ${growth} (agora vale ${newValue})`, { player, cardValue: card.value });
+      const log = appendLog(state, state.log, 'magic', `Jogador ${player} aumentou o Broto em ${growth} (agora vale ${newValue})`, { player, cardValue: card.value });
       return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic, field: newField } };
     }
 
@@ -3535,7 +3535,7 @@ function handleExecuteMagic(
       state,
       state.log,
       'magic',
-      `Simbiose: Jogador ${player} reduziu o Broto para ${halved} e marcou ${targetCard.value}${targetCard.suit} com +${markerAmount}`,
+      `Jogador ${player} reduziu o Broto para ${halved} e marcou ${targetCard.value}${targetCard.suit} com +${markerAmount}`,
       { player, cardValue: card.value }
     );
     return {
@@ -3571,7 +3571,7 @@ function handleExecuteMagic(
       const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
       newField[brotoSlotIndex] = { ...brotoSlot, faceDownCard: { ...brotoTop, transformedValue: newValue } };
       const { deck, discardPile } = pushToDiscard(state, [card]);
-      const log = appendLog(state, state.log, 'magic', `Urtiga: Jogador ${player} aumentou o Broto em ${growth} (agora vale ${newValue})`, { player, cardValue: card.value });
+      const log = appendLog(state, state.log, 'magic', `Jogador ${player} aumentou o Broto em ${growth} (agora vale ${newValue})`, { player, cardValue: card.value });
       return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic, field: newField } };
     }
 
@@ -3597,7 +3597,7 @@ function handleExecuteMagic(
       state,
       state.log,
       'magic',
-      `Urtiga: Jogador ${player} reduziu o Broto para ${halved} e enfraqueceu ${targetCard.value}${targetCard.suit} de Jogador ${opponent} em -${debuffAmount}`,
+      `Jogador ${player} reduziu o Broto para ${halved} e enfraqueceu ${targetCard.value}${targetCard.suit} de Jogador ${opponent} em -${debuffAmount}`,
       { player, cardValue: card.value }
     );
     return {
