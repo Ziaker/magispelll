@@ -280,6 +280,28 @@ export function Settings({ onBack }: SettingsProps) {
                   onCheckedChange={(checked) => updateSetting('hotseatPrivacyMode', checked)}
                 />
               </div>
+
+              {/* FIX (pedido do usuário: "ver as cartas da IA mesmo estando
+                  ocultas para quem assiste no modo espectador") - mesmo
+                  motivo de estar sempre visível aqui que hotseatPrivacyMode
+                  acima (esta tela não sabe se a próxima partida vai ser
+                  Espectador). Só tem efeito de verdade durante uma partida
+                  no Modo Espectador - ver spectatorRevealHands em settings.ts. */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label htmlFor="spectatorRevealHands" className="text-[#BFB6A6]">
+                    Revelar Mãos no Modo Espectador
+                  </Label>
+                  <p className="text-[12px] text-[#BFB6A6]/70">
+                    No Modo Espectador (IA contra IA), mostra a face das cartas dos dois lados em vez das costas
+                  </p>
+                </div>
+                <Switch
+                  id="spectatorRevealHands"
+                  checked={settings.spectatorRevealHands}
+                  onCheckedChange={(checked) => updateSetting('spectatorRevealHands', checked)}
+                />
+              </div>
             </CardContent>
           </Card>
 

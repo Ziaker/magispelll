@@ -108,6 +108,19 @@ export interface Settings {
    * grande o bastante pra ser opt-in, não uma correção de bug.
    */
   hotseatPrivacyMode: boolean;
+  /**
+   * FIX (pedido do usuário: "ver as cartas da IA mesmo estando ocultas para
+   * quem assiste no modo espectador") - só tem efeito com
+   * `gameConfig.mode === 'spectator'` (ver `PlayerZone.forceRevealHand`,
+   * calculado em GameBoard.tsx) - os dois lados sendo controlados pela IA,
+   * ninguém está "competindo" de verdade, então mostrar as duas mãos pra
+   * quem só está assistindo nunca dá vantagem injusta a ninguém. Nunca se
+   * aplica no modo Contra a IA (revelaria a mão do oponente ao humano
+   * jogando contra ela) nem no Hotseat (nenhum lado é controlado pela IA -
+   * ver `hotseatPrivacyMode` acima para a preferência equivalente lá).
+   * Desligado por padrão, mesmo padrão "opt-in" de `hotseatPrivacyMode`.
+   */
+  spectatorRevealHands: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -126,6 +139,7 @@ export const DEFAULT_SETTINGS: Settings = {
   interfaceZoom: 85,
   confirmBeforeDiscard: false,
   hotseatPrivacyMode: false,
+  spectatorRevealHands: false,
 };
 
 const STORAGE_KEY = 'magispelll:settings';
