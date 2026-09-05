@@ -310,12 +310,11 @@ class SoundManager {
     const howl = this.getHowl(name);
     if (!howl) return;
     try {
-      // Volume ANTES do play (não depois, por id): assim o som já começa no
-      // volume certo, sem um quadro no volume anterior, e uma mudança de
-      // volume nas Configurações passa a valer pro próximo disparo de
-      // qualquer som já cacheado.
-      howl.volume(Math.max(0, Math.min(100, this.settings.volume)) / 100);
-      howl.play();
+      // Volume por ID da instância (não global) - dois disparos do mesmo som
+      // quase sobrepostos (ex.: duas cartas viradas rápido) não pisam no
+      // volume um do outro, cada instância guarda o seu.
+      const id = howl.play();
+      howl.volume(Math.max(0, Math.min(100, this.settings.volume)) / 100, id);
     } catch {
       // Reprodução de áudio pode falhar por política do navegador (precisa de
       // interação do usuário) - falha silenciosamente, nunca quebra o jogo.
