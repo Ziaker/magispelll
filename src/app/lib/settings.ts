@@ -152,6 +152,19 @@ export interface Settings {
    * preferir a tela mais limpa.
    */
   showLastMagicPanel: boolean;
+  /**
+   * Item 39 do Grupo J ("inspetor de IA ao vivo no navegador") - painel
+   * flutuante (mesmo padrão de `showFloatingScore`/post-magic-pause: sibling
+   * fora da árvore com `zoom`, ver GameBoard.tsx) mostrando, sempre que a IA
+   * estiver prestes a agir, a lista ORDENADA das checagens nomeadas da fase
+   * atual (decideAiActionTraced, aiPlayer.ts) e qual delas disparou - a mesma
+   * resposta a "por que fez X" e "por que não fez Y" no nível de fase (ver o
+   * comentário de AiDecisionTrace em aiPlayer.ts para o que fica de fora
+   * desta 1ª versão: instrumentação folha-a-folha dentro de cada `decide*`).
+   * Só faz sentido contra um oponente-IA - desligado por padrão pra não
+   * poluir o tabuleiro de quem nunca olha pra isso.
+   */
+  showAiInspector: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -174,6 +187,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showFloatingScore: true,
   showLastMagicPanel: true,
   aiThinkSpeed: 100,
+  showAiInspector: false,
 };
 
 const STORAGE_KEY = 'magispelll:settings';

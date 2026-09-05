@@ -29,7 +29,7 @@ import { Badge } from './ui/badge';
 import { Switch } from './ui/switch';
 import { Slider } from './ui/slider';
 import { Label } from './ui/label';
-import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box, Settings as SettingsIcon, Sparkles, ScrollText } from 'lucide-react';
+import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box, Settings as SettingsIcon, Sparkles, ScrollText, Brain } from 'lucide-react';
 import { PlayerZone } from './PlayerZone';
 import { BattleField } from './BattleField';
 import { CharacterMagicReference } from './CharacterMagicReference';
@@ -93,7 +93,7 @@ import {
   type MagicSelection,
   type PlayerNumber,
 } from '../lib/gameEngine';
-import { decideAiAction, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
+import { decideAiAction, decideAiActionTraced, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
 import { simulateSteps, fuzzSteps } from '../lib/simulateGame';
 import { enumerateLegalActions, checkActionDivergence } from '../lib/actionSpace';
 import { checkInvariants, countAllCards } from '../lib/invariants';
@@ -440,6 +440,14 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       getReplayLog,
       loadReplayLog,
       replayToStep,
+      // Itens 35/38 do Grupo J ("trace estruturado por decisão" / "por que
+      // não X") - mesma função usada pelo painel visual (Item 39, ver JSX
+      // mais abaixo), exposta aqui pra inspecionar via console/script sem
+      // precisar abrir o painel (ex.: scripts/simulate.ts, investigações
+      // pontuais). Ver o comentário de AiDecisionTrace em aiPlayer.ts para o
+      // que este trace cobre (nível de fase) e o que fica de fora (leaf-level
+      // dentro de cada função decide*).
+      decideAiActionTraced: (player: PlayerNumber = 1) => decideAiActionTraced(gameState, player),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState]);
@@ -689,6 +697,18 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     return [];
   }, [gameConfig.mode]);
   const isAi = (player: PlayerNumber) => aiPlayers.includes(player);
+
+  // Item 39 do Grupo J ("inspetor de IA ao vivo") - só recalcula o trace
+  // (decideAiActionTraced, aiPlayer.ts) quando o painel está de fato aberto
+  // (ver `settings.showAiInspector`), pra não pagar o custo de coleta em toda
+  // partida contra IA que nunca abre o painel. Um trace por IA em `aiPlayers`
+  // (1 em "Contra a IA", os 2 no Modo Espectador) - reflete SEMPRE a decisão
+  // que aquela IA tomaria "se agisse agora", mesmo enquanto o timer de
+  // "pensando..." do useEffect de decisão real ainda não disparou.
+  const aiInspectorTraces = useMemo(() => {
+    if (!settings.showAiInspector || aiPlayers.length === 0) return [];
+    return aiPlayers.map((ai) => decideAiActionTraced(gameState, ai));
+  }, [settings.showAiInspector, aiPlayers, gameState]);
 
   // ----- Efeitos: traduzem transições de estado do motor em popups/timers -----
 
@@ -2944,6 +2964,17 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
             >
               <Sparkles className="w-4 h-4" />
             </Button>
+            {(isAi(1) || isAi(2)) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => updateSetting('showAiInspector', !settings.showAiInspector)}
+                className={settings.showAiInspector ? 'text-[#C59E4F]' : 'text-[#BFB6A6]/50'}
+                title={settings.showAiInspector ? 'Ocultar inspetor de IA' : 'Mostrar inspetor de IA'}
+              >
+                <Brain className="w-4 h-4" />
+              </Button>
+            )}
 
             {/* FIX (pedido do usuário: "atalho de Configurações direto no
                 topo... sem passar pelo 'Jogo Pausado'") - abre o MESMO
@@ -5192,6 +5223,70 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         <div>
           <p className="text-[12px] text-[#EFE7D6] font-semibold">{postMagicPause.title}</p>
           <p className="text-[11px] text-[#BFB6A6]">{postMagicPause.detail}</p>
+        </div>
+      </div>
+    )}
+    {/* Item 39 do Grupo J ("inspetor de IA ao vivo no navegador") - mesmo
+        motivo de viver AQUI, fora da árvore com `zoom`, que a Pontuação
+        flutuante/CardDragLayer acima. Um bloco por IA em `aiPlayers`, sempre
+        mostrando o trace de "se agisse agora" (ver aiInspectorTraces acima) -
+        o passo com fundo verde é o que decideu a ação final; os demais (cinza)
+        são checagens que a fase considerou e descartou, respondendo "por que
+        não X" diretamente (ver AiDecisionTrace em aiPlayer.ts pro que fica de
+        fora desta 1ª versão). */}
+    {settings.showAiInspector && aiInspectorTraces.length > 0 && (
+      <div
+        className="fixed bottom-4 right-4 z-40 bg-[#1E1A16]/95 border border-[#C59E4F]/40 rounded-lg p-3 shadow-xl backdrop-blur-sm max-h-[70vh] overflow-y-auto"
+        style={{ width: 280 }}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[11px] text-[#BFB6A6] flex items-center gap-1">
+            <Brain className="w-3 h-3" /> Inspetor de IA
+          </p>
+          <button
+            onClick={() => updateSetting('showAiInspector', false)}
+            className="text-[#BFB6A6]/60 hover:text-[#BFB6A6] text-[10px]"
+            title="Ocultar inspetor de IA"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="space-y-3">
+          {aiInspectorTraces.map((trace, idx) => {
+            const ai = aiPlayers[idx];
+            const theme = ai === 1 ? p1Theme : p2Theme;
+            const decisionLabel =
+              trace.decision.type === 'action'
+                ? trace.decision.action.type
+                : trace.decision.type === 'ready'
+                ? 'pronto (sem mais ações)'
+                : 'aguardando';
+            return (
+              <div key={ai}>
+                <p className="text-[11px] font-semibold mb-1" style={{ color: theme.primary }}>
+                  {theme.name} · {trace.phase} → {decisionLabel}
+                </p>
+                {trace.steps.length === 0 ? (
+                  <p className="text-[10px] text-[#BFB6A6]/60 italic">nenhuma checagem nomeada nesta fase</p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {trace.steps.map((step, stepIdx) => (
+                      <li
+                        key={stepIdx}
+                        className={`text-[10px] px-1.5 py-0.5 rounded ${
+                          step.matched ? 'bg-[#6CC47A]/20 text-[#6CC47A]' : 'bg-[#BFB6A6]/5 text-[#BFB6A6]/70'
+                        }`}
+                        title={step.detail}
+                      >
+                        {step.matched ? '✓' : '✗'} {step.name}
+                        {step.detail && <span className="opacity-70"> — {step.detail}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     )}

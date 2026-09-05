@@ -77,6 +77,66 @@ export type AiDecision =
   | { type: 'wait' };
 
 /**
+ * Rastreamento de decisão (Grupo J, itens 35/38/39: "trace estruturado por
+ * decisão" / "por que não X" / "inspetor de IA ao vivo") - registra, em
+ * ordem, cada checagem NOMEADA que decideDrawPhase/decideStrategyPhase/
+ * decideCombatPhase considerou nesta chamada e se ela "disparou" (produziu a
+ * ação final) ou não. Isso responde "por que a IA fez X" (o step com
+ * `matched: true`, sempre o último) e "por que não Y" NO NÍVEL DE FASE (Y
+ * aparece como um step com `matched: false` - dá pra ver que a checagem foi
+ * considerada e rejeitada, mas não o motivo interno de cada uma; instrumentar
+ * folha-a-folha as ~40 funções `decide*` internas foi avaliado e descartado
+ * por custo/benefício desproporcional para esta 1ª versão).
+ *
+ * Custo zero quando ninguém está coletando: `activeTrace` fica `null` fora de
+ * `decideAiActionTraced`, e `traceStep` é um no-op nesse caso - nenhuma das 3
+ * funções de fase precisa de nenhum branch condicional extra para isso.
+ */
+export interface AiDecisionTraceStep {
+  name: string;
+  matched: boolean;
+  detail?: string;
+}
+
+export interface AiDecisionTrace {
+  phase: GameState['phase'];
+  character: CharacterId;
+  steps: AiDecisionTraceStep[];
+  decision: AiDecision;
+}
+
+let activeTrace: AiDecisionTraceStep[] | null = null;
+
+function traceStep(name: string, matched: boolean, detail?: string): void {
+  if (activeTrace) activeTrace.push({ name, matched, detail });
+}
+
+/** Envolve `value` (resultado já calculado de uma checagem `decideX`) registrando o passo antes de devolvê-lo inalterado. */
+function traced<T>(name: string, value: T | null, detail?: string): T | null {
+  traceStep(name, value !== null, detail);
+  return value;
+}
+
+/**
+ * Mesma ideia de decideAiAction, mas coletando um AiDecisionTrace junto -
+ * usada pelo inspetor de IA ao vivo (GameBoard.tsx, painel de depuração) e
+ * por `window.__debug`. Nunca chamada no caminho normal de jogo (decideAiAction
+ * continua sendo o usado por GameBoard.tsx a cada turno da IA) para manter o
+ * custo de coleta restrito a quando alguém realmente pede o trace.
+ */
+export function decideAiActionTraced(state: GameState, ai: PlayerNumber): AiDecisionTrace {
+  const steps: AiDecisionTraceStep[] = [];
+  activeTrace = steps;
+  let decision: AiDecision;
+  try {
+    decision = decideAiAction(state, ai);
+  } finally {
+    activeTrace = null;
+  }
+  return { phase: state.phase, character: characterOf(state, ai), steps, decision };
+}
+
+/**
  * Valor médio aproximado de uma carta elegível para campo (2..10) - usado
  * tanto para decidir se vale a pena arriscar uma troca às cegas (decideBestaK)
  * quanto como valor de PLANEJAMENTO para um Ás ainda não transformado (ver
@@ -525,8 +585,10 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   if (character === 'anjo') {
     const jCard = findActivatableMagicCard(me.hand, 'J');
     if (jCard && canActivateMagic('draw', 'anjo', 'J', ctx)) {
+      traceStep('anjoJ (Bênção Divina)', true);
       return { type: 'action', action: { type: 'ACTIVATE_SIMPLE_MAGIC', player: ai, cardId: jCard.id } };
     }
+    traceStep('anjoJ (Bênção Divina)', false, jCard ? 'canActivateMagic recusou' : 'sem Valete disponível na mão');
   }
 
   // 2. Mago J (Revelação Forçada) - FIX (pedido do usuário: "troque a fase do
@@ -548,6 +610,7 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
       const ranked = [...eligible].sort((a, b) => cardPriority(b, 'besta', state.spotlight) - cardPriority(a, 'besta', state.spotlight));
       const picked = ranked.slice(0, 2);
       if (picked.length > 0) {
+        traceStep('bestaJ (Recuperação Selvagem)', true);
         return {
           type: 'action',
           action: {
@@ -560,6 +623,9 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
           },
         };
       }
+      traceStep('bestaJ (Recuperação Selvagem)', false, 'nenhuma carta numeral pura no descarte');
+    } else {
+      traceStep('bestaJ (Recuperação Selvagem)', false, jCard ? 'canActivateMagic recusou' : 'sem Valete disponível na mão');
     }
   }
 
@@ -585,8 +651,14 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
     const hasEmptyMainSlot = me.field.some((slot) => !slot.faceDownCard);
     const transformable = me.hand.find((c) => !c.coringaTransformedToNumeral && (c.value === 'J' || c.value === 'Q' || c.value === 'K'));
     if (transformable && !hasEmptyMainSlot) {
+      traceStep('coringaTransformarCartaMagica (Mão de Ferro)', true);
       return { type: 'action', action: { type: 'TRANSFORM_CORINGA_MAGIC_CARD', player: ai, cardId: transformable.id } };
     }
+    traceStep(
+      'coringaTransformarCartaMagica (Mão de Ferro)',
+      false,
+      hasEmptyMainSlot ? 'prefere posicionar J/Q/K como armadilha primeiro (slot vazio disponível)' : 'nenhuma J/Q/K não-transformada na mão'
+    );
   }
 
   // 3c. Piromante (personagem novo) - Combustão (Valete): prioriza sempre
@@ -613,14 +685,21 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
       const fuelIds = new Set(me.hand.filter((c) => isPlainNumeralCard(c) && getEffectiveCardValue(c) < 5).map((c) => c.id));
       const wouldStripAllFieldEligible = hasEmptyMainSlot && !me.hand.some((c) => !fuelIds.has(c.id) && isFieldEligible(c));
       if (ctx.hasFireFuelInHand && !wouldStripAllFieldEligible) {
+        traceStep('piromanteJ-alimentarCombustao', true);
         return {
           type: 'action',
           action: { type: 'EXECUTE_MAGIC', player: ai, cardId: jCard.id, character: 'piromante', magicType: 'J', selection: {} },
         };
       }
+      traceStep(
+        'piromanteJ-alimentarCombustao',
+        false,
+        !ctx.hasFireFuelInHand ? 'sem combustível (<5) na mão' : 'queimaria toda carta elegível pra campo restante'
+      );
       if (shouldLaunchFireball(state, ai)) {
         const target = pickFireballTarget(state, ai);
         if (target !== null) {
+          traceStep('piromanteJ-lancarBolaDeFogo', true);
           return {
             type: 'action',
             action: {
@@ -633,6 +712,9 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
             },
           };
         }
+        traceStep('piromanteJ-lancarBolaDeFogo', false, 'nenhum alvo válido encontrado');
+      } else {
+        traceStep('piromanteJ-lancarBolaDeFogo', false, 'shouldLaunchFireball recusou (ainda não vale o gasto)');
       }
     }
   }
@@ -641,13 +723,13 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   //     fase da rainha do piromante de estratégia para compra") - decidida
   //     aqui agora (ver decidePiromanteQ, magicCards.ts `phase: 'draw'`).
   if (character === 'piromante') {
-    const qAction = decidePiromanteQ(state, ai);
+    const qAction = traced('decidePiromanteQ', decidePiromanteQ(state, ai));
     if (qAction) return { type: 'action', action: qAction };
   }
 
   // 4. Fusão (pedido do usuário: "quero que a IA também funda cartas") - ver
   //    decideFusion abaixo.
-  const fuseAction = decideFusion(state, ai, character);
+  const fuseAction = traced('decideFusion', decideFusion(state, ai, character));
   if (fuseAction) return { type: 'action', action: fuseAction };
 
   // 5. Descarta cartas claramente fracas para girar a mão, mas só quando ela
@@ -674,8 +756,12 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
     const worst = [...me.hand].filter((c) => !c.revealed).sort((a, b) => cardPriority(a, character, state.spotlight) - cardPriority(b, character, state.spotlight))[0];
     const threshold = hasPlayableCard ? 5 : 100; // sem nada jogável em campo, descarta até J/Q/K para não travar
     if (worst && cardPriority(worst, character, state.spotlight) < threshold) {
+      traceStep('descartarCartaFraca', true);
       return { type: 'action', action: { type: 'DISCARD_CARDS', player: ai, cardIds: [worst.id] } };
     }
+    traceStep('descartarCartaFraca', false, 'nenhuma carta abaixo do limiar de prioridade');
+  } else {
+    traceStep('descartarCartaFraca', false, 'limite de descartes do turno atingido ou mão ainda não cheia');
   }
 
   // 6. Compra até o limite da mão (ou até o limite de compras por turno, se
@@ -690,9 +776,12 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
     : Infinity;
   const maxDraw = Math.min(maxHandDraw, maxTurnDraw);
   if (maxDraw > 0 && (state.deck.length > 0 || state.discardPile.length > 0)) {
+    traceStep('comprarCartas', true);
     return { type: 'action', action: { type: 'DRAW_CARDS', player: ai, count: maxDraw } };
   }
+  traceStep('comprarCartas', false, maxDraw <= 0 ? 'mão/limite de compras já no teto' : 'baralho e descarte vazios');
 
+  traceStep('ready (nada mais a fazer na Compra)', true);
   return { type: 'ready' };
 }
 
@@ -2242,7 +2331,7 @@ function decideStrategyPhase(state: GameState, ai: PlayerNumber): AiDecision {
   // 0. Transformação do Ás: ver decideAceTransform acima - precisa rodar
   //    ANTES da checagem da Magia Numeral logo abaixo, já que é exatamente o
   //    que torna um Ás elegível para completar o trio.
-  const aceTransformAction = decideAceTransform(state, ai, character, me);
+  const aceTransformAction = traced('decideAceTransform', decideAceTransform(state, ai, character, me));
   if (aceTransformAction) return { type: 'action', action: aceTransformAction };
 
   // 1. Magia Numeral: exige campo vazio, então precisa ser checada ANTES de
@@ -2262,24 +2351,29 @@ function decideStrategyPhase(state: GameState, ai: PlayerNumber): AiDecision {
   const mosqueteiroNumeralWindowTooLow =
     character === 'mosqueteiro' &&
     me.mosqueteiroDiscardsThisTurn + me.mosqueteiroDiscardsTurnMinus1 + me.mosqueteiroDiscardsTurnMinus2 < 3;
-  if (
+  const numeralSpellReady =
     !mosqueteiroNumeralWindowTooLow &&
     getFilledFieldSlots(me.field).length === 0 &&
-    canActivateNumeralSpell(character, me.hand, me.field, state.activeNumeralSpells[ai] !== undefined, state.spotlight)
-  ) {
+    canActivateNumeralSpell(character, me.hand, me.field, state.activeNumeralSpells[ai] !== undefined, state.spotlight);
+  traceStep(
+    'ativarMagiaNumeral',
+    numeralSpellReady,
+    mosqueteiroNumeralWindowTooLow ? 'janela de descarte do Mosqueteiro ainda baixa demais' : undefined
+  );
+  if (numeralSpellReady) {
     return { type: 'action', action: { type: 'ACTIVATE_NUMERAL_SPELL', player: ai } };
   }
 
-  const monsterAction = decideMonsterEffect(state, ai, character);
+  const monsterAction = traced('decideMonsterEffect', decideMonsterEffect(state, ai, character));
   if (monsterAction) return { type: 'action', action: monsterAction };
 
   // FIX (itens 4 e 7): posiciona a carta Monstro na zona própria assim que
   // possível (nunca mais compete com decideFieldPlacement pelos 3 slots
   // normais - ver comentário em decidePlaceMonsterCard).
-  const placeMonsterAction = decidePlaceMonsterCard(state, ai);
+  const placeMonsterAction = traced('decidePlaceMonsterCard', decidePlaceMonsterCard(state, ai));
   if (placeMonsterAction) return { type: 'action', action: placeMonsterAction };
 
-  const magicAction = decideStrategyMagic(state, ai, character);
+  const magicAction = traced('decideStrategyMagic', decideStrategyMagic(state, ai, character));
   if (magicAction) return { type: 'action', action: magicAction };
 
   // Modo Towers (pedido do usuário: a IA já deve saber formar/reforçar
@@ -2290,7 +2384,7 @@ function decideStrategyPhase(state: GameState, ai: PlayerNumber): AiDecision {
   // diferentes. As outras cartas da mão continuam preenchendo os demais
   // slots normalmente nas próximas chamadas (decideFieldPlacement roda de
   // novo a cada ciclo, e o slot da torre já estará ocupado).
-  const towerAction = decideTowerAction(state, ai, character, me);
+  const towerAction = traced('decideTowerAction', decideTowerAction(state, ai, character, me));
   if (towerAction) return { type: 'action', action: towerAction };
 
   // Druida (personagem novo) - Broto e Monstro nunca passam por
@@ -2299,15 +2393,16 @@ function decideStrategyPhase(state: GameState, ai: PlayerNumber): AiDecision {
   // preenchimento genérico de slots (mesmo motivo de decidePlaceMonsterCard
   // rodar antes para os outros personagens).
   if (character === 'druida') {
-    const brotoAction = decideDruidaBroto(state, ai);
+    const brotoAction = traced('decideDruidaBroto', decideDruidaBroto(state, ai));
     if (brotoAction) return { type: 'action', action: brotoAction };
-    const druidaMonsterAction = decideDruidaMonster(state, ai);
+    const druidaMonsterAction = traced('decideDruidaMonster', decideDruidaMonster(state, ai));
     if (druidaMonsterAction) return { type: 'action', action: druidaMonsterAction };
   }
 
-  const placeAction = decideFieldPlacement(state, ai, character);
+  const placeAction = traced('decideFieldPlacement', decideFieldPlacement(state, ai, character));
   if (placeAction) return { type: 'action', action: placeAction };
 
+  traceStep('ready (nada mais a fazer na Estratégia)', true);
   return { type: 'ready' };
 }
 
@@ -2956,13 +3051,15 @@ function decideCombatSlotSelection(state: GameState, ai: PlayerNumber): AiDecisi
 function decideCombatPhase(state: GameState, ai: PlayerNumber): AiDecision {
   const character = characterOf(state, ai);
 
-  const magicAction = decideCombatMagic(state, ai, character);
+  const magicAction = traced('decideCombatMagic', decideCombatMagic(state, ai, character));
   if (magicAction) return { type: 'action', action: magicAction };
 
-  const monsterAction = decideMonsterEffect(state, ai, character);
+  const monsterAction = traced('decideMonsterEffect', decideMonsterEffect(state, ai, character));
   if (monsterAction) return { type: 'action', action: monsterAction };
 
-  return decideCombatSlotSelection(state, ai);
+  const decision = decideCombatSlotSelection(state, ai);
+  traceStep('decideCombatSlotSelection', true);
+  return decision;
 }
 
 // ============================================================================
