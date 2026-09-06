@@ -7,6 +7,7 @@ import { getMonsterEffect } from '../lib/monsterCards';
 import { getSpotlightEntry, type SpotlightState } from '../lib/spotlight';
 import { CardKeywords, type CardKeywordId } from './CardKeywords';
 import type { CharacterId } from '../lib/gameEngine';
+import { useSettings } from '../context/SettingsContext';
 
 interface PlayingCardProps {
   value?: string;
@@ -146,6 +147,7 @@ export function PlayingCard({
   accentColor,
 }: PlayingCardProps) {
   const [hovering, setHovering] = useState(false);
+  const { settings } = useSettings();
   const suit = card ? getDisplaySuit(card) : suitProp;
 
   if (slot) {
@@ -397,7 +399,7 @@ export function PlayingCard({
               </div>
             </div>
           </TooltipTrigger>
-          {magicTooltip && (
+          {magicTooltip && settings.showHandEffectTooltips && (
             <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[220px]">
               {/* FIX (item 8): mostra em qual fase (com a cor correspondente
                   usada em todo o resto da interface) esta carta de magia pode

@@ -165,6 +165,16 @@ export interface Settings {
    * poluir o tabuleiro de quem nunca olha pra isso.
    */
   showAiInspector: boolean;
+  /**
+   * FIX (pedido do usuário: "desligar tooltips" nas Configurações) -
+   * especificamente o popup de descrição do efeito que aparece ao passar o
+   * mouse sobre uma carta de magia (ou armadilha do Coringa em janela de
+   * transformação) NA MÃO - ver `magicTooltip`/`TooltipContent` em
+   * PlayingCard.tsx. Não afeta os outros tooltips do jogo (keywords,
+   * ícones de regras, botão de Magia Numeral etc.) - só este, que é o mais
+   * repetitivo pra quem já decorou os efeitos de todo personagem.
+   */
+  showHandEffectTooltips: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -188,6 +198,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showLastMagicPanel: true,
   aiThinkSpeed: 100,
   showAiInspector: false,
+  showHandEffectTooltips: true,
 };
 
 const STORAGE_KEY = 'magispelll:settings';

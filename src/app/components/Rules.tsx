@@ -162,6 +162,45 @@ Jogador 2: Carta K (13) + horizontal 3 = 16
 → Se Jogador 2 vencer mais 1 combate antes de a disputa fechar de outra forma, ele fecha a disputa e Jogador 1 perde 1 vida`,
     },
     {
+      // FIX (pedido do usuário: "planejamento dos helpers e mudanças
+      // universais/genéricas dos buffs, debuffs, alterações, condições,
+      // estados e status das cartas... nas informações do jogo ao lado da
+      // região dos personagens, nomeados como Gimmicks & keywords") - seção
+      // nova dentro de Rules.tsx (mesmo padrão de todas as outras: RuleSection
+      // com id/title/content), logo após as seções gerais de regras e antes
+      // de mergulhar em cada personagem, já que os termos aqui aparecem nas
+      // descrições de magia logo abaixo. Cobre só termos que JÁ EXISTEM no
+      // jogo (nenhum personagem/mecânica proposta) - a fonte de verdade dos
+      // 7 estados de carta é CARD_KEYWORDS (CardKeywords.tsx), o mesmo texto
+      // usado nos tooltips reais dentro de uma partida.
+      id: 'gimmicks-keywords',
+      title: 'Gimmicks & Keywords',
+      content: `Termos que aparecem em descrições de magia e nos selos que surgem sobre uma carta durante a partida (passe o mouse sobre um selo, dentro do jogo, pra ver o tooltip com o mesmo texto abaixo).
+
+═══════════════════════════════════════
+🎴 ESTADOS DE CARTA
+═══════════════════════════════════════
+• Revelada — o oponente também pode ver o valor desta carta
+• Ás Transformado — este valor (2 a 10) foi escolhido pelo jogador; não é a face original da carta
+• Trancada — trancada pela Visão Celestial do Anjo: esta magia não pode ser ativada até o fim do turno
+• Fusão — nasceu da soma de 2 cartas numerais da mão (ver "Variantes de Jogo")
+• Proteção Divina — protegida pelo Anjo: não pode ser alvo de magias do oponente
+• Spotlight (+) — o valor desta carta vale 3x mais em tudo (combate, Magia Numeral, Torres) - só no Modo Spotlight
+• Spotlight (-) — o valor desta carta está fixado em 1 em tudo - só no Modo Spotlight
+
+═══════════════════════════════════════
+⚙️ GIMMICKS (mecânicas centrais de personagem)
+═══════════════════════════════════════
+• Marcador — bônus ou penalidade de combate somado ou multiplicado ao valor de uma carta, com origem (quem lançou) e alvo rastreados; pode ser positivo (próprio campo) ou negativo (campo do oponente)
+• Armadilha — carta do Coringa posicionada virada pra baixo no campo; some o efeito real de quem a colocou até ser revelada ou combatida
+• Zona Monstro — zona própria de campo (fora dos 3 slots normais) onde a carta Monstro de cada personagem entra; funciona diferente pra cada um (ver seção "Cartas Monstro")
+• Acumulador — recurso permanente do Piromante que cresce ao queimar cartas pequenas, alimentando o valor da Bola de Fogo
+• Torre — empilhamento de mesma valor num slot (Modo Towers); sobrevive entre turnos, mas ERODE carta por carta ao perder um combate
+• Broto — empilhamento do Druida (Modo padrão); sobrevive entre turnos como a Torre, mas colapsa por completo de uma vez ao perder, sem erosão
+
+Ver também "Sistema de Combate" e "Variantes de Jogo" para o funcionamento completo de cada um destes.`,
+    },
+    {
       id: 'magias',
       title: 'Magias (J, Q, K)',
       characters: ['mago', 'besta', 'anjo', 'mosqueteiro'],

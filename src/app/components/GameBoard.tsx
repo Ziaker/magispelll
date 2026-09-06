@@ -479,6 +479,15 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [victoryGlowPlayer, setVictoryGlowPlayer] = useState<1 | 2 | null>(null);
   const [showVictory, setShowVictory] = useState(false);
   const [showRematchDialog, setShowRematchDialog] = useState(false);
+  /**
+   * FIX (pedido do usuário: "adicione a opção de reiniciar um jogo nas
+   * opções in-game") - confirmação separada do Diálogo de Revanche (aquele
+   * só aparece no FIM de jogo, sem nada a perder); esta reinicia a partida
+   * EM ANDAMENTO, então pede confirmação explícita antes de descartar o
+   * progresso do turno atual - ver o botão "Reiniciar Partida" no Diálogo
+   * de Pausa e o novo Dialog de confirmação logo abaixo dele.
+   */
+  const [showRestartConfirmDialog, setShowRestartConfirmDialog] = useState(false);
   const [showNumeralSpellPopup, setShowNumeralSpellPopup] = useState(false);
   const [pendingMagic, setPendingMagic] = useState<PendingMagic | null>(null);
   const [pendingAceTransform, setPendingAceTransform] = useState<{ playerNumber: 1 | 2; aceCardId: string } | null>(null);
@@ -5146,6 +5155,49 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               className="flex-1 border-[#C59E4F] text-[#C59E4F]"
             >
               Sair do Jogo
+            </Button>
+          </div>
+          {/* FIX (pedido do usuário: "reiniciar um jogo nas opções in-game") -
+              linha separada dos 2 botões principais acima, cor de aviso
+              (mesmo tom avermelhado usado em ações destrutivas do jogo) já
+              que descarta o progresso da partida atual - abre confirmação em
+              vez de agir direto. */}
+          <Button
+            onClick={() => setShowRestartConfirmDialog(true)}
+            variant="outline"
+            className="w-full border-[#C4574A]/60 text-[#C4574A] hover:bg-[#C4574A]/10"
+          >
+            Reiniciar Partida
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmação de Reiniciar Partida - ver showRestartConfirmDialog */}
+      <Dialog open={showRestartConfirmDialog} onOpenChange={setShowRestartConfirmDialog}>
+        <DialogContent className="bg-[#1E1A16] border-[#C59E4F]">
+          <DialogHeader>
+            <DialogTitle className="text-[#EFE7D6] font-display text-[24px]">Reiniciar Partida?</DialogTitle>
+            <DialogDescription className="text-[#BFB6A6]">
+              O progresso da partida atual será perdido. A partida recomeça do zero com os mesmos personagens e configurações.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-4 pt-2">
+            <Button
+              onClick={() => setShowRestartConfirmDialog(false)}
+              variant="outline"
+              className="flex-1 border-[#C59E4F] text-[#C59E4F]"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                setShowRestartConfirmDialog(false);
+                setShowQuickSettings(false);
+                handleRematch();
+              }}
+              className="flex-1 bg-[#C4574A] hover:bg-[#A8493D] text-[#EFE7D6]"
+            >
+              Reiniciar
             </Button>
           </div>
         </DialogContent>

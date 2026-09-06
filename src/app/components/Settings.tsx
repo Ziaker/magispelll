@@ -280,6 +280,24 @@ export function Settings({ onBack }: SettingsProps) {
                 />
               </div>
 
+              {/* FIX (pedido do usuário: "desligar tooltips") - só o popup de
+                  descrição do efeito de uma carta de magia/armadilha NA MÃO
+                  (ver `showHandEffectTooltips`, settings.ts) - não afeta os
+                  demais tooltips do jogo (keywords, regras, Magia Numeral). */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="showHandEffectTooltips" className="text-[#BFB6A6]">
+                    Tooltips de Efeito na Mão
+                  </Label>
+                  <p className="text-[11px] text-[#BFB6A6]/70">Descrição do efeito ao passar o mouse sobre uma carta de magia na mão</p>
+                </div>
+                <Switch
+                  id="showHandEffectTooltips"
+                  checked={settings.showHandEffectTooltips}
+                  onCheckedChange={(checked) => updateSetting('showHandEffectTooltips', checked)}
+                />
+              </div>
+
               {/* FIX (pedido do usuário: "ocultar mão do oponente
                   automaticamente" no Hotseat) - sempre visível aqui (ao
                   contrário do menu de Pausa, que só mostra durante uma
