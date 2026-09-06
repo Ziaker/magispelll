@@ -217,6 +217,33 @@ export const MAGIC_CARDS: Record<Character, Record<MagicCardType, MagicCardInfo>
         'Reduza o Broto pela metade para adicionar um marcador de combate NEGATIVO numa carta do oponente (vale a metade reduzida). Ou, em vez de ativar, POSICIONE a carta no campo pra plantar ou empilhar o Broto exatamente como um Valete - essa é a forma de crescer o Broto sem reduzi-lo.',
     },
   },
+
+  // Glacial (personagem novo, "congelamento e controle") - mecânica própria:
+  // congela cartas (StatusEffect `kind: 'frozen'`, ver statusEffects.ts) da
+  // mão ou do campo de qualquer jogador. Diferente do Druida, o Glacial NÃO
+  // tem nenhum guard de bloqueio de ativação aqui em `canActivateMagic` - a
+  // trava/gimmick de carta congelada é tratada dentro de `handleExecuteMagic`
+  // (gameEngine.ts), porque depende de QUEM é o dono da magia sendo ativada,
+  // não só do tipo de carta.
+  glacial: {
+    J: {
+      name: 'Valete - Criogenar',
+      phase: 'strategy',
+      description:
+        'Congele 1 carta - da mão ou do campo, sua ou do oponente. Uma carta congelada nunca pode ser revelada e não pode ser jogada/ativada (exceto pelo próprio Glacial, sobre uma carta que ele mesmo congelou).',
+    },
+    Q: {
+      name: 'Rainha - Crioespinho',
+      phase: 'strategy',
+      description:
+        'Congele 1 carta no CAMPO (sua ou do oponente) e aplique um marcador de combate: +2 se for sua, -2 se for do oponente.',
+    },
+    K: {
+      name: 'Rei - Crioescudo',
+      phase: 'combat',
+      description: 'Some +1 de marcador de combate em TODAS as suas cartas já congeladas no campo, de uma vez.',
+    },
+  },
 };
 
 /** Retorna as informações de uma Carta Mágica específica */
@@ -338,6 +365,12 @@ export interface MagicActivationContext {
   canReduceBroto?: boolean;
   /** Simbiose (Rainha do Druida): existe alguma carta no PRÓPRIO campo (fora o próprio Broto) pra receber o marcador. */
   hasSimbioseTarget?: boolean;
+  /** Criogenar (Valete do Glacial): existe alguma carta AINDA NÃO congelada (mão ou campo, de qualquer jogador) pra congelar. */
+  hasFreezableCard?: boolean;
+  /** Crioespinho (Rainha do Glacial): existe alguma carta AINDA NÃO congelada no CAMPO (próprio ou do oponente) pra congelar. */
+  hasFreezableFieldCard?: boolean;
+  /** Crioescudo (Rei do Glacial): existe pelo menos 1 carta PRÓPRIA já congelada no campo pra reforçar. */
+  hasOwnFrozenFieldCard?: boolean;
 }
 
 /**
@@ -563,6 +596,15 @@ export function canActivateMagic(
     if (!(ctx.canReduceBroto ?? false)) return false;
     return cardValue === 'Q' ? (ctx.hasSimbioseTarget ?? false) : (ctx.hasUnprotectedCardInOpponentField ?? false);
   }
+
+  // Glacial (personagem novo, "congelamento e controle") - nenhum guard de
+  // bloqueio de ATIVAÇÃO por status `frozen` mora aqui (isso é tratado em
+  // `handleExecuteMagic`, gameEngine.ts, porque depende de quem é o dono da
+  // magia sendo ativada) - aqui só valida que existe um alvo de verdade pra
+  // cada uma das 3 magias.
+  if (character === 'glacial' && cardValue === 'J') return ctx.hasFreezableCard ?? false;
+  if (character === 'glacial' && cardValue === 'Q') return ctx.hasFreezableFieldCard ?? false;
+  if (character === 'glacial' && cardValue === 'K') return ctx.hasOwnFrozenFieldCard ?? false;
 
   // Sem condições especiais além da fase (Mago J, Anjo K)
   return true;

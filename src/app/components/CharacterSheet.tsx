@@ -1,6 +1,6 @@
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { ArrowLeft, Wand2, Crosshair, Flame, Sprout } from 'lucide-react';
+import { ArrowLeft, Wand2, Crosshair, Flame, Sprout, Snowflake } from 'lucide-react';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { CharacterDivider } from './CharacterDivider';
 import { ScrollArea } from './ui/scroll-area';
@@ -389,6 +389,59 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
       monsterEffect: {
         name: 'Broto Espelhado',
         effect: 'Não usa a Zona Monstro - é jogada no campo como uma carta numeral comum, valendo o mesmo valor do Broto no instante em que é jogada (travado). Só pode ser jogada com um Broto ativo no campo.',
+      },
+    },
+    glacial: {
+      name: 'GLACIAL',
+      icon: Snowflake,
+      color: '#0ADEFF',
+      profile: 'Congela cartas da mão ou do campo de qualquer jogador - uma carta congelada nunca revela e trava jogar/ativar, só descongelando se alguém pagar descartando outra carta na Estratégia. O próprio Glacial vira essa trava a seu favor: ativar uma magia própria congelada não é bloqueado, e a primeira ativação sai de graça sem gastar a carta.',
+      spells: [
+        {
+          card: 'Valete (J)',
+          phase: 'Estratégia',
+          name: 'Criogenar',
+          description: 'Congele 1 carta - da mão ou do campo, sua ou do oponente. Uma carta congelada nunca pode ser revelada e não pode ser jogada/ativada (exceto pelo próprio Glacial, sobre uma carta que ele mesmo congelou).',
+        },
+        {
+          card: 'Rainha (Q)',
+          phase: 'Estratégia',
+          name: 'Crioespinho',
+          description: 'Congele 1 carta no CAMPO (sua ou do oponente) e aplique um marcador de combate: +2 se for sua, -2 se for do oponente.',
+        },
+        {
+          card: 'Rei (K)',
+          phase: 'Combate',
+          name: 'Crioescudo',
+          description: 'Some +1 de marcador de combate em TODAS as suas cartas já congeladas no campo, de uma vez.',
+        },
+      ],
+      strategies: [
+        {
+          title: 'Congele o que incomoda',
+          description: 'Uma carta de magia congelada do oponente fica travada sem ativar; uma carta de campo congelada nunca revela - use Criogenar pra tirar a melhor carta do oponente de jogo por um tempo.',
+        },
+        {
+          title: 'A trava é sua amiga',
+          description: 'Congelar as próprias magias (mesmo sem querer) não é desperdício: ativá-las de qualquer jeito descongela de graça na primeira vez, e a segunda ativação ainda funciona normalmente depois.',
+        },
+        {
+          title: 'Descongelar custa uma carta',
+          description: 'Só descongele quando realmente precisar da carta de volta - o pagamento (qualquer carta da mão, na Estratégia) é uma carta a menos disponível.',
+        },
+        {
+          title: 'Criogênese em massa',
+          description: 'Reúna A, A, A pra congelar toda magia na mão dos dois jogadores de uma vez, e ainda pegar de surpresa qualquer magia comprada no turno seguinte.',
+        },
+      ],
+      numericSpell: {
+        cards: 'A, A, A',
+        name: 'Criogênese',
+        effect: 'Congela toda carta de magia (Valete/Rainha/Rei) na mão dos dois jogadores agora, e também a próxima magia que cada um comprar durante o turno seguinte inteiro.',
+      },
+      monsterEffect: {
+        name: 'Criogolem',
+        effect: 'Não usa a Zona Monstro - é jogado no campo como uma carta numeral comum, valendo 8 + 1 por cada carta congelada em jogo agora (mão e campo dos dois lados), travado no instante em que é jogado.',
       },
     },
   };

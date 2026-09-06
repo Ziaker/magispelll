@@ -15,6 +15,7 @@
  * - Para novos efeitos, adicione flags booleanas (ex: isMonster)
  */
 import { random } from './rng';
+import { hasStatus } from './statusEffects';
 
 /**
  * Estrutura de dados de uma carta no jogo
@@ -107,6 +108,10 @@ export function shuffle<T>(items: T[]): T[] {
  * já está revelada (evita objetos novos desnecessários em todo re-render).
  */
 export function revealCard(card: Card): Card {
+  // Glacial (personagem novo) - uma carta com o StatusEffect 'frozen' nunca
+  // pode ser revelada, não importa quem tentou (guard central único, em vez
+  // de repetir esta checagem nos 3 call sites de revealCard).
+  if (hasStatus(card, 'frozen')) return card;
   return card.revealed ? card : { ...card, revealed: true };
 }
 

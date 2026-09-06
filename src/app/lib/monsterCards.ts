@@ -109,6 +109,17 @@ export const MONSTER_EFFECTS: Record<MonsterCharacter, MonsterEffect> = {
     detailedDescription:
       'Não usa a Zona Monstro - é posicionada no campo como uma carta numeral comum, valendo o mesmo valor do Broto no instante em que é jogada (travado - não muda se o Broto continuar crescendo depois). Só pode ser jogada com um Broto ativo em algum slot do seu campo.',
   },
+  // Glacial (personagem novo) - mesmo padrão do Coringa/Druida acima: NUNCA
+  // usa a Zona Monstro (ver handlePlaceMonsterCard, gameEngine.ts) - vai pro
+  // campo normal como uma carta numeral comum, valendo 8 + 1 por cada carta
+  // congelada em jogo agora (mão e campo dos dois lados), travado no
+  // instante em que é jogada.
+  glacial: {
+    name: 'Criogolem',
+    description: 'Tratada como uma carta numeral valendo 8 + 1 por carta congelada em jogo',
+    detailedDescription:
+      'Não usa a Zona Monstro - é posicionada no campo como uma carta numeral comum, valendo 8 + 1 para cada carta congelada em jogo agora (mão e campo dos dois jogadores), travado no instante em que é jogada (não muda se mais cartas forem congeladas ou descongeladas depois).',
+  },
 };
 
 /** Retorna as informações do efeito de Monstro de um personagem */

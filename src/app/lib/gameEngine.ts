@@ -62,7 +62,7 @@ import {
 export type Phase = 'draw' | 'strategy' | 'combat';
 export type PlayerNumber = 1 | 2;
 export type PlayerKey = 'player1' | 'player2';
-export type CharacterId = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante' | 'druida';
+export type CharacterId = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante' | 'druida' | 'glacial';
 
 export type FieldSlot = {
   faceDownCard?: Card;
@@ -559,6 +559,12 @@ export type GameAction =
   // (`cardId`) ocupa o lugar dela. Só permitido enquanto o slot ainda não foi
   // revelado (ver handleSwapFieldCard).
   | { type: 'SWAP_FIELD_CARD'; player: PlayerNumber; cardId: string; slotIndex: number }
+  // Glacial (personagem novo) - única via de remover o StatusEffect 'frozen'
+  // de uma carta: descarta `paymentCardId` (qualquer carta da PRÓPRIA mão)
+  // como pagamento pra descongelar `targetCardId` (mão ou campo, de
+  // QUALQUER jogador - a carta-alvo não é descartada, só perde o status).
+  // Só na fase de Estratégia - ver handlePayToUnfreeze.
+  | { type: 'PAY_TO_UNFREEZE'; player: PlayerNumber; paymentCardId: string; targetCardId: string }
   // Modo Towers (pedido do usuário): empilha `cardIds` (2+ cartas numerais
   // de mesmo valor efetivo da mão pra CRIAR uma torre nova, ou 1+ pra
   // REFORÇAR uma torre já formada neste turno pelo mesmo jogador) no
@@ -844,7 +850,7 @@ function ensureDeckHasAtLeast(
   return reshuffleDiscardIntoDeck(deckState.deck, deckState.discardPile, 'all');
 }
 
-function fieldCards(field: [FieldSlot, FieldSlot, FieldSlot]): Card[] {
+export function fieldCards(field: [FieldSlot, FieldSlot, FieldSlot]): Card[] {
   // FIX (Modo Towers, pedido do usuário): a reserva da torre (cartas
   // empilhadas ABAIXO do topo, ver FieldSlot.towerReserve) agora entra em
   // TODO lugar que já varria o campo inteiro pra descartar/mover cartas -
@@ -1483,6 +1489,18 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
       return Boolean(brotoSlot) && (brotoSlot!.faceDownCard!.transformedValue ?? 1) >= 2;
     })(),
     hasSimbioseTarget: playerState.field.some((slot) => (slot.faceDownCard && !isBrotoSlot(slot)) || slot.horizontalCards.length > 0),
+    // Glacial (personagem novo) - "qualquer alvo possível" (alvo omisso na
+    // especificação do usuário): mão OU campo, de QUALQUER jogador, contanto
+    // que a carta ainda não esteja congelada.
+    hasFreezableCard:
+      playerState.hand.some((c) => !hasStatus(c, 'frozen')) ||
+      opponentState.hand.some((c) => !hasStatus(c, 'frozen')) ||
+      fieldCards(playerState.field).some((c) => !hasStatus(c, 'frozen')) ||
+      fieldCards(opponentState.field).some((c) => !hasStatus(c, 'frozen')),
+    // Crioespinho (Rainha do Glacial): só campo, de qualquer jogador.
+    hasFreezableFieldCard: fieldCards(playerState.field).some((c) => !hasStatus(c, 'frozen')) || fieldCards(opponentState.field).some((c) => !hasStatus(c, 'frozen')),
+    // Crioescudo (Rei do Glacial): pelo menos 1 carta PRÓPRIA já congelada no campo.
+    hasOwnFrozenFieldCard: fieldCards(playerState.field).some((c) => hasStatus(c, 'frozen')),
   };
 }
 
@@ -1590,6 +1608,8 @@ function reduceGameAction(state: GameState, action: GameAction): GameState {
       return handleReturnHorizontalCardToHand(state, action.player, action.slotIndex, action.cardId);
     case 'SWAP_FIELD_CARD':
       return handleSwapFieldCard(state, action.player, action.cardId, action.slotIndex);
+    case 'PAY_TO_UNFREEZE':
+      return handlePayToUnfreeze(state, action.player, action.paymentCardId, action.targetCardId);
     case 'FORM_OR_REINFORCE_TOWER':
       return handleFormOrReinforceTower(state, action.player, action.slotIndex, action.cardIds);
     case 'TRANSFORM_ACE':
@@ -1697,6 +1717,22 @@ function handleDrawCards(state: GameState, player: PlayerNumber, count: number):
   if (state.activeNumeralSpells[opponentOf(player)]?.character === 'mago') {
     drawn = drawn.map((c) => ({ ...c, revealed: true }));
     log = appendLog(state, log, 'numeral-spell', `Cartas de Jogador ${player} foram reveladas pela Magia Numeral`, { player });
+  }
+
+  // Glacial (personagem novo) - Criogênese (Magia Numeral): enquanto o
+  // StatusEffect 'freezeUpcomingMagicDraws' estiver ativo neste jogador
+  // (ver handleFinalizeNumeralSpell), toda carta de magia (J/Q/K) comprada
+  // agora nasce já congelada.
+  if (hasStatus(playerState, 'freezeUpcomingMagicDraws')) {
+    const anyMagicDrawn = drawn.some((c) => c.value === 'J' || c.value === 'Q' || c.value === 'K');
+    drawn = drawn.map((c) =>
+      c.value === 'J' || c.value === 'Q' || c.value === 'K'
+        ? applyStatus(c, { kind: 'frozen', source: 'glacial', label: 'Criogênese', duration: { type: 'permanent' } })
+        : c
+    );
+    if (anyMagicDrawn) {
+      log = appendLog(state, log, 'numeral-spell', `Uma carta de magia comprada por Jogador ${player} nasceu congelada pela Criogênese`, { player });
+    }
   }
 
   // FIX (item 16): a Fúria Sanguinária da Besta deixou de ser um filtro que
@@ -1881,6 +1917,16 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
   const playerState = state[playerKey];
   const card = playerState.hand.find((c) => c.id === cardId);
   if (!card) return state;
+  const character = characterOf(state, player);
+
+  // Glacial (personagem novo) - uma carta congelada não pode ser jogada,
+  // EXCETO se o dono é o próprio Glacial E foi ele mesmo quem a congelou
+  // (source: 'glacial') - aí joga normalmente, sem nenhum tratamento
+  // especial além de destravar (não há gimmick aqui, só pra magias
+  // ativadas - ver handleExecuteMagic).
+  if (hasStatus(card, 'frozen') && !(character === 'glacial' && hasStatus(card, 'frozen', { source: 'glacial' }))) {
+    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta está congelada e não pode ser jogada!`) };
+  }
 
   // Coringa (redesenho completo, pedido do usuário): diferente de todos os
   // outros personagens, suas cartas de magia (J/Q/K) e Monstro NÃO ativam
@@ -1891,7 +1937,6 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
   // revelam seu efeito de verdade quando reveladas de fato (na Estratégia
   // por um efeito do oponente, ou no Combate ao serem selecionadas - ver
   // triggerCoringaStrategyRevealTrap/handleResolveCombat).
-  const character = characterOf(state, player);
   // FIX (pedido do usuário: "o valete transformado do coringa não está
   // podendo ser posicionado") - faltava excluir cartas já transformadas pela
   // Magia Numeral "Mão de Ferro" (`coringaTransformedToNumeral`) daqui. Uma
@@ -1926,7 +1971,11 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
   // ela).
   const isDruidaBrotoCard = character === 'druida' && (card.value === 'J' || card.value === 'Q' || card.value === 'K');
   const isDruidaMonsterCard = character === 'druida' && Boolean(card.isMonster);
-  if (!isCoringaTrapCard && !isDruidaBrotoCard && !isDruidaMonsterCard) {
+  // Glacial (personagem novo) - o Criogolem também nunca usa a Zona Monstro
+  // (ver handlePlaceMonsterCard) - mesmo padrão do Monstro-15 do Coringa e
+  // do Broto Espelhado do Druida.
+  const isGlacialMonsterCard = character === 'glacial' && Boolean(card.isMonster);
+  if (!isCoringaTrapCard && !isDruidaBrotoCard && !isDruidaMonsterCard && !isGlacialMonsterCard) {
     // FIX: Cartas mágicas (J, Q, K) de qualquer OUTRO personagem nunca podem
     // ser posicionadas no campo como carta comum - elas só saem da mão
     // ativando seu efeito de magia. Não se aplica a uma carta do Coringa já
@@ -2085,6 +2134,24 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
       revealed: true,
     };
     log = appendLog(state, log, 'monster', `Jogador ${player} posicionou o Monstro no slot ${slotIndex + 1} (valendo ${brotoValue}, como o Broto)`, { player, cardValue: '🃏' });
+  } else if (isGlacialMonsterCard) {
+    // Glacial - Criogolem travado (snapshot) no valor 8 + 1 por carta
+    // congelada em jogo NESTE instante (mão e campo dos DOIS jogadores) -
+    // não recalcula depois se mais cartas forem congeladas/descongeladas.
+    if (newField[slotIndex].faceDownCard) return state;
+    const opponentState = state[opponentKeyOf(player)];
+    const frozenCount =
+      playerState.hand.filter((c) => hasStatus(c, 'frozen')).length +
+      opponentState.hand.filter((c) => hasStatus(c, 'frozen')).length +
+      fieldCards(playerState.field).filter((c) => hasStatus(c, 'frozen')).length +
+      fieldCards(opponentState.field).filter((c) => hasStatus(c, 'frozen')).length;
+    const golemValue = 8 + frozenCount;
+    newField[slotIndex] = {
+      ...newField[slotIndex],
+      faceDownCard: { ...card, revealed: true, transformedValue: golemValue },
+      revealed: true,
+    };
+    log = appendLog(state, log, 'monster', `Jogador ${player} posicionou o Criogolem no slot ${slotIndex + 1} (valendo ${golemValue})`, { player, cardValue: '🃏' });
   } else {
     if (newField[slotIndex].faceDownCard) return state;
 
@@ -2235,6 +2302,73 @@ function handleSwapFieldCard(state: GameState, player: PlayerNumber, cardId: str
   );
 
   return { ...state, log, [playerKey]: { ...playerState, hand: newHand, field: newField } };
+}
+
+/**
+ * Glacial (personagem novo) - única via de remover o StatusEffect 'frozen'
+ * de uma carta: descarta `paymentCardId` (qualquer carta da PRÓPRIA mão de
+ * quem ativa) como pagamento pra descongelar `targetCardId` (mão ou campo,
+ * de QUALQUER jogador - "qualquer alvo possível"). A carta-alvo NÃO é
+ * descartada, só perde o status; a carta de pagamento vai pro descarte
+ * normalmente. Só na fase de Estratégia.
+ */
+function handlePayToUnfreeze(state: GameState, player: PlayerNumber, paymentCardId: string, targetCardId: string): GameState {
+  if (state.phase !== 'strategy') return state;
+  const playerKey = playerKeyOf(player);
+  const playerState = state[playerKey];
+  const paymentCard = playerState.hand.find((c) => c.id === paymentCardId);
+  if (!paymentCard || paymentCardId === targetCardId || hasStatus(paymentCard, 'frozen')) return state;
+
+  let newPlayer1 = state.player1;
+  let newPlayer2 = state.player2;
+  const applyToKey = (key: PlayerKey, patch: Partial<PlayerState>) => {
+    if (key === 'player1') newPlayer1 = { ...newPlayer1, ...patch };
+    else newPlayer2 = { ...newPlayer2, ...patch };
+  };
+
+  // Acha a carta-alvo CONGELADA em mão ou campo de QUALQUER jogador.
+  let found = false;
+  for (const key of ['player1', 'player2'] as const) {
+    const ps = state[key];
+    const handCard = ps.hand.find((c) => c.id === targetCardId);
+    if (handCard && hasStatus(handCard, 'frozen')) {
+      found = true;
+      applyToKey(key, { hand: ps.hand.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) });
+      break;
+    }
+    const slotIndex = ps.field.findIndex((slot) => {
+      const c = slot.faceDownCard?.id === targetCardId ? slot.faceDownCard : slot.horizontalCards.find((h) => h.id === targetCardId);
+      return c && hasStatus(c, 'frozen');
+    });
+    if (slotIndex !== -1) {
+      found = true;
+      applyToKey(key, {
+        field: updateFieldSlot(ps.field, slotIndex, (s) =>
+          s.faceDownCard?.id === targetCardId
+            ? { faceDownCard: removeStatus(s.faceDownCard!, 'frozen') }
+            : { horizontalCards: s.horizontalCards.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) }
+        ),
+      });
+      break;
+    }
+  }
+  if (!found) return state;
+
+  // Remove a carta de pagamento da mão de quem ativou - lida a partir do
+  // estado JÁ ACUMULADO (newPlayer1/newPlayer2), essencial quando o alvo
+  // congelado estava na PRÓPRIA mão/campo de quem está pagando.
+  const currentHand = playerKey === 'player1' ? newPlayer1.hand : newPlayer2.hand;
+  applyToKey(playerKey, { hand: currentHand.filter((c) => c.id !== paymentCardId) });
+
+  const { deck, discardPile } = pushToDiscard(state, [paymentCard]);
+  const log = appendLog(
+    state,
+    state.log,
+    'field',
+    `Jogador ${player} descartou uma carta para descongelar outra`,
+    { player }
+  );
+  return { ...state, deck, discardPile, log, player1: newPlayer1, player2: newPlayer2 };
 }
 
 // ---------------------------------------------------------------------------
@@ -2629,6 +2763,23 @@ function executeFireballLaunch(state: GameState, player: PlayerNumber, targetSlo
   };
 }
 
+/**
+ * Glacial (personagem novo) - gimmick passiva: ativar uma magia PRÓPRIA
+ * congelada (por qualquer meio - não importa quem congelou) não é bloqueado
+ * como qualquer outra carta congelada (ver guard em handleExecuteMagic) - em
+ * vez disso, o efeito da magia RODA normalmente, mas a carta só é consumida
+ * (descartada) na SEGUNDA ativação; a primeira só remove o congelamento e a
+ * carta volta pra mão, intacta. Cada um dos 3 branches de magia do Glacial
+ * usa isto no lugar do `hand: handWithoutMagic` + `pushToDiscard(state, [card, ...])`
+ * padrão - `cardToDiscard` null significa "não inclua `card` no pushToDiscard".
+ */
+function resolveGlacialCardConsumption(playerState: PlayerState, card: Card, cardId: string): { hand: Card[]; cardToDiscard: Card | null } {
+  if (hasStatus(card, 'frozen')) {
+    return { hand: playerState.hand.map((c) => (c.id === cardId ? removeStatus(c, 'frozen') : c)), cardToDiscard: null };
+  }
+  return { hand: playerState.hand.filter((c) => c.id !== cardId), cardToDiscard: card };
+}
+
 function handleExecuteMagic(
   state: GameState,
   action: { player: PlayerNumber; cardId: string; character: CharacterId; magicType: MagicCardType; selection: MagicSelection }
@@ -2652,6 +2803,17 @@ function handleExecuteMagic(
     return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta foi revelada pela Visão Celestial e está trancada até o fim do turno!`) };
   }
 
+  // Glacial (personagem novo) - carta congelada trava a ativação, IGUAL a
+  // `magicLocked` acima, EXCETO para o próprio Glacial: a gimmick passiva
+  // dele faz a ativação de uma magia PRÓPRIA congelada (por qualquer meio)
+  // rodar normalmente, só que a primeira vez só remove o congelamento sem
+  // consumir a carta - ver `resolveGlacialCardConsumption` mais abaixo,
+  // usado nos 3 branches de magia do Glacial em vez do `handWithoutMagic`/
+  // `pushToDiscard` padrão.
+  if (hasStatus(card, 'frozen') && character !== 'glacial') {
+    return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta está congelada e não pode ser ativada!`) };
+  }
+
   if (!canActivateMagic(state.phase, character, magicType, getMagicActivationContext(state, player))) {
     return { ...state, log: appendLog(state, state.log, 'warning', `Essa magia não pode ser ativada agora`) };
   }
@@ -2666,6 +2828,13 @@ function handleExecuteMagic(
     const opponentState = state[opponentKey];
     const targetCard = opponentState.hand.find((c) => c.id === targetId);
     if (!targetCard) return state;
+    // Glacial (personagem novo) - uma carta congelada nunca revela, não
+    // importa o efeito - rejeita de vez em vez de silenciosamente não fazer
+    // nada (revealCard já bloquearia a revelação, mas o resto do efeito
+    // desta magia não faz sentido sem ela).
+    if (hasStatus(targetCard, 'frozen')) {
+      return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta está congelada e não pode ser revelada!`) };
+    }
 
     // FIX (pedido do usuário: "isso tá incorreto... você PODE descartar uma
     // carta JÁ revelada, não só quando tiver todas") - a regra original era
@@ -2751,7 +2920,9 @@ function handleExecuteMagic(
     const targetSlot = targetState.field[selectedSlot];
 
     // Alvo precisa existir, e se for do oponente precisa estar revelado e não protegido
-    if (!targetSlot.faceDownCard) return state;
+    // Glacial (personagem novo): carta congelada no campo não recebe efeitos
+    // transformadores de terceiros - não pode ser substituída por esta magia.
+    if (!targetSlot.faceDownCard || hasStatus(targetSlot.faceDownCard, 'frozen')) return state;
     if (targetPlayer !== player) {
       if (!targetSlot.revealed) return state;
       if (isSlotProtected(state, targetPlayer, selectedSlot)) {
@@ -2776,7 +2947,9 @@ function handleExecuteMagic(
         cardToPlace = opponentCard;
       }
     }
-    if (!cardToPlace || !isNumeralCard(cardToPlace)) return state;
+    // Glacial (personagem novo): uma carta congelada não pode ser usada como
+    // peça de troca (equivale a "jogá-la" no campo por outro caminho).
+    if (!cardToPlace || !isNumeralCard(cardToPlace) || hasStatus(cardToPlace, 'frozen')) return state;
     const sourceKey = playerKeyOf(sourceOwner);
 
     // FIX (Modo Towers, pedido do usuário: "Substituição Arcana vira uma
@@ -3028,7 +3201,9 @@ function handleExecuteMagic(
       // não faz nada de útil. Diferente do Mago J, o Anjo Q não tem um
       // efeito alternativo para esse caso - só rejeita a ativação.
       const targetHandCard = opponentState.hand.find((c) => c.id === selectedCards[0]);
-      if (!targetHandCard || targetHandCard.revealed) return state;
+      // Glacial (personagem novo) - carta congelada nunca revela, mesma
+      // rejeição silenciosa de uma carta já revelada.
+      if (!targetHandCard || targetHandCard.revealed || hasStatus(targetHandCard, 'frozen')) return state;
 
       // FIX (pedido do usuário: "a rainha do anjo agora impede a ativação de
       // um efeito caso a carta revelada por ela seja uma carta mágica até o
@@ -3065,8 +3240,9 @@ function handleExecuteMagic(
       const targetSlot = opponentState.field[selectedSlot];
       if (!targetSlot.faceDownCard) return state;
       // FIX (pedido do usuário): mesma proteção contra revelar um slot que
-      // já está revelado.
-      if (targetSlot.revealed) return state;
+      // já está revelado. Glacial (personagem novo): mesma rejeição
+      // silenciosa se a carta estiver congelada.
+      if (targetSlot.revealed || hasStatus(targetSlot.faceDownCard, 'frozen')) return state;
       if (isSlotProtected(state, opponent, selectedSlot)) {
         return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
       }
@@ -3279,14 +3455,18 @@ function handleExecuteMagic(
     // campo) - o número de alvos escolhidos pode ser menor (poucas cartas
     // ocultas disponíveis), nunca maior.
     const revealIds = new Set((selectedRevealCardIds ?? []).slice(0, discardedCards.length));
-    const newOpponentHand = opponentHandAfterDiscard.map((c) => (revealIds.has(c.id) ? { ...c, revealed: true } : c));
+    // Glacial (personagem novo): `revealCard` já no-opa em cima de uma carta
+    // congelada (nunca revela) - como esta revelação é "às cegas por
+    // posição", não faz sentido rejeitar a magia inteira só porque um dos
+    // alvos sorteados calhou de estar congelado, o resto do efeito continua.
+    const newOpponentHand = opponentHandAfterDiscard.map((c) => (revealIds.has(c.id) ? revealCard(c) : c));
     const newOpponentField = opponentState.field.map((slot) => {
       let newSlot = slot;
       if (slot.faceDownCard && revealIds.has(slot.faceDownCard.id)) {
-        newSlot = { ...newSlot, faceDownCard: { ...slot.faceDownCard, revealed: true }, revealed: true };
+        newSlot = { ...newSlot, faceDownCard: revealCard(slot.faceDownCard), revealed: true };
       }
       if (slot.horizontalCards.some((h) => revealIds.has(h.id))) {
-        newSlot = { ...newSlot, horizontalCards: newSlot.horizontalCards.map((h) => (revealIds.has(h.id) ? { ...h, revealed: true } : h)) };
+        newSlot = { ...newSlot, horizontalCards: newSlot.horizontalCards.map((h) => (revealIds.has(h.id) ? revealCard(h) : h)) };
       }
       return newSlot;
     }) as [FieldSlot, FieldSlot, FieldSlot];
@@ -3667,6 +3847,152 @@ function handleExecuteMagic(
     };
   }
 
+  // ----- Glacial J: Criogenar -----
+  // Congela 1 carta - da mão ou do campo, de QUALQUER jogador (alvo omisso
+  // na especificação = qualquer alvo possível). `selectedTargetPlayer`
+  // decide de quem é o alvo (própria carta ou do oponente); `selectedCards`
+  // mira a mão, `selectedSlot` mira o campo - mesmo par de campos que Anjo
+  // Q/Mago Q já usam para esse tipo de escolha.
+  if (character === 'glacial' && magicType === 'J') {
+    const targetPlayer = selectedTargetPlayer ?? opponent;
+    const targetKey = playerKeyOf(targetPlayer);
+
+    // Acumula os dois PlayerState como Substituição Arcana do Mago faz -
+    // `handOf`/`fieldOf` sempre leem o estado JÁ ACUMULADO, essencial quando
+    // `targetKey === playerKey` (congelando a própria carta), senão a
+    // segunda escrita sobrescreveria a primeira em vez de compor.
+    let newPlayer1 = state.player1;
+    let newPlayer2 = state.player2;
+    const handOf = (key: PlayerKey) => (key === 'player1' ? newPlayer1.hand : newPlayer2.hand);
+    const fieldOf = (key: PlayerKey) => (key === 'player1' ? newPlayer1.field : newPlayer2.field);
+    const setHand = (key: PlayerKey, hand: Card[]) => {
+      if (key === 'player1') newPlayer1 = { ...newPlayer1, hand };
+      else newPlayer2 = { ...newPlayer2, hand };
+    };
+    const setField = (key: PlayerKey, field: [FieldSlot, FieldSlot, FieldSlot]) => {
+      if (key === 'player1') newPlayer1 = { ...newPlayer1, field };
+      else newPlayer2 = { ...newPlayer2, field };
+    };
+
+    let targetCard: Card | undefined;
+    if (selectedCards?.[0]) {
+      const targetId = selectedCards[0];
+      targetCard = handOf(targetKey).find((c) => c.id === targetId);
+      if (!targetCard || hasStatus(targetCard, 'frozen')) return state;
+      const frozenCard = applyStatus(targetCard, { kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' } });
+      setHand(targetKey, handOf(targetKey).map((c) => (c.id === targetId ? frozenCard : c)));
+    } else if (selectedSlot !== undefined) {
+      const targetSlot = fieldOf(targetKey)[selectedSlot];
+      targetCard = targetSlot.faceDownCard;
+      if (!targetCard || hasStatus(targetCard, 'frozen')) return state;
+      if (targetPlayer !== player && isSlotProtected(state, targetPlayer, selectedSlot)) {
+        return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+      }
+      const frozenCard = applyStatus(targetCard, { kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' } });
+      setField(targetKey, updateFieldSlot(fieldOf(targetKey), selectedSlot, { faceDownCard: frozenCard }));
+    } else {
+      return state;
+    }
+
+    const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption({ ...playerState, hand: handOf(playerKey) }, card, cardId);
+    setHand(playerKey, consumedHand);
+    const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+    const log = appendLog(
+      state,
+      state.log,
+      'magic',
+      `Jogador ${player} congelou ${targetCard.value}${targetCard.suit} de Jogador ${targetPlayer}`,
+      { player, cardValue: card.value, cardSuit: card.suit }
+    );
+    return { ...state, deck, discardPile, log, player1: newPlayer1, player2: newPlayer2 };
+  }
+
+  // ----- Glacial Q: Crioespinho -----
+  // Congela 1 carta NO CAMPO (de qualquer jogador) e aplica um marcador de
+  // combate: +2 se for própria, -2 se for do oponente.
+  if (character === 'glacial' && magicType === 'Q') {
+    if (selectedSlot === undefined || !selectedCards?.[0]) return state;
+    const targetPlayer = selectedTargetPlayer ?? player;
+    const targetKey = playerKeyOf(targetPlayer);
+    const targetState = state[targetKey];
+    const targetId = selectedCards[0];
+    const targetSlot = targetState.field[selectedSlot];
+    const targetCard = targetSlot.faceDownCard?.id === targetId ? targetSlot.faceDownCard : targetSlot.horizontalCards.find((c) => c.id === targetId);
+    if (!targetCard || hasStatus(targetCard, 'frozen')) return state;
+    if (targetPlayer !== player && isSlotProtected(state, targetPlayer, selectedSlot)) {
+      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+    }
+
+    const isOwn = targetPlayer === player;
+    const markedCard = applyStatus(
+      applyStatus(targetCard, { kind: 'frozen', source: 'glacial', label: 'Crioespinho', duration: { type: 'permanent' } }),
+      { kind: 'combatModifier', source: 'glacial', label: 'Crioespinho', mode: 'add', magnitude: isOwn ? 2 : -2, duration: { type: 'untilPhase', phase: 'draw' } }
+    );
+    const newTargetField = updateFieldSlot(targetState.field, selectedSlot, (s) =>
+      s.faceDownCard?.id === targetId
+        ? { faceDownCard: markedCard }
+        : { horizontalCards: s.horizontalCards.map((c) => (c.id === targetId ? markedCard : c)) }
+    );
+
+    let newPlayer1 = state.player1;
+    let newPlayer2 = state.player2;
+    const applyToKey = (key: PlayerKey, patch: Partial<PlayerState>) => {
+      if (key === 'player1') newPlayer1 = { ...newPlayer1, ...patch };
+      else newPlayer2 = { ...newPlayer2, ...patch };
+    };
+    const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption(playerState, card, cardId);
+    applyToKey(playerKey, { hand: consumedHand });
+    applyToKey(targetKey, { field: newTargetField });
+    const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+    const log = appendLog(
+      state,
+      state.log,
+      'magic',
+      `Jogador ${player} congelou ${targetCard.value}${targetCard.suit} de Jogador ${targetPlayer} e aplicou ${isOwn ? '+2' : '-2'} de marcador`,
+      { player, cardValue: card.value, cardSuit: card.suit }
+    );
+    return { ...state, deck, discardPile, log, player1: newPlayer1, player2: newPlayer2 };
+  }
+
+  // ----- Glacial K: Crioescudo -----
+  // Efeito em massa, sem seleção de alvo: soma +1 de marcador de combate em
+  // TODAS as próprias cartas já congeladas no campo, de uma vez.
+  if (character === 'glacial' && magicType === 'K') {
+    const ownFrozenCards = fieldCards(playerState.field).filter((c) => hasStatus(c, 'frozen'));
+    if (ownFrozenCards.length === 0) return state;
+    const newField = playerState.field.map((slot) => ({
+      ...slot,
+      faceDownCard:
+        slot.faceDownCard && hasStatus(slot.faceDownCard, 'frozen')
+          ? applyStatus(
+              slot.faceDownCard,
+              { kind: 'combatModifier', source: 'glacial', label: 'Crioescudo', mode: 'add', magnitude: 1, duration: { type: 'untilPhase', phase: 'draw' } },
+              (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+            )
+          : slot.faceDownCard,
+      horizontalCards: slot.horizontalCards.map((c) =>
+        hasStatus(c, 'frozen')
+          ? applyStatus(
+              c,
+              { kind: 'combatModifier', source: 'glacial', label: 'Crioescudo', mode: 'add', magnitude: 1, duration: { type: 'untilPhase', phase: 'draw' } },
+              (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+            )
+          : c
+      ),
+    })) as [FieldSlot, FieldSlot, FieldSlot];
+
+    const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption(playerState, card, cardId);
+    const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+    const log = appendLog(
+      state,
+      state.log,
+      'magic',
+      `Jogador ${player} reforçou +1 em ${ownFrozenCards.length} carta(s) congelada(s) no próprio campo`,
+      { player, cardValue: card.value, cardSuit: card.suit }
+    );
+    return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: consumedHand, field: newField } };
+  }
+
   return state;
 }
 
@@ -4003,7 +4329,9 @@ function handlePlaceMonsterCard(state: GameState, player: PlayerNumber, cardId: 
   // numeral valendo o mesmo valor que o Broto") - mesmo padrão do Coringa:
   // nunca usa a Zona Monstro, vai pro campo normal via PLAY_CARD (ver
   // handlePlayCard).
-  if (characterOf(state, player) === 'coringa' || characterOf(state, player) === 'druida') return state;
+  // Glacial (personagem novo, "Criogolem vale 8 + 1 por carta congelada em
+  // jogo") - mesmo padrão do Coringa/Druida acima, nunca usa a Zona Monstro.
+  if (characterOf(state, player) === 'coringa' || characterOf(state, player) === 'druida' || characterOf(state, player) === 'glacial') return state;
   if (playerState.monsterCard) return state; // zona já ocupada
 
   const card = playerState.hand.find((c) => c.id === cardId);
@@ -4594,6 +4922,31 @@ function handleFinalizeNumeralSpell(state: GameState): GameState {
       log,
       'numeral-spell',
       `Fotossíntese: todos os efeitos relacionados ao Broto de Jogador ${player} estão aprimorados em +${newLevel}`,
+      { player }
+    );
+  } else if (character === 'glacial') {
+    // Criogênese (A, A, A) - congela toda carta de magia (J/Q/K) já na mão
+    // dos DOIS jogadores agora, e também a próxima que cada um comprar
+    // durante o turno seguinte inteiro (StatusEffect 'freezeUpcomingMagicDraws',
+    // consumido pelo hook em handleDrawCards). `state.turn + 1` pelo mesmo
+    // motivo da Fúria Sanguinária da Besta acima: a Magia Numeral pula a
+    // fase de Combate e já vira o turno, então "o turno seguinte" que o
+    // jogador enxerga é o que vem logo depois desta ativação.
+    const freezeMagicInHand = (hand: Card[]): Card[] =>
+      hand.map((c) =>
+        c.value === 'J' || c.value === 'Q' || c.value === 'K'
+          ? applyStatus(c, { kind: 'frozen', source: 'glacial', label: 'Criogênese', duration: { type: 'permanent' } })
+          : c
+      );
+    const withDrawFreeze = (p: PlayerState): PlayerState =>
+      applyStatus(p, { kind: 'freezeUpcomingMagicDraws', source: 'glacial', label: 'Criogênese', duration: { type: 'untilTurn', turn: state.turn + 1 } });
+    updatedPlayer = withDrawFreeze({ ...updatedPlayer, hand: freezeMagicInHand(playerState.hand) });
+    updatedOpponent = withDrawFreeze({ ...updatedOpponent, hand: freezeMagicInHand(updatedOpponent.hand) });
+    log = appendLog(
+      state,
+      log,
+      'numeral-spell',
+      `Criogênese: toda carta de magia na mão dos dois jogadores foi congelada, e a próxima comprada no turno seguinte também será`,
       { player }
     );
   }

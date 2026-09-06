@@ -263,16 +263,20 @@ export function PlayingCard({
   // caso a carta revelada por ela seja mágica até o fim do turno") - ver
   // StatusEffect kind 'magicLocked' (statusEffects.ts).
   const isMagicLocked = hasStatus(card, 'magicLocked');
+  // Glacial (personagem novo) - StatusEffect kind 'frozen' (statusEffects.ts).
+  const isFrozen = hasStatus(card, 'frozen');
   const magicKeywords: CardKeywordId[] = [
     ...(isRevealed ? (['revealed'] as const) : []),
     ...(isFused ? (['fused'] as const) : []),
     ...(isMagicLocked ? (['magicLocked'] as const) : []),
+    ...(isFrozen ? (['frozen'] as const) : []),
   ];
   const aceKeywords: CardKeywordId[] = [
     ...(isRevealed ? (['revealed'] as const) : []),
     ...(hasTransformedValue ? (['transformedAce'] as const) : []),
     ...(isFused ? (['fused'] as const) : []),
     ...(spotlightKeyword ? [spotlightKeyword] : []),
+    ...(isFrozen ? (['frozen'] as const) : []),
   ];
   const normalKeywords: CardKeywordId[] = [
     ...(isRevealed ? (['revealed'] as const) : []),
@@ -282,6 +286,7 @@ export function PlayingCard({
     ...(isAce && hasTransformedValue ? (['transformedAce'] as const) : []),
     ...(isFused ? (['fused'] as const) : []),
     ...(spotlightKeyword ? [spotlightKeyword] : []),
+    ...(isFrozen ? (['frozen'] as const) : []),
   ];
 
   if (isMagic) {

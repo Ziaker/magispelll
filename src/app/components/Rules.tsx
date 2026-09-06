@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { ArrowLeft, Search, Check, Wand2, Crosshair, Flame, Sprout } from 'lucide-react';
+import { ArrowLeft, Search, Check, Wand2, Crosshair, Flame, Sprout, Snowflake } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { getCharacterTheme } from '../lib/characterThemes';
@@ -36,6 +36,7 @@ const CHARACTER_ICONS: Record<CharacterId, ComponentType<{ className?: string }>
   coringa: JesterHatIcon,
   piromante: Flame,
   druida: Sprout,
+  glacial: Snowflake,
 };
 
 const READ_SECTIONS_KEY = 'magispelll:rulesRead';
@@ -398,9 +399,47 @@ FOTOSSÍNTESE (Magia Numeral, A, 3, 7):
 • PERMANENTE e REATIVÁVEL: cada ativação soma +1 a um nível que nunca reseta, empilhando o bônus em TODOS os efeitos relacionados ao Broto - crescimento por fase, marcador da Rainha/Rei, e a redução do Rei/Rainha`,
     },
     {
+      id: 'glacial-congelamento',
+      title: 'Glacial - Congelamento',
+      characters: ['glacial'],
+      content: `O Glacial congela cartas - da mão OU do campo, suas OU do oponente. Uma carta congelada NUNCA pode ser revelada e não pode ser jogada nem ter sua magia ativada, até alguém pagar pra descongelá-la. Mesmo assim, uma carta congelada pode ser descartada normalmente na Fase de Compra (sai do jogo já descongelada).
+
+═══════════════════════════════════════
+🔵 VALETE - Criogenar (Fase de Estratégia)
+═══════════════════════════════════════
+• Congele 1 carta - da mão ou do campo, sua ou do oponente
+
+═══════════════════════════════════════
+🔵 RAINHA - Crioespinho (Fase de Estratégia)
+═══════════════════════════════════════
+• Congele 1 carta NO CAMPO (sua ou do oponente)
+• Aplique também um marcador de combate: +2 se a carta for sua, -2 se for do oponente
+
+═══════════════════════════════════════
+🔵 REI - Crioescudo (Fase de Combate)
+═══════════════════════════════════════
+• Sem escolher alvo: some +1 de marcador de combate em TODAS as suas cartas já congeladas no campo, de uma vez
+
+═══════════════════════════════════════
+❄️ DESCONGELAR (ação nova, só na Fase de Estratégia)
+═══════════════════════════════════════
+• Descarte QUALQUER carta da sua mão como pagamento para remover o congelamento de uma carta-alvo (sua ou do oponente, mão ou campo)
+• A carta-alvo NÃO é descartada, só perde o congelamento - a carta de pagamento sim vai pro descarte
+• Sem exigência de valor - qualquer carta serve como pagamento
+
+═══════════════════════════════════════
+✨ GIMMICK - Reativação Gratuita
+═══════════════════════════════════════
+• Ativar uma magia SUA que esteja congelada (não importa quem a congelou) não é bloqueado como qualquer outra carta congelada
+• O efeito da magia roda NORMALMENTE, mas a 1ª ativação só remove o congelamento - a carta não é descartada, volta pra sua mão já descongelada
+• Só na 2ª ativação (já sem o congelamento) a carta é consumida/descartada de verdade
+
+CRIOGÊNESE (Magia Numeral, A, A, A) - ver seção "Magias Numerais" para detalhes.`,
+    },
+    {
       id: 'numeral',
       title: 'Magias Numerais',
-      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida'],
+      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida', 'glacial'],
       content: `Reúna 3 cartas de números específicos para ativar efeitos poderosos - na maioria dos personagens as 3 são o MESMO número, mas o Druida (Fotossíntese) exige 3 valores DIFERENTES.
 
 CONDIÇÕES:
@@ -461,12 +500,19 @@ AO ATIVAR:
 🟢 DRUIDA - FOTOSSÍNTESE (A, 3, 7)
 ═══════════════════════════════════════
 • Única exigindo 3 valores DIFERENTES (Ás, 3 e 7), não 3 cópias do mesmo número
-• PERMANENTE e REATIVÁVEL: cada ativação soma +1 a um nível que nunca reseta, aprimorando TODOS os efeitos relacionados ao Broto pelo resto da partida (ver seção "Druida - Broto e Simbiose")`,
+• PERMANENTE e REATIVÁVEL: cada ativação soma +1 a um nível que nunca reseta, aprimorando TODOS os efeitos relacionados ao Broto pelo resto da partida (ver seção "Druida - Broto e Simbiose")
+
+═══════════════════════════════════════
+🔵 GLACIAL - CRIOGÊNESE (A, A, A)
+═══════════════════════════════════════
+• Congela IMEDIATAMENTE toda carta de magia (Valete/Rainha/Rei) já na mão dos DOIS jogadores
+• Também congela a PRÓXIMA carta de magia que cada jogador comprar durante o turno seguinte inteiro
+• Cartas numerais nunca são afetadas, só magias`,
     },
     {
       id: 'monstro',
       title: 'Cartas Monstro (Coringas)',
-      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida'],
+      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida', 'glacial'],
       content: `Existem 2 Monstros no baralho Comum (4 no Temático). O nome "Coringas" aqui é sobre as cartas físicas JOKER do baralho - não confundir com o personagem CORINGA, que tem seu próprio efeito de Monstro chamado "Carta Coringa" logo abaixo.
 
 Cada jogador (exceto o próprio Coringa - ver abaixo) tem uma ZONA PRÓPRIA e separada pro seu Monstro (ao lado do Slot 3) - ele NUNCA entra em disputa de combate sozinho, só fica ali para ativar sua habilidade.
@@ -523,7 +569,13 @@ EFEITOS POR PERSONAGEM:
 ═══════════════════════════════════════
 • NÃO usa a Zona Monstro - é jogada no campo como uma carta numeral comum
 • Vale o mesmo valor do Broto no instante em que é jogada (travado - não muda se o Broto continuar crescendo)
-• Só pode ser jogada com um Broto ativo em algum slot do seu campo`,
+• Só pode ser jogada com um Broto ativo em algum slot do seu campo
+
+═══════════════════════════════════════
+🔵 GLACIAL - Criogolem
+═══════════════════════════════════════
+• NÃO usa a Zona Monstro - é jogado no campo como uma carta numeral comum
+• Vale 8 + 1 para cada carta congelada em jogo no instante em que é jogado (mão e campo dos DOIS jogadores), travado - não recalcula depois se mais cartas forem congeladas/descongeladas`,
     },
     {
       id: 'as',

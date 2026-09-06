@@ -1,4 +1,4 @@
-import { Eye, Wand2, ShieldCheck, Combine, Box, Lock, type LucideIcon } from 'lucide-react';
+import { Eye, Wand2, ShieldCheck, Combine, Box, Lock, Snowflake, type LucideIcon } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { cn } from './ui/utils';
 
@@ -25,7 +25,7 @@ import { cn } from './ui/utils';
  * nenhum componente novo.
  */
 
-export type CardKeywordId = 'revealed' | 'transformedAce' | 'divineProtection' | 'fused' | 'spotlightPositive' | 'spotlightNegative' | 'magicLocked';
+export type CardKeywordId = 'revealed' | 'transformedAce' | 'divineProtection' | 'fused' | 'spotlightPositive' | 'spotlightNegative' | 'magicLocked' | 'frozen';
 
 export interface CardKeywordDef {
   icon: LucideIcon;
@@ -107,6 +107,17 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
     label: 'Trancada',
     description: 'Trancada pela Visão Celestial do Anjo: esta magia não pode ser ativada até o fim do turno.',
     position: 'bottom-right',
+  },
+  // Glacial (personagem novo) - StatusEffect kind 'frozen' (statusEffects.ts):
+  // carta congelada nunca revela e não pode ser jogada/ativada (exceto pelo
+  // próprio Glacial sobre uma carta que ele mesmo congelou - ver guards em
+  // handlePlayCard/handleExecuteMagic, gameEngine.ts).
+  frozen: {
+    icon: Snowflake,
+    color: '#0ADEFF',
+    label: 'Congelada',
+    description: 'Congelada pelo Glacial: nunca pode ser revelada e não pode ser jogada/ativada até alguém pagar (descartando outra carta na Estratégia) para descongelar.',
+    position: 'top-left',
   },
 };
 

@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { Wand2, Heart as HeartIcon, Flame, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Hand, MousePointerClick, Eye, EyeOff, Sprout } from 'lucide-react';
+import { Wand2, Heart as HeartIcon, Flame, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Hand, MousePointerClick, Eye, EyeOff, Sprout, Snowflake } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { Badge } from './ui/badge';
@@ -464,6 +464,7 @@ export function PlayerZone({
     coringa: JesterHatIcon,
     piromante: Flame,
     druida: Sprout,
+    glacial: Snowflake,
   };
 
   const Icon = characterIcons[character];

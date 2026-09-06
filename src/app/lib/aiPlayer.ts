@@ -38,6 +38,7 @@
 import { random } from './rng';
 import {
   characterOf,
+  fieldCards,
   getDestroyableReinforcementSlots,
   getFilledFieldSlots,
   getMagicActivationContext,
@@ -1083,12 +1084,12 @@ function decideFusionForCombatNecessity(
  */
 function decidePlaceMonsterCard(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  // Coringa (redesenho completo) e Druida (personagem novo) nunca posicionam
-  // a carta Monstro na Zona - vai pro campo normal (ver
-  // isCoringaTrapFieldEligible / decideDruidaMonster), decidida por
-  // decideFieldPlacement/decideHorizontalPlacement/decideDruidaMonster,
-  // nunca aqui.
-  if (characterOf(state, ai) === 'coringa' || characterOf(state, ai) === 'druida') return null;
+  // Coringa (redesenho completo), Druida e Glacial (personagens novos) nunca
+  // posicionam a carta Monstro na Zona - vai pro campo normal (ver
+  // isCoringaTrapFieldEligible / decideDruidaMonster / decideGlacialMonster),
+  // decidida por decideFieldPlacement/decideHorizontalPlacement/
+  // decideDruidaMonster/decideGlacialMonster, nunca aqui.
+  if (characterOf(state, ai) === 'coringa' || characterOf(state, ai) === 'druida' || characterOf(state, ai) === 'glacial') return null;
   if (me.monsterCard) return null; // zona já ocupada
   // FIX (checagem extensa por bugs, achado via teste de propriedade: "a IA
   // nunca propõe uma ação que o motor rejeita em silêncio"): um Coringa que
@@ -1743,6 +1744,9 @@ function decideStrategyMagic(state: GameState, ai: PlayerNumber, character: Char
   // estratégia para compra") - decidePiromanteQ não roda mais aqui, ver
   // decideDrawPhase.
   if (character === 'druida') return decideDruidaQ(state, ai);
+  // Glacial (personagem novo): Criogenar (J) e Crioespinho (Q) são AMBOS de
+  // Estratégia - tenta o Valete primeiro, mesmo padrão do Mosqueteiro acima.
+  if (character === 'glacial') return decideGlacialJ(state, ai) ?? decideGlacialQ(state, ai);
   return null;
 }
 
@@ -2213,6 +2217,171 @@ function decideDruidaK(state: GameState, ai: PlayerNumber): GameAction | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Glacial (personagem novo) - congela cartas (StatusEffect 'frozen', ver
+// statusEffects.ts). Heurísticas confirmadas com o usuário: congelar carta
+// do oponente prioriza maior valor SÓ quando a maioria das cartas dele está
+// revelada (foco em 7-10 e magias; sem boa informação, aleatório, mas
+// sempre age); auto-congelar a própria mão é majoritariamente aleatório com
+// viés maior a magias (pra reativar 2x via a gimmick - ver
+// resolveGlacialCardConsumption, gameEngine.ts); descongelar (PAY_TO_UNFREEZE)
+// só quando realmente precisa.
+// ---------------------------------------------------------------------------
+
+/** Prioridade simples de alvo pro Glacial: magia > Monstro > Ás > valor numeral (foco em 7-10 e magias, sem depender do Spotlight nem de qual personagem é o alvo). */
+function glacialFreezeTargetPriority(card: Card): number {
+  if (card.value === 'J' || card.value === 'Q' || card.value === 'K') return 100;
+  if (card.isMonster) return 90;
+  if (card.value === 'A') return 80;
+  return getEffectiveCardValue(card);
+}
+
+const GLACIAL_FREEZE_OWN_CARD_CHANCE = 0.25;
+const GLACIAL_FREEZE_OWN_MAGIC_BIAS = 0.7;
+const GLACIAL_FREEZE_REVEALED_THRESHOLD = 0.5;
+
+/**
+ * Monta a `MagicSelection` certa (mão OU campo, principal - Criogenar não
+ * mira horizontais por ora) pra uma carta já escolhida como alvo, seja ela
+ * do próprio jogador ou do oponente.
+ */
+function buildGlacialFreezeSelection(targetPlayer: PlayerNumber, targetState: PlayerState, card: Card): { selectedTargetPlayer: PlayerNumber; selectedCards?: string[]; selectedSlot?: number } | null {
+  if (targetState.hand.some((c) => c.id === card.id)) {
+    return { selectedTargetPlayer: targetPlayer, selectedCards: [card.id] };
+  }
+  const slotIndex = targetState.field.findIndex((slot) => slot.faceDownCard?.id === card.id);
+  if (slotIndex !== -1) return { selectedTargetPlayer: targetPlayer, selectedSlot: slotIndex };
+  return null;
+}
+
+function decideGlacialJ(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  const jCard = findActivatableMagicCard(me.hand, 'J');
+  if (!jCard) return null;
+  if (!canActivateMagic('strategy', 'glacial', 'J', getMagicActivationContext(state, ai))) return null;
+
+  if (random() < GLACIAL_FREEZE_OWN_CARD_CHANCE) {
+    const ownFreezable = [...me.hand.filter((c) => c.id !== jCard.id), ...fieldCards(me.field)].filter((c) => !hasStatus(c, 'frozen'));
+    if (ownFreezable.length > 0) {
+      const magicCards = ownFreezable.filter((c) => c.value === 'J' || c.value === 'Q' || c.value === 'K');
+      const pool = magicCards.length > 0 && random() < GLACIAL_FREEZE_OWN_MAGIC_BIAS ? magicCards : ownFreezable;
+      const chosen = pool[Math.floor(random() * pool.length)];
+      const selection = buildGlacialFreezeSelection(ai, me, chosen);
+      if (selection) {
+        return { type: 'EXECUTE_MAGIC', player: ai, cardId: jCard.id, character: 'glacial', magicType: 'J', selection };
+      }
+    }
+  }
+
+  const opponent = opponentOf(ai);
+  const opponentState = state[opponentKeyOf(ai)];
+  const allOpponentCards = [...opponentState.hand, ...fieldCards(opponentState.field)];
+  const freezableOpponentCards = allOpponentCards.filter((c) => !hasStatus(c, 'frozen'));
+  if (freezableOpponentCards.length === 0) return null;
+  const revealedRatio = allOpponentCards.length > 0 ? allOpponentCards.filter((c) => c.revealed).length / allOpponentCards.length : 0;
+  const chosenOpponentCard =
+    revealedRatio >= GLACIAL_FREEZE_REVEALED_THRESHOLD
+      ? pickHighestBy(
+          freezableOpponentCards.some((c) => c.revealed) ? freezableOpponentCards.filter((c) => c.revealed) : freezableOpponentCards,
+          glacialFreezeTargetPriority
+        )
+      : freezableOpponentCards[Math.floor(random() * freezableOpponentCards.length)];
+  const selection = buildGlacialFreezeSelection(opponent, opponentState, chosenOpponentCard);
+  if (!selection) return null;
+  return { type: 'EXECUTE_MAGIC', player: ai, cardId: jCard.id, character: 'glacial', magicType: 'J', selection };
+}
+
+/** Crioespinho (Rainha): prioriza enfraquecer (-2) uma carta desprotegida do oponente; sem alvo bom lá, fortalece (+2) a própria melhor carta em campo. */
+function decideGlacialQ(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  const qCard = findActivatableMagicCard(me.hand, 'Q');
+  if (!qCard) return null;
+  if (!canActivateMagic('strategy', 'glacial', 'Q', getMagicActivationContext(state, ai))) return null;
+
+  const opponent = opponentOf(ai);
+  const opponentKey = opponentKeyOf(ai);
+  const opponentState = state[opponentKey];
+  const opponentTargets = opponentState.field.flatMap((slot, slotIdx) => {
+    if (isSlotProtected(state, opponent, slotIdx)) return [];
+    const candidates = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...slot.horizontalCards];
+    return candidates.filter((c) => !hasStatus(c, 'frozen')).map((card) => ({ card, slotIdx }));
+  });
+  if (opponentTargets.length > 0) {
+    const target = pickHighestBy(opponentTargets, (t) => (t.card.revealed ? getEffectiveCardValue(t.card) : 0));
+    return {
+      type: 'EXECUTE_MAGIC',
+      player: ai,
+      cardId: qCard.id,
+      character: 'glacial',
+      magicType: 'Q',
+      selection: { selectedTargetPlayer: opponent, selectedSlot: target.slotIdx, selectedCards: [target.card.id] },
+    };
+  }
+
+  const ownTargets = me.field.flatMap((slot, slotIdx) => {
+    const candidates = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...slot.horizontalCards];
+    return candidates.filter((c) => !hasStatus(c, 'frozen') && c.id !== qCard.id).map((card) => ({ card, slotIdx }));
+  });
+  if (ownTargets.length === 0) return null;
+  const target = pickHighestBy(ownTargets, (t) => getEffectiveCardValue(t.card));
+  return {
+    type: 'EXECUTE_MAGIC',
+    player: ai,
+    cardId: qCard.id,
+    character: 'glacial',
+    magicType: 'Q',
+    selection: { selectedTargetPlayer: ai, selectedSlot: target.slotIdx, selectedCards: [target.card.id] },
+  };
+}
+
+/** Crioescudo (Rei): efeito em massa sem seleção de alvo - ativa sempre que `canActivateMagic` já confirma pelo menos 1 carta própria congelada no campo. */
+function decideGlacialK(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  const kCard = findActivatableMagicCard(me.hand, 'K');
+  if (!kCard) return null;
+  if (!canActivateMagic('combat', 'glacial', 'K', getMagicActivationContext(state, ai))) return null;
+  return { type: 'EXECUTE_MAGIC', player: ai, cardId: kCard.id, character: 'glacial', magicType: 'K', selection: {} };
+}
+
+/** Criogolem (Monstro): joga assim que possível - diferente do Broto Espelhado do Druida, o valor não cresce sozinho esperando, não há benefício em segurar a carta. */
+function decideGlacialMonster(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  const monster = me.hand.find((c) => c.isMonster);
+  if (!monster) return null;
+  const emptySlotIndex = me.field.findIndex((slot) => !slot.faceDownCard);
+  if (emptySlotIndex === -1) return null;
+  return { type: 'PLAY_CARD', player: ai, cardId: monster.id, slotIndex: emptySlotIndex, asHorizontal: false };
+}
+
+/**
+ * PAY_TO_UNFREEZE: só descongela a PRÓPRIA carta quando realmente precisa -
+ * é uma magia parada (sempre "muito útil") OU a ÚNICA carta de alto valor
+ * disponível pra jogar - nunca gasta uma carta de pagamento à toa.
+ */
+const GLACIAL_UNFREEZE_HIGH_VALUE_THRESHOLD = 8;
+function decidePayToUnfreeze(state: GameState, ai: PlayerNumber): GameAction | null {
+  if (state.phase !== 'strategy') return null;
+  const me = state[playerKeyOf(ai)];
+  const frozenOwnCards = [...me.hand.filter((c) => hasStatus(c, 'frozen')), ...fieldCards(me.field).filter((c) => hasStatus(c, 'frozen'))];
+  if (frozenOwnCards.length === 0) return null;
+
+  const nonFrozenHand = me.hand.filter((c) => !hasStatus(c, 'frozen'));
+  if (nonFrozenHand.length === 0) return null;
+
+  const availableHighValueCards = nonFrozenHand.filter((c) => isNumeralCard(c) && getEffectiveCardValue(c) >= GLACIAL_UNFREEZE_HIGH_VALUE_THRESHOLD);
+  const worthUnfreezing = (card: Card): boolean => {
+    if (card.value === 'J' || card.value === 'Q' || card.value === 'K') return true;
+    return isNumeralCard(card) && getEffectiveCardValue(card) >= GLACIAL_UNFREEZE_HIGH_VALUE_THRESHOLD && availableHighValueCards.length === 0;
+  };
+  const target = frozenOwnCards.find(worthUnfreezing);
+  if (!target) return null;
+
+  const payment = nonFrozenHand.reduce((worst, c) => (getEffectiveCardValue(c) < getEffectiveCardValue(worst) ? c : worst));
+  if (payment.id === target.id) return null;
+
+  return { type: 'PAY_TO_UNFREEZE', player: ai, paymentCardId: payment.id, targetCardId: target.id };
+}
+
 function decideFieldPlacement(state: GameState, ai: PlayerNumber, character: CharacterId): GameAction | null {
   const horizontalAction = decideHorizontalPlacement(state, ai, character);
   if (horizontalAction) return horizontalAction;
@@ -2445,6 +2614,15 @@ function decideStrategyPhase(state: GameState, ai: PlayerNumber): AiDecision {
     if (brotoAction) return { type: 'action', action: brotoAction };
     const druidaMonsterAction = traced('decideDruidaMonster', decideDruidaMonster(state, ai));
     if (druidaMonsterAction) return { type: 'action', action: druidaMonsterAction };
+  }
+  // Glacial (personagem novo) - Criogolem nunca passa por decidePlaceMonsterCard
+  // (nunca usa Zona Monstro) nem por decideFieldPlacement (não é elegível lá,
+  // mesmo motivo do Broto/Monstro do Druida) - decidido à parte.
+  if (character === 'glacial') {
+    const glacialMonsterAction = traced('decideGlacialMonster', decideGlacialMonster(state, ai));
+    if (glacialMonsterAction) return { type: 'action', action: glacialMonsterAction };
+    const payToUnfreezeAction = traced('decidePayToUnfreeze', decidePayToUnfreeze(state, ai));
+    if (payToUnfreezeAction) return { type: 'action', action: payToUnfreezeAction };
   }
 
   const placeAction = traced('decideFieldPlacement', decideFieldPlacement(state, ai, character));
@@ -2761,6 +2939,7 @@ function decideCombatMagic(state: GameState, ai: PlayerNumber, character: Charac
   if (character === 'mosqueteiro') return decideMosqueteiroK(state, ai);
   if (character === 'piromante') return decidePiromanteK(state, ai) ?? decidePiromanteCombatFireball(state, ai);
   if (character === 'druida') return decideDruidaK(state, ai);
+  if (character === 'glacial') return decideGlacialK(state, ai);
   return null;
 }
 

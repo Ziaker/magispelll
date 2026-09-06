@@ -20,7 +20,7 @@ import {
   type PlayerNumber,
   type GameAction,
 } from '../src/app/lib/gameEngine';
-import { getDisplayValue, resetCardForDiscard, type Card } from '../src/app/lib/cardUtils';
+import { getDisplayValue, resetCardForDiscard, revealCard, type Card } from '../src/app/lib/cardUtils';
 import { applyStatus, getCombatModifierStatuses, getStatus, hasStatus } from '../src/app/lib/statusEffects';
 import { DEFAULT_GAME_CONFIG, MIN_DISCARD_LIMIT, type GameConfig } from '../src/app/lib/gameConfig';
 import { getLogEffectInfo } from '../src/app/lib/logFormat';
@@ -5032,6 +5032,534 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   const discarded = state.discardPile.find((c) => c.id === lockedQ.id);
   assert(Boolean(discarded), 'Pré-condição: o Broto perdeu a disputa e foi pro descarte');
   assert(!hasStatus(discarded, 'magicLocked'), 'FIX: a Rainha travada não carrega magicLocked ao ir pro descarte - não fica "amaldiçoada" pra sempre se for reembaralhada e puxada de novo');
+})();
+
+// ---------------------------------------------------------------------------
+// GLACIAL (personagem novo) - Fase 2 do overhaul de Status Effects aplicado
+// na prática: congelamento básico (StatusEffect kind 'frozen').
+// ---------------------------------------------------------------------------
+(function testFrozenCardNeverReveals() {
+  const frozenCard = applyStatus(makeCard('glacial-frozen-reveal', '9'), {
+    kind: 'frozen',
+    source: 'glacial',
+    label: 'Criogenar',
+    duration: { type: 'permanent' },
+  });
+  const afterReveal = revealCard(frozenCard);
+  assert(!afterReveal.revealed, 'FIX Glacial: revealCard nunca revela uma carta congelada');
+  const normalCard = makeCard('glacial-normal-reveal', '9');
+  assert(revealCard(normalCard).revealed, 'Pré-condição: revealCard revela normalmente uma carta NÃO congelada');
+})();
+
+(function testFrozenCardCannotBePlayed() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  const frozenCard = applyStatus(makeCard('glacial-frozen-play', '7'), {
+    kind: 'frozen',
+    source: 'glacial',
+    label: 'Criogenar',
+    duration: { type: 'permanent' },
+  });
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [frozenCard] } };
+  const after = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: frozenCard.id, slotIndex: 0, asHorizontal: false });
+  assert(!after.player1.field[0].faceDownCard, 'FIX Glacial: uma carta congelada por outro personagem não pode ser jogada por ninguém');
+  assert(after.player1.hand.some((c) => c.id === frozenCard.id), 'A carta congelada permanece na mão após a tentativa rejeitada');
+})();
+
+(function testGlacialCanPlayOwnFrozenCard() {
+  let state = createInitialState('glacial', 'besta', DEFAULT_GAME_CONFIG);
+  const ownFrozenCard = applyStatus(makeCard('glacial-own-frozen-play', '7'), {
+    kind: 'frozen',
+    source: 'glacial',
+    label: 'Criogenar',
+    duration: { type: 'permanent' },
+  });
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [ownFrozenCard] } };
+  const after = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: ownFrozenCard.id, slotIndex: 0, asHorizontal: false });
+  assert(after.player1.field[0].faceDownCard?.id === ownFrozenCard.id, 'FIX Glacial: o próprio Glacial PODE jogar uma carta que ele mesmo congelou');
+})();
+
+(function testGlacialCannotPlayOpponentFrozenCard() {
+  // Mesmo sendo o Glacial, uma carta congelada por OUTRO personagem (source
+  // diferente de 'glacial') continua travada - a exceção é só pra cartas que
+  // ELE MESMO congelou.
+  let state = createInitialState('glacial', 'besta', DEFAULT_GAME_CONFIG);
+  const foreignFrozenCard = applyStatus(makeCard('glacial-foreign-frozen-play', '7'), {
+    kind: 'frozen',
+    source: 'besta', // hipotético - nenhum personagem além do Glacial congela hoje, mas testa a checagem de `source`
+    label: 'Efeito de outro personagem',
+    duration: { type: 'permanent' },
+  });
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [foreignFrozenCard] } };
+  const after = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: foreignFrozenCard.id, slotIndex: 0, asHorizontal: false });
+  assert(!after.player1.field[0].faceDownCard, 'FIX Glacial: mesmo sendo o Glacial, uma carta congelada por OUTRO source continua travada');
+})();
+
+(function testResetCardForDiscardClearsFrozen() {
+  const frozenCard = applyStatus({ ...makeCard('glacial-reset-discard-frozen', '7'), revealed: false }, {
+    kind: 'frozen',
+    source: 'glacial',
+    label: 'Criogenar',
+    duration: { type: 'permanent' },
+  });
+  const reset = resetCardForDiscard(frozenCard);
+  assert(!hasStatus(reset, 'frozen'), 'FIX Glacial: resetCardForDiscard limpa o congelamento - uma carta indo pro descarte normal sai descongelada');
+})();
+
+// ---------------------------------------------------------------------------
+// GLACIAL - Fase 3/4: Criogenar (J), Crioespinho (Q), Crioescudo (K).
+// ---------------------------------------------------------------------------
+(function testGlacialJFreezesOpponentHandCard() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const jCard = makeCard('glacial-j-hand-target', 'J');
+  const targetCard = makeCard('glacial-j-hand-victim', '9');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [jCard] },
+    player2: { ...state.player2, hand: [targetCard] },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: jCard.id,
+    character: 'glacial',
+    magicType: 'J',
+    selection: { selectedTargetPlayer: 2, selectedCards: [targetCard.id] },
+  });
+  const frozen = state.player2.hand.find((c) => c.id === targetCard.id);
+  assert(hasStatus(frozen, 'frozen'), 'FIX Glacial Criogenar: a carta escolhida na mão do oponente fica congelada');
+  assert(!state.player1.hand.some((c) => c.id === jCard.id), 'O Valete foi consumido normalmente (não estava congelado)');
+})();
+
+(function testGlacialJFreezesOwnFieldCard() {
+  // "qualquer alvo possível" - o Glacial também pode congelar a PRÓPRIA
+  // carta do campo (não só do oponente).
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const jCard = makeCard('glacial-j-own-field', 'J');
+  const ownFieldCard = makeCard('glacial-j-own-field-target', '5');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [jCard],
+      field: [{ faceDownCard: ownFieldCard, revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: jCard.id,
+    character: 'glacial',
+    magicType: 'J',
+    selection: { selectedTargetPlayer: 1, selectedSlot: 0 },
+  });
+  assert(hasStatus(state.player1.field[0].faceDownCard, 'frozen'), 'FIX Glacial Criogenar: também pode mirar a própria carta do campo');
+})();
+
+(function testGlacialQFreezesAndMarksOwnFieldCard() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const qCard = makeCard('glacial-q-own', 'Q');
+  const targetCard = makeCard('glacial-q-own-target', '6');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [qCard],
+      field: [{ faceDownCard: targetCard, revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: qCard.id,
+    character: 'glacial',
+    magicType: 'Q',
+    selection: { selectedTargetPlayer: 1, selectedSlot: 0, selectedCards: [targetCard.id] },
+  });
+  const marked = state.player1.field[0].faceDownCard;
+  assert(hasStatus(marked, 'frozen'), 'FIX Glacial Crioespinho: a carta própria fica congelada');
+  const marker = getStatus(marked, 'combatModifier', { source: 'glacial' });
+  assert(marker?.magnitude === 2, `O marcador é +2 numa carta PRÓPRIA (recebido: ${marker?.magnitude})`);
+})();
+
+(function testGlacialQFreezesAndMarksOpponentFieldCard() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const qCard = makeCard('glacial-q-opp', 'Q');
+  const targetCard = makeCard('glacial-q-opp-target', '6');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [qCard] },
+    player2: {
+      ...state.player2,
+      field: [{ faceDownCard: targetCard, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: qCard.id,
+    character: 'glacial',
+    magicType: 'Q',
+    selection: { selectedTargetPlayer: 2, selectedSlot: 0, selectedCards: [targetCard.id] },
+  });
+  const marked = state.player2.field[0].faceDownCard;
+  assert(hasStatus(marked, 'frozen'), 'FIX Glacial Crioespinho: a carta do oponente fica congelada');
+  const marker = getStatus(marked, 'combatModifier', { source: 'glacial' });
+  assert(marker?.magnitude === -2, `O marcador é -2 numa carta do OPONENTE (recebido: ${marker?.magnitude})`);
+})();
+
+(function testGlacialKBoostsAllOwnFrozenFieldCards() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('glacial-k', 'K');
+  const frozenCard1 = applyStatus(makeCard('glacial-k-frozen-1', '4'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  const frozenCard2 = applyStatus(makeCard('glacial-k-frozen-2', '5'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  const unfrozenCard = makeCard('glacial-k-unfrozen', '6');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      hand: [kCard],
+      field: [
+        { faceDownCard: frozenCard1, revealed: true, horizontalCards: [] },
+        { faceDownCard: frozenCard2, revealed: true, horizontalCards: [] },
+        { faceDownCard: unfrozenCard, revealed: true, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: kCard.id,
+    character: 'glacial',
+    magicType: 'K',
+    selection: {},
+  });
+  const marker1 = getStatus(state.player1.field[0].faceDownCard, 'combatModifier', { source: 'glacial' });
+  const marker2 = getStatus(state.player1.field[1].faceDownCard, 'combatModifier', { source: 'glacial' });
+  assert(marker1?.magnitude === 1 && marker2?.magnitude === 1, 'FIX Glacial Crioescudo: +1 aplicado em TODAS as cartas próprias já congeladas de uma vez');
+  assert(!hasStatus(state.player1.field[2].faceDownCard, 'combatModifier'), 'A carta NÃO congelada não recebe o marcador de Crioescudo');
+})();
+
+(function testGlacialGimmickFirstActivationOnlyUnfreezes() {
+  // Gimmick passiva: ativar uma magia PRÓPRIA congelada roda o efeito
+  // normalmente, mas a 1ª ativação só remove o congelamento (carta não é
+  // consumida); a 2ª ativação (já descongelada) consome de fato.
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const frozenK = applyStatus(makeCard('glacial-gimmick-k', 'K'), {
+    kind: 'frozen', source: 'mago', label: 'Efeito hipotético de outro personagem', duration: { type: 'permanent' },
+  });
+  const frozenFieldCard = applyStatus(makeCard('glacial-gimmick-target', '7'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      hand: [frozenK],
+      field: [{ faceDownCard: frozenFieldCard, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const afterFirst = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: frozenK.id,
+    character: 'glacial',
+    magicType: 'K',
+    selection: {},
+  });
+  const cardAfterFirst = afterFirst.player1.hand.find((c) => c.id === frozenK.id);
+  assert(Boolean(cardAfterFirst), 'FIX Glacial gimmick: a 1ª ativação de uma magia própria congelada NÃO consome a carta');
+  assert(!hasStatus(cardAfterFirst, 'frozen'), 'A carta sai descongelada depois da 1ª ativação');
+  assert(hasStatus(afterFirst.player1.field[0].faceDownCard, 'combatModifier'), 'O efeito da magia (Crioescudo) rodou normalmente na 1ª ativação');
+
+  const afterSecond = gameReducer(afterFirst, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: frozenK.id,
+    character: 'glacial',
+    magicType: 'K',
+    selection: {},
+  });
+  assert(!afterSecond.player1.hand.some((c) => c.id === frozenK.id), 'FIX Glacial gimmick: a 2ª ativação (já descongelada) consome a carta normalmente');
+})();
+
+// ---------------------------------------------------------------------------
+// GLACIAL - Fase 5: ação PAY_TO_UNFREEZE (única via de descongelar).
+// ---------------------------------------------------------------------------
+(function testPayToUnfreezeOwnHandTarget() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const paymentCard = makeCard('unfreeze-payment-1', '3');
+  const frozenTarget = applyStatus(makeCard('unfreeze-target-1', '9'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [paymentCard, frozenTarget] } };
+  state = gameReducer(state, { type: 'PAY_TO_UNFREEZE', player: 1, paymentCardId: paymentCard.id, targetCardId: frozenTarget.id });
+  const target = state.player1.hand.find((c) => c.id === frozenTarget.id);
+  assert(Boolean(target) && !hasStatus(target, 'frozen'), 'FIX PAY_TO_UNFREEZE: a carta-alvo perde o congelamento e continua na mão (não é descartada)');
+  assert(!state.player1.hand.some((c) => c.id === paymentCard.id), 'A carta de pagamento saiu da mão');
+  assert(state.discardPile.some((c) => c.id === paymentCard.id), 'A carta de pagamento foi pro descarte');
+})();
+
+(function testPayToUnfreezeOpponentFieldTarget() {
+  // Qualquer alvo possível: a carta congelada pode estar no CAMPO do
+  // OPONENTE, e quem paga é sempre quem ativa (não precisa ser o dono da
+  // carta-alvo).
+  let state = createInitialState('mago', 'glacial', DEFAULT_GAME_CONFIG);
+  const paymentCard = makeCard('unfreeze-payment-2', '4');
+  const frozenTarget = applyStatus(makeCard('unfreeze-target-2', '8'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [paymentCard] },
+    player2: { ...state.player2, field: [{ faceDownCard: frozenTarget, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] },
+  };
+  state = gameReducer(state, { type: 'PAY_TO_UNFREEZE', player: 1, paymentCardId: paymentCard.id, targetCardId: frozenTarget.id });
+  assert(!hasStatus(state.player2.field[0].faceDownCard, 'frozen'), 'FIX PAY_TO_UNFREEZE: descongela uma carta no campo do OPONENTE');
+  assert(state.player2.field[0].faceDownCard?.id === frozenTarget.id, 'A carta-alvo continua no campo do oponente, não foi movida nem descartada');
+  assert(state.discardPile.some((c) => c.id === paymentCard.id), 'A carta de pagamento (de quem ativou) foi pro descarte');
+})();
+
+(function testPayToUnfreezeRejectsNonFrozenTarget() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const paymentCard = makeCard('unfreeze-payment-3', '3');
+  const notFrozenTarget = makeCard('unfreeze-target-3', '9');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [paymentCard, notFrozenTarget] } };
+  const after = gameReducer(state, { type: 'PAY_TO_UNFREEZE', player: 1, paymentCardId: paymentCard.id, targetCardId: notFrozenTarget.id });
+  assert(after.player1.hand.some((c) => c.id === paymentCard.id), 'FIX PAY_TO_UNFREEZE: rejeita quando o alvo não está congelado - a carta de pagamento não é gasta');
+})();
+
+(function testPayToUnfreezeOnlyDuringStrategy() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const paymentCard = makeCard('unfreeze-payment-4', '3');
+  const frozenTarget = applyStatus(makeCard('unfreeze-target-4', '9'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = { ...state, phase: 'combat', player1: { ...state.player1, hand: [paymentCard, frozenTarget] } };
+  const after = gameReducer(state, { type: 'PAY_TO_UNFREEZE', player: 1, paymentCardId: paymentCard.id, targetCardId: frozenTarget.id });
+  assert(hasStatus(after.player1.hand.find((c) => c.id === frozenTarget.id), 'frozen'), 'FIX PAY_TO_UNFREEZE: só funciona na fase de Estratégia');
+})();
+
+// ---------------------------------------------------------------------------
+// GLACIAL - Fase 6: Criogolem (Monstro) - nunca usa Zona Monstro, valor 8 + 1
+// por carta congelada em jogo, travado no instante em que é jogado.
+// ---------------------------------------------------------------------------
+(function testGlacialMonsterNeverUsesMonsterZone() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const golem = { ...makeCard('glacial-golem-zone', 'JOKER', '🃏'), isMonster: true };
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [golem] } };
+  const after = gameReducer(state, { type: 'PLACE_MONSTER_CARD', player: 1, cardId: golem.id });
+  assert(!after.player1.monsterCard, 'FIX Glacial Criogolem: PLACE_MONSTER_CARD é sempre no-op, nunca ocupa a Zona Monstro');
+  assert(after.player1.hand.some((c) => c.id === golem.id), 'A carta continua na mão (não foi consumida pelo no-op)');
+})();
+
+(function testGlacialMonsterValueWithNoFrozenCards() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const golem = { ...makeCard('glacial-golem-base', 'JOKER', '🃏'), isMonster: true };
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [golem] } };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: golem.id, slotIndex: 0, asHorizontal: false });
+  assert(state.player1.field[0].faceDownCard?.transformedValue === 8, `FIX Glacial Criogolem: sem nenhuma carta congelada em jogo, vale a base 8 (recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`);
+})();
+
+(function testGlacialMonsterValueCountsFrozenCardsOnBothSides() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const golem = { ...makeCard('glacial-golem-count', 'JOKER', '🃏'), isMonster: true };
+  const frozenOwnHand = applyStatus(makeCard('glacial-golem-frozen-own-hand', '5'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  const frozenOwnField = applyStatus(makeCard('glacial-golem-frozen-own-field', '6'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  const frozenOpponentHand = applyStatus(makeCard('glacial-golem-frozen-opp-hand', '7'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [golem, frozenOwnHand],
+      field: [{ faceDownCard: frozenOwnField, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+    player2: { ...state.player2, hand: [frozenOpponentHand] },
+  };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: golem.id, slotIndex: 1, asHorizontal: false });
+  assert(state.player1.field[1].faceDownCard?.transformedValue === 11, `FIX Glacial Criogolem: 8 + 3 cartas congeladas (mão própria, campo próprio, mão do oponente) = 11 (recebido: ${state.player1.field[1].faceDownCard?.transformedValue})`);
+})();
+
+(function testGlacialMonsterValueIsSnapshotNotLive() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const golem = { ...makeCard('glacial-golem-snapshot', 'JOKER', '🃏'), isMonster: true };
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [golem] } };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: golem.id, slotIndex: 0, asHorizontal: false });
+  assert(state.player1.field[0].faceDownCard?.transformedValue === 8, 'Pré-condição: Criogolem jogado valendo 8 (nenhuma carta congelada ainda)');
+  // Congela uma carta DEPOIS que o Criogolem já está em campo.
+  const lateFrozen = applyStatus(makeCard('glacial-golem-late-frozen', '9'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = { ...state, player2: { ...state.player2, hand: [lateFrozen] } };
+  assert(state.player1.field[0].faceDownCard?.transformedValue === 8, 'FIX Glacial Criogolem: o valor é um SNAPSHOT - não recalcula depois de mais cartas serem congeladas');
+})();
+
+// ---------------------------------------------------------------------------
+// GLACIAL - Fase 7: Criogênese (Numeral, A+A+A) - congela magia na mão dos
+// dois jogadores agora, e a próxima comprada no turno seguinte.
+// ---------------------------------------------------------------------------
+(function testGlacialNumeralSpellFreezesMagicInBothHandsImmediately() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const aces = [makeCard('glacial-numeral-a1', 'A'), makeCard('glacial-numeral-a2', 'A'), makeCard('glacial-numeral-a3', 'A')];
+  const ownMagic = makeCard('glacial-numeral-own-magic', 'Q');
+  const ownNumeral = makeCard('glacial-numeral-own-numeral', '5');
+  const opponentMagic = makeCard('glacial-numeral-opp-magic', 'K');
+  const opponentNumeral = makeCard('glacial-numeral-opp-numeral', '6');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [...aces, ownMagic, ownNumeral],
+      field: [{ revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+    player2: { ...state.player2, hand: [opponentMagic, opponentNumeral] },
+  };
+  assert(
+    canActivateNumeralSpell('glacial', state.player1.hand, state.player1.field, false, state.spotlight),
+    'Pré-condição: com A, A, A na mão e campo vazio, a Magia Numeral do Glacial pode ser ativada'
+  );
+  state = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
+  assert(state.numeralSpellPending?.character === 'glacial', 'FIX: ativar com A,A,A inicia a Magia Numeral "Criogênese" do Glacial');
+  state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
+
+  assert(hasStatus(state.player1.hand.find((c) => c.id === ownMagic.id), 'frozen'), 'FIX Glacial Criogênese: a magia própria já na mão fica congelada imediatamente');
+  assert(!hasStatus(state.player1.hand.find((c) => c.id === ownNumeral.id), 'frozen'), 'Uma carta numeral própria NÃO é congelada pela Criogênese');
+  assert(hasStatus(state.player2.hand.find((c) => c.id === opponentMagic.id), 'frozen'), 'FIX Glacial Criogênese: a magia do OPONENTE também fica congelada imediatamente');
+  assert(!hasStatus(state.player2.hand.find((c) => c.id === opponentNumeral.id), 'frozen'), 'Uma carta numeral do oponente NÃO é congelada pela Criogênese');
+})();
+
+(function testGlacialNumeralSpellFreezesNextMagicDraw() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const aces = [makeCard('glacial-numeral-draw-a1', 'A'), makeCard('glacial-numeral-draw-a2', 'A'), makeCard('glacial-numeral-draw-a3', 'A')];
+  state = {
+    ...state,
+    phase: 'strategy',
+    deck: [makeCard('glacial-numeral-draw-magic', 'J'), makeCard('glacial-numeral-draw-numeral', '4'), ...state.deck],
+    player1: {
+      ...state.player1,
+      hand: aces,
+      field: [{ revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  state = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
+  state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
+  assert(hasStatus(state.player1, 'freezeUpcomingMagicDraws'), 'Pré-condição: o StatusEffect de jogador ficou ativo após a ativação');
+
+  // A ativação já pulou pra fase de Compra do turno seguinte - compra as 2
+  // cartas do topo do baralho (uma magia, uma numeral) preparadas acima.
+  state = gameReducer(state, { type: 'DRAW_CARDS', player: 1, count: 2 });
+  const drawnMagic = state.player1.hand.find((c) => c.id === 'glacial-numeral-draw-magic');
+  const drawnNumeral = state.player1.hand.find((c) => c.id === 'glacial-numeral-draw-numeral');
+  assert(hasStatus(drawnMagic, 'frozen'), 'FIX Glacial Criogênese: uma carta de magia comprada no turno seguinte nasce já congelada');
+  assert(!hasStatus(drawnNumeral, 'frozen'), 'Uma carta numeral comprada no turno seguinte NÃO é congelada');
+})();
+
+// ---------------------------------------------------------------------------
+// GLACIAL - Fase 8: IA (decideGlacialJ/Q/K, decideGlacialMonster, decidePayToUnfreeze).
+// ---------------------------------------------------------------------------
+(function testGlacialAiFreezesHighestRevealedOpponentCard() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const jCard = makeCard('glacial-ai-j', 'J');
+  const opponentCard = makeCard('glacial-ai-opponent-high', '9');
+  state = {
+    ...state,
+    phase: 'strategy',
+    // Mão só com a própria magia - sem nenhum candidato próprio pra
+    // congelar, a decisão SEMPRE mira o oponente (elimina a chance de
+    // auto-congelamento interferir no teste).
+    player1: { ...state.player1, hand: [jCard] },
+    player2: {
+      ...state.player2,
+      hand: [],
+      field: [{ faceDownCard: opponentCard, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const decision = decideAiAction(state, 1);
+  assert(
+    decision.type === 'action' && decision.action.type === 'EXECUTE_MAGIC' && decision.action.magicType === 'J',
+    `FIX Glacial IA: com a maioria (100%) das cartas do oponente reveladas, a IA ativa Criogenar (recebido: ${JSON.stringify(decision)})`
+  );
+})();
+
+(function testGlacialAiActivatesCrioescudoWhenOwnFrozenFieldCardExists() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('glacial-ai-k', 'K');
+  const frozenFieldCard = applyStatus(makeCard('glacial-ai-k-frozen', '5'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      hand: [kCard],
+      field: [{ faceDownCard: frozenFieldCard, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const decision = decideAiAction(state, 1);
+  assert(
+    decision.type === 'action' && decision.action.type === 'EXECUTE_MAGIC' && decision.action.magicType === 'K',
+    `FIX Glacial IA: com uma carta própria congelada em campo, a IA ativa Crioescudo (recebido: ${JSON.stringify(decision)})`
+  );
+})();
+
+(function testGlacialAiPlaysMonsterAssoonAsPossible() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const golem = { ...makeCard('glacial-ai-golem', 'JOKER', '🃏'), isMonster: true };
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [golem],
+      field: [{ revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const decision = decideAiAction(state, 1);
+  assert(
+    decision.type === 'action' && decision.action.type === 'PLAY_CARD' && decision.action.cardId === golem.id,
+    `FIX Glacial IA: joga o Criogolem assim que há slot vazio, sem esperar (recebido: ${JSON.stringify(decision)})`
+  );
+})();
+
+(function testGlacialAiPaysToUnfreezeStuckOwnMagic() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const frozenMagic = applyStatus(makeCard('glacial-ai-unfreeze-magic', 'Q'), {
+    kind: 'frozen', source: 'mago', label: 'Efeito hipotético', duration: { type: 'permanent' },
+  });
+  const payment = makeCard('glacial-ai-unfreeze-payment', '2');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [frozenMagic, payment],
+      field: [{ revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const decision = decideAiAction(state, 1);
+  assert(
+    decision.type === 'action' && decision.action.type === 'PAY_TO_UNFREEZE' && decision.action.targetCardId === frozenMagic.id,
+    `FIX Glacial IA: uma magia própria parada e congelada é sempre "muito útil" - vale pagar pra descongelar (recebido: ${JSON.stringify(decision)})`
+  );
 })();
 
 // ---------------------------------------------------------------------------

@@ -131,6 +131,18 @@ export const NUMERAL_SPELLS: Record<NumeralCharacter, NumeralSpellType> = {
     description:
       'Permanente e reativável (empilha): aprimore em +1 todos os efeitos relacionados ao Broto - crescimento por turno, marcador da Rainha/Rei, e a redução do Rei/Rainha.',
   },
+  // Glacial (personagem novo) - 3 Áses. Congela imediatamente toda carta de
+  // magia (J/Q/K) na mão dos DOIS jogadores, e também a próxima magia que
+  // cada um comprar durante o turno seguinte inteiro (ver StatusEffect
+  // 'freezeUpcomingMagicDraws' em statusEffects.ts, consumido no hook de
+  // handleDrawCards - gameEngine.ts).
+  glacial: {
+    character: 'glacial',
+    requiredNumbers: [14, 14, 14],
+    name: 'Criogênese',
+    description:
+      'Congela toda carta de magia (Valete/Rainha/Rei) na mão dos dois jogadores agora, e também a próxima magia que cada um comprar durante o turno seguinte inteiro.',
+  },
 };
 
 /** Retorna as informações da Magia Numeral de um personagem */

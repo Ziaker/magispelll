@@ -201,6 +201,19 @@ export const characterThemes: Record<Character, CharacterTheme> = {
     border: '#0F8A19',
     darkAccent: '#072B0B', // Igual a `dark` (personagem de matiz único, sem duotone como o Coringa)
   },
+  // GLACIAL (personagem novo, pedido do usuário: "#0adeff") - ciano gelo
+  // elétrico, escolhido pelo próprio usuário.
+  glacial: {
+    name: 'GLACIAL',
+    primary: '#0ADEFF',      // Ciano gelo vivo (pedido do usuário)
+    secondary: '#087C94',    // Ciano escuro
+    accent: '#7FF2FF',       // Ciano claro brilhante
+    light: '#CBF9FF',        // Ciano pastel
+    dark: '#052429',         // Ciano quase preto
+    glow: 'rgba(10, 222, 255, 0.3)', // Brilho ciano translúcido
+    border: '#0ADEFF',
+    darkAccent: '#052429', // Igual a `dark` (personagem de matiz único, como o Druida)
+  },
 };
 
 /**

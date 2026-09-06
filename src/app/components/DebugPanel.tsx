@@ -16,6 +16,7 @@ const CHARACTER_LABELS: Record<CharacterId, string> = {
   coringa: 'Coringa',
   piromante: 'Piromante',
   druida: 'Druida',
+  glacial: 'Glacial',
 };
 // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
 // personagem?") - derivado de CHARACTER_LABELS (Record compile-enforced) em

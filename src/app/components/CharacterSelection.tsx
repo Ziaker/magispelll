@@ -1,6 +1,6 @@
 import { useState, type ComponentType, type CSSProperties } from 'react';
 import { Button } from './ui/button';
-import { ArrowLeft, Wand2, Bot, Dices, Info, Crosshair, Flame, Sprout } from 'lucide-react';
+import { ArrowLeft, Wand2, Bot, Dices, Info, Crosshair, Flame, Sprout, Snowflake } from 'lucide-react';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { CharacterDivider } from './CharacterDivider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -65,6 +65,7 @@ const CHARACTER_ICONS: Record<CharacterId, ComponentType<{ className?: string }>
   coringa: JesterHatIcon,
   piromante: Flame,
   druida: Sprout,
+  glacial: Snowflake,
 };
 
 /**
@@ -82,6 +83,7 @@ const CHARACTER_TAGLINE: Record<CharacterId, string> = {
   coringa: 'Armadilhas e sabotagem',
   piromante: 'Combustível e destruição em área',
   druida: 'Crescimento e simbiose',
+  glacial: 'Congelamento e controle',
 };
 
 /**
@@ -99,6 +101,7 @@ const CHARACTER_MECHANIC: Record<CharacterId, string> = {
   coringa: 'Armadilhas',
   piromante: 'Área',
   druida: 'Campo',
+  glacial: 'Estados',
 };
 
 /**

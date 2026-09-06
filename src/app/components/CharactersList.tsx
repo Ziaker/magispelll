@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { ArrowLeft, Wand2, Crosshair, Flame, Sprout } from 'lucide-react';
+import { ArrowLeft, Wand2, Crosshair, Flame, Sprout, Snowflake } from 'lucide-react';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { getCharacterIconBackground } from '../lib/characterThemes';
 import type { CharacterId } from '../lib/gameEngine';
@@ -68,6 +68,12 @@ const CHARACTERS: Record<CharacterId, { name: string; icon: ComponentType<{ clas
     icon: Sprout,
     color: '#0F8A19',
     description: 'Cultiva um Broto que cresce a cada troca de turno e é compartilhado por Simbiose/Urtiga, reduzindo-o pela metade para marcar cartas em combate (a favor ou contra).',
+  },
+  glacial: {
+    name: 'GLACIAL',
+    icon: Snowflake,
+    color: '#0ADEFF',
+    description: 'Congela cartas da mão ou do campo de qualquer jogador, travando-as até serem pagas para descongelar - e vira essa mesma trava a seu favor, reativando as próprias magias congeladas duas vezes.',
   },
 };
 
