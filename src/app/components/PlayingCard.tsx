@@ -8,6 +8,7 @@ import { getSpotlightEntry, type SpotlightState } from '../lib/spotlight';
 import { CardKeywords, type CardKeywordId } from './CardKeywords';
 import type { CharacterId } from '../lib/gameEngine';
 import { useSettings } from '../context/SettingsContext';
+import { hasStatus } from '../lib/statusEffects';
 
 interface PlayingCardProps {
   value?: string;
@@ -77,7 +78,7 @@ interface PlayingCardProps {
    * instância (borda, naipe/valor, brilho de fundo), sem afetar nenhum outro
    * lugar que renderiza a mesma carta sem passar o prop. `undefined` cai no
    * dourado de sempre. Não se aplica aos estados de Vencedor/Trancada
-   * (`winner`/`card.magicLocked` abaixo), que continuam sendo indicadores de
+   * (`winner`/o StatusEffect 'magicLocked' abaixo), que continuam sendo indicadores de
    * ESTADO, não de identidade do personagem.
    */
   accentColor?: string;
@@ -260,8 +261,8 @@ export function PlayingCard({
   // possíveis dependendo de qual variante da carta está sendo desenhada.
   // FIX (pedido do usuário: "a rainha do anjo impede a ativação de um efeito
   // caso a carta revelada por ela seja mágica até o fim do turno") - ver
-  // Card.magicLocked (cardUtils.ts).
-  const isMagicLocked = card?.magicLocked === true;
+  // StatusEffect kind 'magicLocked' (statusEffects.ts).
+  const isMagicLocked = hasStatus(card, 'magicLocked');
   const magicKeywords: CardKeywordId[] = [
     ...(isRevealed ? (['revealed'] as const) : []),
     ...(isFused ? (['fused'] as const) : []),

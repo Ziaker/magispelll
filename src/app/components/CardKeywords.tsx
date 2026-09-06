@@ -94,8 +94,8 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
   // FIX (pedido do usuário: "a rainha do anjo agora impede a ativação de um
   // efeito caso a carta revelada por ela seja uma carta mágica até o fim do
   // turno... adicione um efeito visual de correntes ou de aureola") - ver
-  // Card.magicLocked (cardUtils.ts) e o guard em canActivateMagic/
-  // handleExecuteMagic.
+  // StatusEffect kind 'magicLocked' (statusEffects.ts) e o guard em
+  // canActivateMagic/handleExecuteMagic.
   magicLocked: {
     icon: Lock,
     // FIX (pedido do usuário: "esse roxo não tem nada a ver com ele [Anjo]") -

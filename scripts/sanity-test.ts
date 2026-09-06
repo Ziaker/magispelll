@@ -21,6 +21,7 @@ import {
   type GameAction,
 } from '../src/app/lib/gameEngine';
 import { getDisplayValue, resetCardForDiscard, type Card } from '../src/app/lib/cardUtils';
+import { applyStatus, getCombatModifierStatuses, getStatus, hasStatus } from '../src/app/lib/statusEffects';
 import { DEFAULT_GAME_CONFIG, MIN_DISCARD_LIMIT, type GameConfig } from '../src/app/lib/gameConfig';
 import { getLogEffectInfo } from '../src/app/lib/logFormat';
 import { decideAiAction, decideReactionToMagic } from '../src/app/lib/aiPlayer';
@@ -424,13 +425,20 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
 // ---------------------------------------------------------------------------
 // 9b. FIX (pedido do usuário: "permita que o mago possa destruir marcadores
 //     em sua magia do rei") - Destruição de Reforço agora também mira um
-//     CombatModifier ativo (Tiro Certeiro/Fúria Selvagem) mesmo SEM nenhuma
-//     carta horizontal no slot.
+//     StatusEffect `kind: 'combatModifier'` ativo (Tiro Certeiro/Fúria
+//     Selvagem) mesmo SEM nenhuma carta horizontal no slot.
 // ---------------------------------------------------------------------------
 (function testMagoKDestroysMarkerWithoutHorizontal() {
   let state = createInitialState('mago', 'mosqueteiro', DEFAULT_GAME_CONFIG);
   const magoKCard = makeCard('mago-k-marker-test', 'K');
-  const markedCard = makeCard('marked-main-card', '7');
+  const markedCard = applyStatus(makeCard('marked-main-card', '7'), {
+    kind: 'combatModifier',
+    source: 'mosqueteiro',
+    label: 'Tiro Certeiro',
+    mode: 'add',
+    magnitude: 4,
+    duration: { type: 'untilPhase', phase: 'draw' },
+  });
 
   state = {
     ...state,
@@ -439,7 +447,6 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
     player2: {
       ...state.player2,
       field: [{ faceDownCard: markedCard, horizontalCards: [], revealed: true }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
-      combatModifiers: [{ cardId: markedCard.id, kind: 'add', amount: 4, source: 'mosqueteiro', label: 'Tiro Certeiro' }],
     },
   };
 
@@ -458,7 +465,7 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
     selection: { selectedSlot: 0 },
   });
 
-  assert(stateAfter.player2.combatModifiers.length === 0, 'FIX: Mago K destrói o marcador do Mosqueteiro mesmo sem carta horizontal no slot');
+  assert(!hasStatus(stateAfter.player2.field[0].faceDownCard, 'combatModifier'), 'FIX: Mago K destrói o marcador do Mosqueteiro mesmo sem carta horizontal no slot');
   assert(stateAfter.player2.field[0].faceDownCard?.id === markedCard.id, 'A carta principal marcada continua no campo - só o marcador é destruído, não a carta');
   assert(!stateAfter.player1.hand.some((c) => c.id === magoKCard.id), 'A carta K é consumida ao destruir o marcador');
 })();
@@ -796,13 +803,19 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
 
   // Passado o turno em que a pressão vale (a ativação já virou o turno - ver
   // o fim de handleFinalizeNumeralSpell), o efeito acaba e a mesma carta
-  // volta a poder ficar na mão.
-  const nextTurnState: GameState = {
-    ...state,
-    turn: state.turn + 1,
-    player2: { ...state.player2, hand: [...state.player2.hand, makeCard('later-10', '10')] },
-  };
-  const afterTurn = gameReducer(nextTurnState, { type: 'TOGGLE_PAUSE' });
+  // volta a poder ficar na mão. FIX (overhaul de Status Effects): o
+  // StatusEffect 'bloodRage' só expira de verdade quando `resetForNewTurn`
+  // roda (dentro de `advancePhaseState`) - sobrescrever `state.turn`
+  // diretamente (sem passar pelo reducer) não simula uma virada de turno
+  // real, então a virada é simulada aqui com 3 TOGGLE_READY completos
+  // (Estratégia->Combate->Compra->Estratégia, cobrindo 1 turno inteiro).
+  let afterTurn = state;
+  for (let i = 0; i < 3; i++) {
+    afterTurn = gameReducer(afterTurn, { type: 'TOGGLE_READY', player: 1 });
+    afterTurn = gameReducer(afterTurn, { type: 'TOGGLE_READY', player: 2 });
+  }
+  afterTurn = { ...afterTurn, player2: { ...afterTurn.player2, hand: [...afterTurn.player2.hand, makeCard('later-10', '10')] } };
+  afterTurn = gameReducer(afterTurn, { type: 'TOGGLE_PAUSE' });
   assert(
     afterTurn.player2.hand.some((c) => c.id === 'later-10'),
     'FIX: a Fúria Sanguinária expira com a virada de turno - cartas acima de 6 voltam a poder ficar na mão'
@@ -1003,8 +1016,8 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
   assert(stateHorizontalDouble.player1.monsterCard?.monsterUsed === true, 'FIX item 7: ativar o efeito marca monsterUsed na zona própria');
   assert(stateHorizontalDouble.player1.monsterTargetSlot === 0, 'FIX item 7: o slot escolhido ao ativar fica registrado em monsterTargetSlot');
   assert(
-    stateHorizontalDouble.player1.combatModifiers.some((m) => m.cardId === horizontalCard.id && m.kind === 'multiply'),
-    'FIX (pedido do usuário): a carta escolhida fica registrada em combatModifiers'
+    getCombatModifierStatuses(stateHorizontalDouble.player1.field[0].horizontalCards.find((c) => c.id === horizontalCard.id)).some((m) => m.mode === 'multiply'),
+    'FIX (pedido do usuário): a carta escolhida fica registrada em statusEffects (kind combatModifier)'
   );
   assert(stateHorizontalDouble.player1.monsterCard?.monsterUseCount === 1, 'FIX (pedido do usuário): o 1º uso incrementa monsterUseCount para 1');
 
@@ -1025,7 +1038,7 @@ function makeCard(id: string, value: string, suit = '♠'): Card {
   // o valor da carta que o jogador selecionar, sendo horizontal ou não".
   let stateMainDouble = gameReducer(state, { type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: 1, targetSlotIndex: 0, targetCardId: mainCard.id });
   assert(
-    stateMainDouble.player1.combatModifiers.some((m) => m.cardId === mainCard.id && m.kind === 'multiply'),
+    getCombatModifierStatuses(stateMainDouble.player1.field[0].faceDownCard).some((m) => m.mode === 'multiply'),
     'FIX (pedido do usuário): também é possível escolher a carta PRINCIPAL (não só horizontal) como alvo'
   );
 
@@ -3478,7 +3491,10 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   const jCard = makeCard('coringa-transform-j-1', 'J');
   state = {
     ...state,
-    player1: { ...state.player1, hand: [jCard], coringaTransformWindowUntilTurn: state.turn },
+    player1: applyStatus(
+      { ...state.player1, hand: [jCard] },
+      { kind: 'transformWindow', source: 'coringa', label: 'Mão de Ferro', duration: { type: 'untilTurn', turn: state.turn } }
+    ),
   };
   state = gameReducer(state, { type: 'TRANSFORM_CORINGA_MAGIC_CARD', player: 1, cardId: jCard.id });
   const transformed = state.player1.hand.find((c) => c.id === jCard.id);
@@ -3556,9 +3572,10 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   state = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
   assert(state.numeralSpellPending?.character === 'coringa', 'FIX: ativar com 7,7,7 inicia a Magia Numeral "Mão de Ferro" do Coringa');
   state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
+  const transformWindow = getStatus(state.player1, 'transformWindow');
   assert(
-    state.player1.coringaTransformWindowUntilTurn === state.turn,
-    `FIX: ao finalizar, a janela de transformação fica ativa até o turno corrente (recebido: ${state.player1.coringaTransformWindowUntilTurn}, turno: ${state.turn})`
+    transformWindow?.duration.type === 'untilTurn' && transformWindow.duration.turn === state.turn,
+    `FIX: ao finalizar, a janela de transformação fica ativa até o turno corrente (recebido: ${JSON.stringify(transformWindow?.duration)}, turno: ${state.turn})`
   );
 })();
 
@@ -3980,7 +3997,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(canActivateNumeralSpell('piromante', state.player1.hand, state.player1.field, false, state.spotlight), 'Pré-condição: com 3 seis na mão e campo vazio, a Magia Numeral do Piromante pode ser ativada');
   state = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
   state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
-  assert(state.player1.piromanteSpreadArmed === true, 'FIX: ativar Chama Repartida (6,6,6) arma o próximo lançamento para se espalhar pelos 3 slots');
+  assert(hasStatus(state.player1, 'spreadArmed'), 'FIX: ativar Chama Repartida (6,6,6) arma o próximo lançamento para se espalhar pelos 3 slots');
 
   // Agora lança a Bola de Fogo (valor 9, dividido por 3 = 3 por slot) contra
   // um campo do oponente com os 3 slots preenchidos, cada um valendo mais
@@ -4011,7 +4028,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     const token = state.player2.field[i].faceDownCard;
     assert(Boolean(token?.isFireToken) && token?.transformedValue === 7, `FIX Chama Repartida: slot ${i} recebe só 1/3 da Bola de Fogo (9/3=3 de 10 -> resta 7, recebido: ${token?.transformedValue})`);
   }
-  assert(state.player1.fireballValue === 0 && state.player1.piromanteSpreadArmed === false, 'A Bola de Fogo e a Chama Repartida são consumidas depois do lançamento em espalhado');
+  assert(state.player1.fireballValue === 0 && !hasStatus(state.player1, 'spreadArmed'), 'A Bola de Fogo e a Chama Repartida são consumidas depois do lançamento em espalhado');
 })();
 
 (function testPiromanteFireballBlockedByAngelProtection() {
@@ -4143,8 +4160,9 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   });
 
   assert(state.player1.field[0].faceDownCard?.transformedValue === 4, 'FIX: Simbiose (Q) continua reduzindo o Broto pela metade normalmente mesmo depois de Q/K ganharem a opção de plantar/empilhar');
-  const marker = state.player1.combatModifiers.find((m) => m.cardId === targetCard.id && m.source === 'druida' && m.label === 'Simbiose');
-  assert(marker?.amount === 4, 'O marcador de combate (+4, metade reduzida do Broto) foi criado na carta-alvo');
+  const markedTarget = state.player1.field[1].faceDownCard;
+  const marker = getStatus(markedTarget, 'combatModifier', { source: 'druida' });
+  assert(marker?.label === 'Simbiose' && marker?.magnitude === 4, 'O marcador de combate (+4, metade reduzida do Broto) foi criado na carta-alvo');
   assert(!state.player1.hand.some((c) => c.id === qCard.id), 'A Rainha usada como magia foi consumida normalmente (descartada), não foi "plantada"');
 })();
 
@@ -4401,9 +4419,9 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     state.player1.field[0].faceDownCard?.transformedValue === 4,
     `FIX Druida Simbiose: o Broto é reduzido pela metade (8 -> 4, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
   );
-  const marker = state.player1.combatModifiers.find((m) => m.cardId === targetCard.id && m.source === 'druida');
+  const marker = getStatus(state.player1.field[1].faceDownCard, 'combatModifier', { source: 'druida' });
   assert(Boolean(marker), 'FIX Druida Simbiose: um marcador de combate foi criado na carta própria escolhida');
-  assert(marker?.amount === 4, `O marcador vale a metade reduzida do Broto (recebido: ${marker?.amount})`);
+  assert(marker?.magnitude === 4, `O marcador vale a metade reduzida do Broto (recebido: ${marker?.magnitude})`);
   assert(!state.player1.hand.some((c) => c.id === qCard.id), 'A Rainha foi consumida (descartada)');
 })();
 
@@ -4457,9 +4475,9 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 })();
 
 (function testDruidaUrtigaWritesOpponentModifier() {
-  // Primeira magia do jogo a escrever no `combatModifiers` do OPONENTE -
-  // Besta só se auto-buffa (ver comentário completo em CombatModifier,
-  // gameEngine.ts); o Tiro Certeiro do Mosqueteiro passou a fazer o mesmo
+  // Primeira magia do jogo a escrever um StatusEffect `combatModifier` numa
+  // carta do OPONENTE - Besta só se auto-buffa (ver comentário completo em
+  // statusEffects.ts); o Tiro Certeiro do Mosqueteiro passou a fazer o mesmo
   // depois (mudança de planos, ver testMosqueteiroKWritesOpponentModifier
   // logo abaixo) - merece verificação dedicada de qualquer forma.
   let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
@@ -4501,10 +4519,10 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     state.player1.field[0].faceDownCard?.transformedValue === 3,
     `FIX Druida Urtiga: o Broto é reduzido pela metade (6 -> 3, recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`
   );
-  const debuff = state.player2.combatModifiers.find((m) => m.cardId === opponentTarget.id && m.source === 'druida');
-  assert(Boolean(debuff), 'FIX Druida Urtiga: um marcador foi criado no array de combatModifiers do OPONENTE (primeiro personagem a escrever lá, não no próprio)');
-  assert(debuff?.amount === -3, `O marcador é NEGATIVO, valendo a metade reduzida do Broto (recebido: ${debuff?.amount})`);
-  assert(state.player1.combatModifiers.length === 0, 'Nenhum marcador foi criado no PRÓPRIO array do Druida (Urtiga mira só o oponente)');
+  const debuff = getStatus(state.player2.field[0].faceDownCard, 'combatModifier', { source: 'druida' });
+  assert(Boolean(debuff), 'FIX Druida Urtiga: um StatusEffect combatModifier foi criado na carta do OPONENTE (primeiro personagem a escrever lá, não no próprio)');
+  assert(debuff?.magnitude === -3, `O marcador é NEGATIVO, valendo a metade reduzida do Broto (recebido: ${debuff?.magnitude})`);
+  assert(!hasStatus(state.player1.field[0].faceDownCard, 'combatModifier'), 'Nenhum marcador foi criado no PRÓPRIO Broto do Druida (Urtiga mira só o oponente)');
 })();
 
 (function testMosqueteiroKWritesOpponentModifier() {
@@ -4545,10 +4563,10 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     selection: { selectedCards: [opponentTarget.id] },
   });
 
-  const debuff = state.player2.combatModifiers.find((m) => m.cardId === opponentTarget.id && m.source === 'mosqueteiro');
-  assert(Boolean(debuff), 'FIX Tiro Certeiro: um marcador foi criado no array de combatModifiers do OPONENTE, não mais no próprio');
-  assert(debuff?.amount === -3, `O marcador é NEGATIVO, valendo -(descartes do turno + turno anterior) (recebido: ${debuff?.amount})`);
-  assert(state.player1.combatModifiers.length === 0, 'Nenhum marcador foi criado no PRÓPRIO array do Mosqueteiro (Tiro Certeiro agora mira só o oponente)');
+  const debuff = getStatus(state.player2.field[0].faceDownCard, 'combatModifier', { source: 'mosqueteiro' });
+  assert(Boolean(debuff), 'FIX Tiro Certeiro: um StatusEffect combatModifier foi criado na carta do OPONENTE, não mais no próprio');
+  assert(debuff?.magnitude === -3, `O marcador é NEGATIVO, valendo -(descartes do turno + turno anterior) (recebido: ${debuff?.magnitude})`);
+  assert(!hasStatus(state.player1.field[0]?.faceDownCard, 'combatModifier'), 'Nenhum marcador foi criado no PRÓPRIO campo do Mosqueteiro (Tiro Certeiro agora mira só o oponente)');
 
   // Reativar na MESMA carta deve SOMAR (aprofundar), não substituir.
   state = gameReducer(state, {
@@ -4559,8 +4577,8 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     magicType: 'K',
     selection: { selectedCards: [opponentTarget.id] },
   });
-  const debuffAfter = state.player2.combatModifiers.find((m) => m.cardId === opponentTarget.id && m.source === 'mosqueteiro');
-  assert(debuffAfter?.amount === -6, `FIX: reativar na mesma carta SOMA à penalidade existente, nunca substitui (-3 -> -6, recebido: ${debuffAfter?.amount})`);
+  const debuffAfter = getStatus(state.player2.field[0].faceDownCard, 'combatModifier', { source: 'mosqueteiro' });
+  assert(debuffAfter?.magnitude === -6, `FIX: reativar na mesma carta SOMA à penalidade existente, nunca substitui (-3 -> -6, recebido: ${debuffAfter?.magnitude})`);
 })();
 
 (function testMosqueteiroKBlockedByProtectedSlot() {
@@ -4591,7 +4609,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     selection: { selectedCards: [opponentTarget.id] },
   });
 
-  assert(stateAfter.player2.combatModifiers.length === 0, 'FIX: Tiro Certeiro nunca mira um slot protegido por Proteção Divina');
+  assert(!hasStatus(stateAfter.player2.field[0].faceDownCard, 'combatModifier'), 'FIX: Tiro Certeiro nunca mira um slot protegido por Proteção Divina');
   assert(stateAfter.player1.hand.some((c) => c.id === kCard.id), 'A carta K não é gasta quando o alvo está protegido');
 })();
 
@@ -4952,24 +4970,25 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 
 // ---------------------------------------------------------------------------
 // FIX (bug real relatado pelo usuário: "a IA do druída não joga as magias") -
-// `magicLocked` (Anjo - Visão Celestial, ver Card em cardUtils.ts) tinha
-// ficado de fora de resetCardForDiscard, violando a CONVENÇÃO documentada
-// bem ali ("todo campo transitório novo... precisa entrar na lista, ou ele
-// vaza pra sempre"). Uma carta trancada que fosse descartada carregava
-// `magicLocked: true` PRA SEMPRE, sobrevivendo a reembaralhamentos - se
-// redistribuída de volta pra QUALQUER mão (do mesmo jogador ou do
-// oponente), continuava trancada sem nenhum Anjo envolvido. Como
-// `lockedMagicValues` (magicCards.ts) bloqueia a ativação quando TODA cópia
-// de um valor na mão está trancada, um Druida com só 1 Rainha/Rei no
+// `magicLocked` (Anjo - Visão Celestial, hoje StatusEffect kind 'magicLocked'
+// - ver statusEffects.ts) tinha ficado de fora de resetCardForDiscard,
+// violando a CONVENÇÃO documentada bem ali ("todo campo transitório novo...
+// precisa entrar na lista, ou ele vaza pra sempre"). Uma carta trancada que
+// fosse descartada carregava a trava PRA SEMPRE, sobrevivendo a
+// reembaralhamentos - se redistribuída de volta pra QUALQUER mão (do mesmo
+// jogador ou do oponente), continuava trancada sem nenhum Anjo envolvido.
+// Como `lockedMagicValues` (magicCards.ts) bloqueia a ativação quando TODA
+// cópia de um valor na mão está trancada, um Druida com só 1 Rainha/Rei no
 // baralho podia ficar com Simbiose/Urtiga inutilizáveis pelo resto da
 // partida depois de um único Visão Celestial.
 // ---------------------------------------------------------------------------
 (function testResetCardForDiscardClearsMagicLocked() {
-  const lockedCard = makeCard('reset-discard-magiclocked', 'Q');
-  (lockedCard as any).magicLocked = true;
-  (lockedCard as any).revealed = true;
+  const lockedCard = applyStatus(
+    { ...makeCard('reset-discard-magiclocked', 'Q'), revealed: true },
+    { kind: 'magicLocked', source: 'anjo', label: 'Visão Celestial', duration: { type: 'untilPhase', phase: 'draw' } }
+  );
   const reset = resetCardForDiscard(lockedCard);
-  assert(!reset.magicLocked, 'FIX: resetCardForDiscard limpa magicLocked - uma carta trancada não carrega o cadeado pro descarte/baralho pra sempre');
+  assert(!hasStatus(reset, 'magicLocked'), 'FIX: resetCardForDiscard limpa magicLocked - uma carta trancada não carrega o cadeado pro descarte/baralho pra sempre');
   assert(!reset.revealed, 'resetCardForDiscard também limpa revealed normalmente (comportamento pré-existente, conferido junto)');
 })();
 
@@ -4978,10 +4997,15 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   // é plantada como Broto (novo caminho de PLAY_CARD que Q/K ganharam -
   // funciona mesmo trancada, já que plantar não é "ativar magia"), perde uma
   // disputa de combate (colapsa, vai pro descarte) e PRECISA sair de lá sem
-  // o `magicLocked` - senão fica "amaldiçoada" pra sempre, mesmo reembaralhada.
+  // o StatusEffect 'magicLocked' - senão fica "amaldiçoada" pra sempre, mesmo
+  // reembaralhada.
   let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
-  const lockedQ = makeCard('druida-locked-q-broto', 'Q');
-  (lockedQ as any).magicLocked = true;
+  const lockedQ = applyStatus(makeCard('druida-locked-q-broto', 'Q'), {
+    kind: 'magicLocked',
+    source: 'anjo',
+    label: 'Visão Celestial',
+    duration: { type: 'untilPhase', phase: 'draw' },
+  });
   const strongerCard = makeCard('druida-locked-q-opponent', '10');
   state = {
     ...state,
@@ -5007,7 +5031,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 
   const discarded = state.discardPile.find((c) => c.id === lockedQ.id);
   assert(Boolean(discarded), 'Pré-condição: o Broto perdeu a disputa e foi pro descarte');
-  assert(!discarded?.magicLocked, 'FIX: a Rainha travada não carrega magicLocked ao ir pro descarte - não fica "amaldiçoada" pra sempre se for reembaralhada e puxada de novo');
+  assert(!hasStatus(discarded, 'magicLocked'), 'FIX: a Rainha travada não carrega magicLocked ao ir pro descarte - não fica "amaldiçoada" pra sempre se for reembaralhada e puxada de novo');
 })();
 
 // ---------------------------------------------------------------------------

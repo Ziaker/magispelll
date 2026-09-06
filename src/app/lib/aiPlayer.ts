@@ -37,7 +37,6 @@
 
 import { random } from './rng';
 import {
-  applyCombatModifiers,
   characterOf,
   getDestroyableReinforcementSlots,
   getFilledFieldSlots,
@@ -66,6 +65,7 @@ import {
   type FieldSlot,
 } from './gameEngine';
 import { getEffectiveCardValue, isFieldEligible, isNumeralCard, isPlainNumeralCard, isValidAceTransformTarget, type Card } from './cardUtils';
+import { applyCombatModifierStatuses, getCombatModifierStatuses, hasStatus } from './statusEffects';
 import { canActivateMagic } from './magicCards';
 import { canActivateNumeralSpell, getMatchingNumeralCards, getNumeralSpellInfo } from './numeralSpells';
 import { computeFusionResult } from './fusion';
@@ -401,23 +401,23 @@ function trueSlotValue(
   // `monsterTargetCardId` (dobra da Besta) manualmente, mas nunca tinha
   // nenhuma referência ao reforço do Mosqueteiro (Tiro Certeiro), então a IA
   // jogando de Mosqueteiro subestimava sistematicamente o próprio slot
-  // reforçado. Agora chama a MESMA `applyCombatModifiers` que
-  // `handleResolveCombat` usa, sobre a MESMA lista (`playerState.
-  // combatModifiers`, já filtrada por construção só pro personagem do
-  // próprio jogador - nunca precisa checar `character` aqui) - a divergência
+  // reforçado. Agora chama a MESMA `applyCombatModifierStatuses` que
+  // `handleResolveCombat` usa, lendo os StatusEffect JÁ PRESENTES na própria
+  // carta (overhaul de Status Effects - ver statusEffects.ts) - a divergência
   // fica estruturalmente impossível de se repetir. FIX (pedido do usuário,
   // Modo Spotlight): `getSpotlightAdjustedValue` no lugar de
   // `getEffectiveCardValue` - precisa da mesma fonte de valor pra não achar
   // que está ganhando/perdendo uma disputa que na real já foi decidida pelo
   // Spotlight. FIX (auditoria de simulação de IA, Coringa): compõe também
   // `coringaRawTrapValue` (Monstro/Rei/Valete armadilha calibrados, não o
-  // valor de face cru) por cima de `applyCombatModifiers` - seguro porque
-  // `combatModifiers` do Coringa é sempre vazio (só Besta/Mosqueteiro
-  // preenchem essa lista), as duas correções nunca colidem na mesma carta.
+  // valor de face cru) por cima de `applyCombatModifierStatuses` - seguro
+  // porque nenhuma carta do Coringa carrega StatusEffect `combatModifier`
+  // (só Besta/Mosqueteiro/Druida aplicam esse kind), as duas correções nunca
+  // colidem na mesma carta.
   const trueCardValue = (card: Card, opponentField: [FieldSlot, FieldSlot, FieldSlot] | undefined): number => {
     const rawTrapValue = character === 'coringa' ? coringaRawTrapValue(card, opponentField, spotlight) : undefined;
     const base = rawTrapValue !== undefined ? rawTrapValue : getSpotlightAdjustedValue(card, spotlight);
-    return applyCombatModifiers(base, card.id, playerState.combatModifiers);
+    return applyCombatModifierStatuses(base, card);
   };
   const base = trueCardValue(slot.faceDownCard, opts.opponentField);
   const visibleHorizontal = opts.opponentView ? slot.horizontalCards.filter((c) => c.revealed) : slot.horizontalCards;
@@ -447,8 +447,8 @@ function trueSlotValue(
 
 /**
  * Acha na mão uma carta de magia (J/Q/K) ATIVÁVEL - ou seja, ignorando
- * qualquer cópia trancada por `magicLocked` (Visão Celestial do Anjo, ver
- * Card em cardUtils.ts). FIX (pedido do usuário: "a rainha do anjo impede a
+ * qualquer cópia trancada pelo StatusEffect 'magicLocked' (Visão Celestial
+ * do Anjo, ver statusEffects.ts). FIX (pedido do usuário: "a rainha do anjo impede a
  * ativação de um efeito... até o fim do turno") - o Modo Temático permite 2
  * cópias da mesma carta de magia na mesma mão (ver `thematic` em
  * generateDeck, cardUtils.ts); sem este helper, `.find()` podia pegar
@@ -461,7 +461,7 @@ function trueSlotValue(
  * de qualquer forma, então não há loop possível.
  */
 function findActivatableMagicCard(hand: Card[], value: 'J' | 'Q' | 'K'): Card | undefined {
-  return hand.find((c) => c.value === value && !c.magicLocked) ?? hand.find((c) => c.value === value);
+  return hand.find((c) => c.value === value && !hasStatus(c, 'magicLocked')) ?? hand.find((c) => c.value === value);
 }
 
 function pickHighestBy<T>(items: T[], score: (item: T) => number): T {
@@ -647,7 +647,7 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   // vem primeiro - a janela dura o turno inteiro, então nada se perde
   // esperando. Com o campo cheio, a carta ficaria parada na mão de qualquer
   // forma e transformá-la é ganho puro.
-  if (character === 'coringa' && me.coringaTransformWindowUntilTurn !== undefined && state.turn <= me.coringaTransformWindowUntilTurn) {
+  if (character === 'coringa' && hasStatus(me, 'transformWindow')) {
     const hasEmptyMainSlot = me.field.some((slot) => !slot.faceDownCard);
     const transformable = me.hand.find((c) => !c.coringaTransformedToNumeral && (c.value === 'J' || c.value === 'Q' || c.value === 'K'));
     if (transformable && !hasEmptyMainSlot) {
@@ -1640,7 +1640,7 @@ function decideMosqueteiroJ(state: GameState, ai: PlayerNumber): GameAction | nu
   const hasSlotForHorizontal = me.field.some((slot) => slot.faceDownCard && !isTowerSlot(slot));
   if (!hasSlotForHorizontal) return null;
 
-  const redirecting = me.mosqueteiroRedirectNextDiscard;
+  const redirecting = hasStatus(me, 'redirectNextDiscard');
   if (redirecting) {
     const opponentHand = state[opponentKeyOf(ai)].hand;
     if (opponentHand.length === 0) return null;
@@ -1686,7 +1686,7 @@ function decideMosqueteiroQ(state: GameState, ai: PlayerNumber): GameAction | nu
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'mosqueteiro', 'Q', getMagicActivationContext(state, ai))) return null;
 
-  const redirecting = me.mosqueteiroRedirectNextDiscard;
+  const redirecting = hasStatus(me, 'redirectNextDiscard');
   const reserved = reservedNumeralCardIds(me.hand, 'mosqueteiro', state.spotlight);
   const ownPool = fieldSafeDiscardCandidates(me, me.hand.filter((c) => c.id !== qCard.id && !reserved.has(c.id)));
   const discardPool = redirecting ? state[opponentKeyOf(ai)].hand : ownPool;
@@ -2525,9 +2525,9 @@ function decideMagoK(state: GameState, ai: PlayerNumber): GameAction | null {
   const opponentField = opponentState.field;
   // FIX (pedido do usuário: "permita que o mago possa destruir marcadores em
   // sua magia do rei") - alvo agora também inclui slots sem horizontal
-  // nenhuma mas com um CombatModifier destruível (ver
+  // nenhuma mas com um StatusEffect 'combatModifier' destruível (ver
   // getDestroyableReinforcementSlots, gameEngine.ts).
-  const targets = getDestroyableReinforcementSlots(opponentField, opponentState.combatModifiers).filter((i) => !isSlotProtected(state, opponent, i));
+  const targets = getDestroyableReinforcementSlots(opponentField).filter((i) => !isSlotProtected(state, opponent, i));
   if (targets.length === 0) return null;
 
   // FIX: a magia agora destrói TODAS as cartas horizontais empilhadas do
@@ -2550,18 +2550,18 @@ function decideMagoK(state: GameState, ai: PlayerNumber): GameAction | null {
   // escolha é totalmente às cegas, como seria para um humano), sorteia entre
   // eles em vez de cair sempre no primeiro da lista por empate em 0.
   //
-  // FIX (marcadores): soma também o valor de qualquer CombatModifier ('add')
-  // preso a uma carta REVELADA do slot - mesma cautela de só contar o que um
-  // humano também veria.
+  // FIX (marcadores): soma também o valor de qualquer StatusEffect
+  // `combatModifier` do tipo 'add' preso a uma carta REVELADA do slot -
+  // mesma cautela de só contar o que um humano também veria.
   const revealedHorizontalValue = (i: number) => {
     const slot = opponentField[i];
     const horizontalValue = slot.horizontalCards.reduce((sum, c) => sum + (c.revealed ? getEffectiveCardValue(c) : 0), 0);
-    const revealedCardIds = new Set([
-      ...(slot.faceDownCard && slot.revealed ? [slot.faceDownCard.id] : []),
-      ...slot.horizontalCards.filter((c) => c.revealed).map((c) => c.id),
-    ]);
-    const modifierValue = opponentState.combatModifiers.reduce(
-      (sum, m) => sum + (revealedCardIds.has(m.cardId) && m.kind === 'add' ? m.amount : 0),
+    const revealedCards = [
+      ...(slot.faceDownCard && slot.revealed ? [slot.faceDownCard] : []),
+      ...slot.horizontalCards.filter((c) => c.revealed),
+    ];
+    const modifierValue = revealedCards.reduce(
+      (sum, c) => sum + getCombatModifierStatuses(c).reduce((s, m) => s + (m.mode !== 'multiply' ? m.magnitude ?? 0 : 0), 0),
       0
     );
     return horizontalValue + modifierValue;

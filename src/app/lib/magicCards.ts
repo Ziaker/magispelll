@@ -263,8 +263,9 @@ export interface MagicActivationContext {
   hasUnbattledHorizontalCardsInOpponentField?: boolean;
   /**
    * Anjo (Rainha - Visão Celestial): valores de magia (J/Q/K) pra quem TODA
-   * carta da mão daquele valor está `magicLocked` (ver Card em cardUtils.ts)
-   * agora - nenhuma carta alternativa não-trancada sobra pra ativar. Guarda
+   * carta da mão daquele valor tem o StatusEffect 'magicLocked' (ver
+   * statusEffects.ts) agora - nenhuma carta alternativa não-trancada sobra
+   * pra ativar. Guarda
    * genérica em `canActivateMagic` (vale pra qualquer personagem, já que
    * qualquer um pode ser alvo da Rainha do Anjo), evitando que a IA proponha
    * repetidamente uma ativação que `handleExecuteMagic` sempre rejeita

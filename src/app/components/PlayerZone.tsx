@@ -14,6 +14,7 @@ import { HandCardView } from './HandCardView';
 import { getCharacterTheme, getCharacterIconBackground, getCharacterPanelBackground } from '../lib/characterThemes';
 import type { PlayerState, CharacterId, Phase, PendingReaction } from '../lib/gameEngine';
 import { getEffectiveDiscardLimit, getEffectiveDrawLimit, isBrotoSlot, towerEligibleValue } from '../lib/gameEngine';
+import { hasStatus } from '../lib/statusEffects';
 import { useEffect, useRef, useState } from 'react';
 import { canActivateMagic, getMagicCardInfo, type MagicActivationContext } from '../lib/magicCards';
 import { canActivateNumeralSpell, getNumeralSpellInfo, formatNumeralRequirement } from '../lib/numeralSpells';
@@ -525,7 +526,7 @@ export function PlayerZone({
       // personagens - ver mesma checagem em coringaFieldPlaceable, mais
       // abaixo no `.map()` da mão).
       const isCoringaTrapCardHere = character === 'coringa' && isMagic && !card.coringaTransformedToNumeral;
-      const coringaWindowOpenHere = character === 'coringa' && playerState.coringaTransformWindowUntilTurn !== undefined;
+      const coringaWindowOpenHere = character === 'coringa' && hasStatus(playerState, 'transformWindow');
       const coringaSelectableHere = character === 'coringa' && isMagic && (!isCoringaTrapCardHere || !coringaWindowOpenHere);
       // FIX (pedido do usuário: "permita que o Q, K e J sejam posicionados
       // encima de um Q, K ou J também no campo") - Rainha/Rei do Druida
@@ -1528,7 +1529,7 @@ export function PlayerZone({
                   // momento específico - ver onActivateMagic/
                   // canActivateMagicNow abaixo).
                   const isCoringaTrapCard = character === 'coringa' && isMagic && !card.coringaTransformedToNumeral;
-                  const coringaTransformWindowOpen = character === 'coringa' && playerState.coringaTransformWindowUntilTurn !== undefined;
+                  const coringaTransformWindowOpen = character === 'coringa' && hasStatus(playerState, 'transformWindow');
                   const coringaFieldPlaceable =
                     character === 'coringa' && isMagic && (!isCoringaTrapCard || !coringaTransformWindowOpen);
                   // FIX (pedido do usuário: "ajeite o drag & drop pra
@@ -1647,12 +1648,12 @@ export function PlayerZone({
                             ? coringaTransformWindowOpen
                             : // FIX (pedido do usuário: "a rainha do anjo impede a
                               // ativação de um efeito... até o fim do turno") -
-                              // `!card.magicLocked` é checado por CARTA (não só
-                              // por valor) - no Modo Temático, 2 cópias do mesmo
-                              // valor podem coexistir na mão; só a cópia
-                              // TRANCADA fica desabilitada, a outra continua
-                              // normal (ver Card.magicLocked, cardUtils.ts).
-                              isMagic && !card.magicLocked && canActivateMagic(phase, character, card.value as 'J' | 'Q' | 'K', magicContext)
+                              // `!hasStatus(card, 'magicLocked')` é checado por
+                              // CARTA (não só por valor) - no Modo Temático, 2
+                              // cópias do mesmo valor podem coexistir na mão; só
+                              // a cópia TRANCADA fica desabilitada, a outra
+                              // continua normal (ver statusEffects.ts).
+                              isMagic && !hasStatus(card, 'magicLocked') && canActivateMagic(phase, character, card.value as 'J' | 'Q' | 'K', magicContext)
                         }
                         // FIX (pedido do usuário: "os botões e o tooltip do
                         // botão ainda aparecem pra ele mesmo sem a magia

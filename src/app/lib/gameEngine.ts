@@ -30,9 +30,11 @@ import {
   getDisplaySuit,
   getDisplayValue,
   getEffectiveCardValue,
+  hideCard,
   isNumeralCard,
   isPlainNumeralCard,
   isValidAceTransformTarget,
+  revealCard,
   reshuffleDiscardIntoDeck,
   resetCardsForDiscard,
   shuffle,
@@ -44,6 +46,18 @@ import { canActivateNumeralSpell, formatNumeralRequirement, getMatchingNumeralCa
 import { canFuseCards, computeFusionResult } from './fusion';
 import { getSpotlightAdjustedValue, rollSpotlight, type SpotlightState } from './spotlight';
 import { getCharacterTheme } from './characterThemes';
+import {
+  applyCombatModifierStatuses,
+  applyStatus,
+  getCombatModifierStatuses,
+  getStatusMagnitude,
+  hasStatus,
+  removeStatus,
+  removeStatusFromField,
+  tickEntityStatuses,
+  tickFieldStatuses,
+  tickStatuses,
+} from './statusEffects';
 
 export type Phase = 'draw' | 'strategy' | 'combat';
 export type PlayerNumber = 1 | 2;
@@ -94,30 +108,6 @@ export type FieldSlot = {
    */
   brotoReserve?: Card[];
 };
-
-/**
- * Um modificador de valor de combate preso a UMA carta específica por id -
- * ver o comentário completo em `PlayerState.combatModifiers` pra por que
- * isto existe (unifica a Fúria Selvagem da Besta e o Tiro Certeiro do
- * Mosqueteiro, que eram dois campos ad hoc quase idênticos antes disso).
- */
-export interface CombatModifier {
-  cardId: string;
-  kind: 'multiply' | 'add';
-  amount: number;
-  source: CharacterId;
-  label: string;
-}
-
-/** Aplica todo `CombatModifier` da lista que aponta pra `cardId` sobre `baseValue`, na ordem em que aparecem na lista. */
-export function applyCombatModifiers(baseValue: number, cardId: string, modifiers: CombatModifier[]): number {
-  let value = baseValue;
-  for (const m of modifiers) {
-    if (m.cardId !== cardId) continue;
-    value = m.kind === 'multiply' ? value * m.amount : value + m.amount;
-  }
-  return value;
-}
 
 export interface PlayerState {
   hand: Card[];
@@ -178,11 +168,11 @@ export interface PlayerState {
   /**
    * Slot do PRÓPRIO campo de combate (0-2) escolhido como alvo da última
    * ativação do efeito de Monstro: para a Besta, o slot da carta escolhida
-   * para dobrar (ver `combatModifiers` abaixo - a carta pode ser a
-   * principal do slot OU uma horizontal); para o Anjo, o slot protegido
-   * contra magias; para o Mago, o slot cuja carta recebeu o valor copiado.
-   * undefined enquanto o efeito não foi ativado neste turno (ver
-   * monsterCard.monsterUsed).
+   * para dobrar (StatusEffect `kind: 'combatModifier'`, ver statusEffects.ts
+   * - a carta pode ser a principal do slot OU uma horizontal); para o Anjo,
+   * o slot protegido contra magias; para o Mago, o slot cuja carta recebeu o
+   * valor copiado. undefined enquanto o efeito não foi ativado neste turno
+   * (ver monsterCard.monsterUsed).
    */
   monsterTargetSlot?: number;
   /**
@@ -199,34 +189,33 @@ export interface PlayerState {
    */
   monsterProtectedSlots: number[];
   /**
-   * Modificadores de valor de combate ativos, cada um preso a UMA carta por
-   * id - substitui os campos ad hoc que existiam antes (`monsterTargetCardId`
-   * da Besta, `mosqueteiroBoostedCardId`+`mosqueteiroBoostAmount` do
-   * Mosqueteiro), que eram duas reinvenções quase idênticas da mesma ideia
-   * ("modificar o valor de combate de uma carta específica por id"), cada
-   * uma lida separadamente em `handleResolveCombat` E, se algum consumidor
-   * esquecesse de espelhar a outra, ficava fora de sincronia - foi
-   * exatamente isso que aconteceu com `trueSlotValue` (aiPlayer.ts), que
-   * conhecia a dobra da Besta mas nunca soube do reforço do Mosqueteiro,
-   * deixando a IA cega pro próprio Tiro Certeiro. Agora `handleResolveCombat`
-   * e `trueSlotValue` chamam a MESMA função (`applyCombatModifiers`) sobre a
-   * MESMA lista - a divergência fica estruturalmente impossível de repetir.
+   * Overhaul genérico de Status Effects (ver `src/app/lib/statusEffects.ts`):
+   * contadores/janelas temporárias do JOGADOR INTEIRO (não ligadas a uma
+   * carta específica) - ex.: `redirectNextDiscard` do Mosqueteiro,
+   * `transformWindow` do Coringa, `handLimitBonus` do Mosqueteiro,
+   * `bloodRage` da Besta, `spreadArmed` do Piromante. Use os helpers
+   * `hasStatus`/`getStatus`/`applyStatus`/`removeStatus`/`tickEntityStatuses`
+   * em vez de ler/escrever este array diretamente.
    *
-   * FIX (pedido da Besta): Fúria Selvagem dobrava a SOMA de todas as cartas
-   * horizontais do slot escolhido - o pedido era poder escolher QUALQUER
-   * carta do slot (principal ou uma horizontal específica) pra dobrar -
-   * fica registrado aqui como `{ kind: 'multiply', amount: 2, source:
-   * 'besta' }`.
-   *
-   * Mosqueteiro - Tiro Certeiro fica registrado como `{ kind: 'add', amount:
-   * <congelado no instante da ativação>, source: 'mosqueteiro' }`. MUDANÇA DE
-   * PLANOS (pedido do usuário): antes reforçava (`amount` positivo) uma
-   * carta do PRÓPRIO array; agora enfraquece (`amount` NEGATIVO) uma carta
-   * do array do OPONENTE - mesmo padrão de Urtiga do Druida (ver mais abaixo
-   * neste arquivo), só a Besta ainda se auto-buffa de verdade. Zerado a cada
-   * turno junto com o resto do estado por-turno (ver `resetForNewTurn`).
+   * Efeitos ligados a UMA carta específica vivem em `Card.statusEffects` -
+   * substitui `CombatModifier`/`PlayerState.combatModifiers` (o antigo array
+   * plano de modificadores de valor de combate por `cardId`, que unificava a
+   * Fúria Selvagem da Besta e o Tiro Certeiro do Mosqueteiro): o efeito
+   * agora mora DENTRO da própria carta (`kind: 'combatModifier'`), não num
+   * array solto do jogador. `handleResolveCombat` e `trueSlotValue`
+   * (aiPlayer.ts) chamam a MESMA função (`applyCombatModifierStatuses`)
+   * sobre a MESMA carta - a divergência fica estruturalmente impossível de
+   * repetir. Fúria Selvagem da Besta fica registrada como `{ kind:
+   * 'combatModifier', mode: 'multiply', magnitude: 2, source: 'besta' }` na
+   * carta escolhida (principal ou horizontal) do PRÓPRIO slot. Tiro Certeiro
+   * do Mosqueteiro e Simbiose/Urtiga do Druida ficam como `{ kind:
+   * 'combatModifier', mode: 'add', magnitude: <valor>, source: ... }` -
+   * Urtiga e Tiro Certeiro miram uma carta do campo do OPONENTE (`magnitude`
+   * negativo), Simbiose mira uma carta do PRÓPRIO campo (`magnitude`
+   * positivo). `duration: { type: 'untilPhase', phase: 'draw' }` em todos -
+   * removido pelo tick genérico na virada pra Compra (ver `resetForNewTurn`).
    */
-  combatModifiers: CombatModifier[];
+  statusEffects?: import('./statusEffects').StatusEffect[];
   /**
    * Modo Towers: qual slot (0-2) do PRÓPRIO campo este jogador já escolheu
    * como sua torre NESTE turno - só um slot pode virar torre por turno
@@ -262,52 +251,19 @@ export interface PlayerState {
   mosqueteiroDiscardsTurnMinus1: number;
   /** Snapshot de `mosqueteiroDiscardsTurnMinus1` tirado no INÍCIO deste turno (ou seja, o valor final de DOIS turnos atrás, T-2) - só usado pela janela de 3 turnos da Magia Numeral, não pelo Rei. */
   mosqueteiroDiscardsTurnMinus2: number;
-  /**
-   * Mosqueteiro - Recarga Rápida (Monstro) liga esta flag; o PRÓXIMO efeito
-   * de descarte do Valete ou da Rainha (o que ativar primeiro) descarta da
-   * mão do OPONENTE em vez da própria, e a flag é consumida (volta a false)
-   * nesse instante. Também expira no fim do turno se não for usada.
-   */
-  mosqueteiroRedirectNextDiscard: boolean;
-  /**
-   * Mosqueteiro - Munição Infinita (Magia Numeral). FIX (pedido do usuário:
-   * "Aumente o limite da sua mão no próximo turno pelo número de cartas
-   * descartadas nos últimos 3 turnos") - o efeito deixou de conceder uma
-   * COMPRA bônus única (campo antigo removido) e agora concede um bônus
-   * TEMPORÁRIO de limite de mão, válido só durante o turno seguinte -
-   * calculado e congelado no instante da ativação (soma dos 3 contadores
-   * acima), igual ao mesmo padrão já usado por `coringaTransformWindowUntilTurn`
-   * (ver PlayerState). `undefined` = sem bônus ativo agora.
-   */
-  mosqueteiroHandLimitBonusUntilTurn?: number;
-  /** Valor do bônus temporário de limite de mão concedido pela Munição Infinita, válido enquanto `mosqueteiroHandLimitBonusUntilTurn` ainda não expirou - ver comentário completo acima. */
-  mosqueteiroHandLimitBonusAmount: number;
-  /**
-   * Coringa (redesenho completo, pedido do usuário) - Magia Numeral "Mão de
-   * Ferro" (7,7,7): turno até o qual (inclusive) o botão de transformar uma
-   * carta de magia (J/Q/K) da mão em carta de número 11/12/13 fica
-   * disponível - mesmo padrão de `expiresAtTurn`/`mosqueteiroHandLimitBonusUntilTurn`
-   * (calculado como `turn + 1` no instante da ativação, cobre o turno
-   * seguinte inteiro, expira sozinho - ver resetForNewTurn/
-   * canTransformCoringaMagicCard). `undefined` = janela fechada agora. Uma
-   * vez transformada, a carta marca `coringaTransformedToNumeral: true`
-   * (ver Card em cardUtils.ts) PERMANENTEMENTE - a janela só controla
-   * quando o botão pode ser apertado, nunca desfaz uma transformação já
-   * feita mesmo depois de fechar.
-   */
-  coringaTransformWindowUntilTurn?: number;
-  /**
-   * Besta - Fúria Sanguinária (pedido do usuário: "a magia numeral da besta
-   * devia forçar pelo resto do turno, o descarte de toda carta maior que 6,
-   * não só quando é ativado"): turno até o qual ESTE jogador (o alvo da
-   * magia, nunca quem lançou) não consegue segurar carta numeral de valor
-   * maior que 6 - toda uma que chegar na mão (compra da fase de Compra, ou
-   * qualquer efeito que dê cartas) é descartada na hora. Ver
-   * applyBestaBloodRageSweep, aplicado depois de TODA ação do reducer, e
-   * `expiresAtTurn`/`coringaTransformWindowUntilTurn` acima para o mesmo
-   * padrão de janela por número de turno.
-   */
-  bestaBloodRageUntilTurn?: number;
+  // FIX (overhaul de Status Effects, Fase 5): os 5 contadores/flags a seguir
+  // (mosqueteiroRedirectNextDiscard, mosqueteiroHandLimitBonusUntilTurn/
+  // Amount, coringaTransformWindowUntilTurn, bestaBloodRageUntilTurn,
+  // piromanteSpreadArmed) foram migrados para `PlayerState.statusEffects`
+  // (kinds 'redirectNextDiscard', 'handLimitBonus', 'transformWindow',
+  // 'bloodRage', 'spreadArmed' - ver statusEffects.ts). Cada um era um campo
+  // solto reinventando o mesmo padrão "guarda um `...UntilTurn`, `resetForNewTurn`
+  // compara e limpa" - agora usam os mesmos helpers genéricos
+  // (hasStatus/getStatus/applyStatus/removeStatus/tickEntityStatuses) que
+  // `magicLocked`/`combatModifier` já usam. Bônus: corrige o vazamento real
+  // de `bestaBloodRageUntilTurn` (nunca era limpo de fato, só neutralizado
+  // pela comparação de turno - o tick genérico remove o efeito expirado do
+  // array de verdade).
   /**
    * Piromante (personagem novo, "momento game design") - a Bola de Fogo:
    * combustível visível no campo do próprio jogador, formado somando o
@@ -319,16 +275,6 @@ export interface PlayerState {
    * Reseta pra 0 depois de lançada.
    */
   fireballValue: number;
-  /**
-   * Piromante - Magia Numeral "Chama Repartida" (6,6,6): `true` enquanto o
-   * PRÓXIMO lançamento da Bola de Fogo (não importa quantos turnos até lá)
-   * deve se propagar pros 3 slots do oponente de uma vez, com o valor
-   * dividido entre eles, em vez de mirar 1 slot só com o valor total -
-   * consumido (volta a `false`) assim que esse próximo lançamento acontece,
-   * sem nenhum prazo por turno (diferente de `coringaTransformWindowUntilTurn`
-   * acima) - ver executeFireballLaunch.
-   */
-  piromanteSpreadArmed: boolean;
   /**
    * Druida (personagem novo) - nível permanente de Fotossíntese (Magia
    * Numeral, A+3+7): 0 = nunca ativada; N = ativada N vezes NO TOTAL na
@@ -710,17 +656,11 @@ function createPlayerState(hand: Card[], handLimit: number): PlayerState {
     monsterCard: undefined,
     monsterTargetSlot: undefined,
     monsterProtectedSlots: [],
-    combatModifiers: [],
     towerSlotThisTurn: undefined,
     mosqueteiroDiscardsThisTurn: 0,
     mosqueteiroDiscardsTurnMinus1: 0,
     mosqueteiroDiscardsTurnMinus2: 0,
-    mosqueteiroRedirectNextDiscard: false,
-    mosqueteiroHandLimitBonusUntilTurn: undefined,
-    mosqueteiroHandLimitBonusAmount: 0,
-    coringaTransformWindowUntilTurn: undefined,
     fireballValue: 0,
-    piromanteSpreadArmed: false,
     druidaPhotosynthesisLevel: 0,
   };
 }
@@ -972,6 +912,57 @@ export function isBrotoSlot(slot: FieldSlot): boolean {
  * estar ligados ao mesmo tempo (um jogador com Torre num slot e Broto em
  * outro, ao mesmo tempo) e cada um precisa sobreviver independente do outro.
  */
+/**
+ * FIX (overhaul de Status Effects, Fase 4): substitui os 3 estilos de
+ * mutação de slot que coexistiam no arquivo (`newField[i] = {...slot, X}`,
+ * objeto literal cru, ou spread do array já mutado no mesmo escopo, com
+ * risco de bug de ordem) - um único ponto de escrita, sempre a partir do
+ * slot ORIGINAL (nunca do array já mutado). `patch` aceita um objeto direto
+ * ou uma função (quando o patch depende do slot atual).
+ */
+function updateFieldSlot(
+  field: [FieldSlot, FieldSlot, FieldSlot],
+  index: number,
+  patch: Partial<FieldSlot> | ((slot: FieldSlot) => Partial<FieldSlot>)
+): [FieldSlot, FieldSlot, FieldSlot] {
+  const newField = [...field] as [FieldSlot, FieldSlot, FieldSlot];
+  const resolved = typeof patch === 'function' ? patch(field[index]) : patch;
+  newField[index] = { ...newField[index], ...resolved };
+  return newField;
+}
+
+/**
+ * FIX (overhaul de Status Effects, Fase 4): substitui as variações de
+ * "devolver carta(s) de um slot pra mão" que existiam espalhadas pelo
+ * arquivo, cada uma decidindo sozinha (com nomes de variável diferentes) o
+ * que volta junto - reforços horizontais, reserva de Torre/Broto, se
+ * embaralha a mão depois. Preserva `revealed` como estava por padrão (o
+ * comportamento já estabelecido na maioria dos handlers: uma carta que já
+ * era conhecida do oponente continua "conhecida" mesmo saindo do campo) -
+ * `opts.hide` liga o caso oposto e deliberado (armadilha do Coringa
+ * revelada por um efeito do oponente: volta OCULTA de propósito, pra
+ * confundir qual carta da mão é aquela).
+ */
+function returnSlotToHand(
+  hand: Card[],
+  slot: FieldSlot,
+  opts: { shuffle?: boolean; includeReserves?: boolean; hide?: boolean } = {}
+): { hand: Card[]; clearedSlot: FieldSlot } {
+  const { includeReserves = true } = opts;
+  const rawCardsBack = [
+    ...(slot.faceDownCard ? [slot.faceDownCard] : []),
+    ...(includeReserves ? slot.towerReserve ?? [] : []),
+    ...(includeReserves ? slot.brotoReserve ?? [] : []),
+    ...slot.horizontalCards,
+  ];
+  const cardsBack = opts.hide ? rawCardsBack.map(hideCard) : rawCardsBack;
+  const newHand = opts.shuffle ? shuffle([...hand, ...cardsBack]) : [...hand, ...cardsBack];
+  return {
+    hand: newHand,
+    clearedSlot: { faceDownCard: undefined, horizontalCards: [], towerReserve: undefined, brotoReserve: undefined, revealed: false },
+  };
+}
+
 function keepPersistentFieldSlots(field: [FieldSlot, FieldSlot, FieldSlot]): [FieldSlot, FieldSlot, FieldSlot] {
   return field.map((slot) => (isTowerSlot(slot) || isBrotoSlot(slot) ? slot : { revealed: false, horizontalCards: [] })) as [
     FieldSlot,
@@ -1102,10 +1093,10 @@ function applyCoringaTrapReaction(
   // horizontal presente é devolvida pra mão do dono junto com a reação
   // (mesmo destino de handleReturnCardToHand), nunca deixada pra trás.
   const orphanedHorizontal = kind === 'main' ? slot.horizontalCards : [];
-  const removeFromField = (): FieldSlot => {
-    if (kind === 'main') return { ...slot, faceDownCard: undefined, revealed: false, horizontalCards: [] };
-    return { ...slot, horizontalCards: slot.horizontalCards.filter((c) => c.id !== card.id) };
-  };
+  const removeFromField = (): FieldSlot =>
+    kind === 'main'
+      ? { ...slot, faceDownCard: undefined, revealed: false, horizontalCards: [] }
+      : { ...slot, horizontalCards: slot.horizontalCards.filter((c) => c.id !== card.id) };
 
   if (card.value === 'J') {
     newField[slotIndex] = removeFromField();
@@ -1136,8 +1127,7 @@ function applyCoringaTrapReaction(
 
   if (card.value === 'Q' || card.isMonster) {
     newField[slotIndex] = removeFromField();
-    const returnedCard: Card = { ...card, revealed: false };
-    const newHand = shuffle([...ownerState.hand, returnedCard, ...orphanedHorizontal]);
+    const newHand = shuffle([...ownerState.hand, hideCard(card), ...orphanedHorizontal]);
     const label = card.value === 'Q' ? 'A Rainha armadilha' : 'O Monstro';
     const log = appendLog(
       state,
@@ -1356,17 +1346,18 @@ export function getUnbattledHorizontalSlots(field: [FieldSlot, FieldSlot, FieldS
 /**
  * Índices de slots atingíveis por Mago K (Destruição de Reforço): mesmo
  * critério de `getUnbattledHorizontalSlots` (pilha de horizontais inteira
- * não batalhada) OU um `CombatModifier` ainda ativo sobre uma carta AINDA
- * NÃO batalhada do slot (principal ou horizontal) - FIX (pedido do usuário:
- * "permita que o mago possa destruir marcadores em sua magia do rei").
+ * não batalhada) OU um StatusEffect `kind: 'combatModifier'` ainda ativo
+ * sobre uma carta AINDA NÃO batalhada do slot (principal ou horizontal) -
+ * FIX (pedido do usuário: "permita que o mago possa destruir marcadores em
+ * sua magia do rei").
  */
-export function getDestroyableReinforcementSlots(field: [FieldSlot, FieldSlot, FieldSlot], combatModifiers: CombatModifier[]): number[] {
+export function getDestroyableReinforcementSlots(field: [FieldSlot, FieldSlot, FieldSlot]): number[] {
   return field.reduce<number[]>((acc, slot, i) => {
     const hasUnbattledHorizontal = slot.horizontalCards.length > 0 && slot.horizontalCards.every((c) => !c.battled);
-    const unbattledCardIds = new Set<string>();
-    if (slot.faceDownCard && !slot.faceDownCard.battled) unbattledCardIds.add(slot.faceDownCard.id);
-    slot.horizontalCards.filter((c) => !c.battled).forEach((c) => unbattledCardIds.add(c.id));
-    const hasDestroyableModifier = combatModifiers.some((m) => unbattledCardIds.has(m.cardId));
+    const unbattledCards: Card[] = [];
+    if (slot.faceDownCard && !slot.faceDownCard.battled) unbattledCards.push(slot.faceDownCard);
+    slot.horizontalCards.filter((c) => !c.battled).forEach((c) => unbattledCards.push(c));
+    const hasDestroyableModifier = unbattledCards.some((c) => hasStatus(c, 'combatModifier'));
     if (hasUnbattledHorizontal || hasDestroyableModifier) acc.push(i);
     return acc;
   }, []);
@@ -1421,22 +1412,23 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
       (slot, i) => (slot.faceDownCard || slot.horizontalCards.length > 0) && !isSlotProtected(state, opponent, i)
     ),
     // FIX (pedido do usuário: "a rainha do anjo impede a ativação de um
-    // efeito... até o fim do turno") - ver Card.magicLocked (cardUtils.ts) e
-    // o guard de topo em canActivateMagic. Só entra na lista quando EXISTE
-    // pelo menos 1 carta daquele valor na mão e TODAS estão trancadas -
-    // havendo uma cópia alternativa destrancada, a ativação continua livre.
+    // efeito... até o fim do turno") - ver StatusEffect kind 'magicLocked'
+    // (statusEffects.ts) e o guard de topo em canActivateMagic. Só entra na
+    // lista quando EXISTE pelo menos 1 carta daquele valor na mão e TODAS
+    // estão trancadas - havendo uma cópia alternativa destrancada, a
+    // ativação continua livre.
     lockedMagicValues: (['J', 'Q', 'K'] as const).filter((v) => {
       const cardsOfValue = playerState.hand.filter((c) => c.value === v);
-      return cardsOfValue.length > 0 && cardsOfValue.every((c) => c.magicLocked);
+      return cardsOfValue.length > 0 && cardsOfValue.every((c) => hasStatus(c, 'magicLocked'));
     }),
     // FIX (auditoria completa do Mago - bug real encontrado): agora também
     // exclui slots protegidos - único consumidor deste campo é o gate da
     // Destruição de Reforço (Rei) do Mago, que precisa exatamente disso.
     // FIX (pedido do usuário: "permita que o mago possa destruir marcadores
     // em sua magia do rei") - agora também considera slots sem horizontal
-    // nenhuma mas com um CombatModifier destruível (ver
+    // nenhuma mas com um StatusEffect 'combatModifier' destruível (ver
     // getDestroyableReinforcementSlots acima).
-    hasUnbattledHorizontalCardsInOpponentField: getDestroyableReinforcementSlots(opponentState.field, opponentState.combatModifiers).some(
+    hasUnbattledHorizontalCardsInOpponentField: getDestroyableReinforcementSlots(opponentState.field).some(
       (i) => !isSlotProtected(state, opponent, i)
     ),
     handSize: playerState.hand.length,
@@ -1456,7 +1448,7 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
     hasAceAvailableToDraw: state.deck.some((c) => c.value === 'A') || state.discardPile.some((c) => c.value === 'A'),
     // Mosqueteiro (personagem novo, foco em descarte) - ver comentário
     // completo em MagicActivationContext (magicCards.ts).
-    mosqueteiroRedirectActive: playerState.mosqueteiroRedirectNextDiscard,
+    mosqueteiroRedirectActive: hasStatus(playerState, 'redirectNextDiscard'),
     hasOwnHandCardBeyondSelf: playerState.hand.length > 1,
     hasOpponentHandCards: opponentState.hand.length > 0,
     hasRevealableOpponentCards:
@@ -1519,8 +1511,7 @@ function applyBestaBloodRageSweep(state: GameState): GameState {
   for (const player of [1, 2] as PlayerNumber[]) {
     const key = playerKeyOf(player);
     const playerState = next[key];
-    const until = playerState.bestaBloodRageUntilTurn;
-    if (until === undefined || next.turn > until) continue;
+    if (!hasStatus(playerState, 'bloodRage')) continue;
     const burned = playerState.hand.filter((c) => isPlainNumeralCard(c) && getEffectiveCardValue(c) > 6);
     if (burned.length === 0) continue;
     const kept = playerState.hand.filter((c) => !burned.includes(c));
@@ -2100,7 +2091,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     const shouldReveal = card.transformedValue !== undefined || card.revealed === true;
     newField[slotIndex] = {
       ...newField[slotIndex],
-      faceDownCard: shouldReveal ? { ...card, revealed: true } : card,
+      faceDownCard: shouldReveal ? revealCard(card) : card,
       revealed: shouldReveal,
     };
     log = appendLog(state, log, 'field', `Jogador ${player} posicionou uma carta ${shouldReveal ? 'revelada ' : ''}no slot ${slotIndex + 1}`, { player });
@@ -2125,9 +2116,8 @@ function handleReturnCardToHand(state: GameState, player: PlayerNumber, slotInde
   // por baixo para sempre (nunca voltariam pra lugar nenhum).
   // Druida: a reserva do Broto (se este slot for um) volta pra mão junto,
   // mesmo motivo/padrão já usado pela reserva de torre logo abaixo.
-  const newHand = [...playerState.hand, slot.faceDownCard, ...(slot.towerReserve ?? []), ...(slot.brotoReserve ?? []), ...slot.horizontalCards];
-  const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
-  newField[slotIndex] = { ...newField[slotIndex], faceDownCard: undefined, horizontalCards: [], towerReserve: undefined, brotoReserve: undefined, revealed: false };
+  const { hand: newHand, clearedSlot } = returnSlotToHand(playerState.hand, slot);
+  const newField = updateFieldSlot(playerState.field, slotIndex, clearedSlot);
 
   const log = appendLog(state, state.log, 'field', `Jogador ${player} retornou carta do slot ${slotIndex + 1} para a mão`, { player });
 
@@ -2164,8 +2154,7 @@ function handleReturnHorizontalCardToHand(state: GameState, player: PlayerNumber
   if (!card) return state;
 
   const newHand = [...playerState.hand, card];
-  const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
-  newField[slotIndex] = { ...newField[slotIndex], horizontalCards: newField[slotIndex].horizontalCards.filter((c) => c.id !== cardId) };
+  const newField = updateFieldSlot(playerState.field, slotIndex, (s) => ({ horizontalCards: s.horizontalCards.filter((c) => c.id !== cardId) }));
 
   const log = appendLog(state, state.log, 'field', `Jogador ${player} retornou a carta horizontal do slot ${slotIndex + 1} para a mão`, { player });
 
@@ -2230,14 +2219,12 @@ function handleSwapFieldCard(state: GameState, player: PlayerNumber, cardId: str
 
   const oldCard = slot.faceDownCard;
   const newHand = [...playerState.hand.filter((c) => c.id !== cardId), oldCard];
-  const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
 
   const shouldReveal = card.transformedValue !== undefined || card.revealed === true;
-  newField[slotIndex] = {
-    ...newField[slotIndex],
-    faceDownCard: shouldReveal ? { ...card, revealed: true } : card,
+  const newField = updateFieldSlot(playerState.field, slotIndex, {
+    faceDownCard: shouldReveal ? revealCard(card) : card,
     revealed: shouldReveal,
-  };
+  });
 
   const log = appendLog(
     state,
@@ -2572,7 +2559,7 @@ function executeFireballLaunch(state: GameState, player: PlayerNumber, targetSlo
   const fireballValue = playerState.fireballValue;
   if (fireballValue <= 0) return state;
 
-  const spread = playerState.piromanteSpreadArmed;
+  const spread = hasStatus(playerState, 'spreadArmed');
   const targets = spread ? [0, 1, 2] : targetSlot !== undefined ? [targetSlot] : [];
   if (targets.length === 0) return state;
 
@@ -2637,7 +2624,7 @@ function executeFireballLaunch(state: GameState, player: PlayerNumber, targetSlo
     deck,
     discardPile,
     log,
-    [playerKey]: { ...playerState, fireballValue: 0, piromanteSpreadArmed: false },
+    [playerKey]: removeStatus({ ...playerState, fireballValue: 0 }, 'spreadArmed'),
     [opponentKey]: { ...opponentState, field: newField },
   };
 }
@@ -2659,8 +2646,9 @@ function handleExecuteMagic(
   // FIX (pedido do usuário: "a rainha do anjo agora impede a ativação de um
   // efeito caso a carta revelada por ela seja uma carta mágica até o fim do
   // turno") - guarda de topo, vale pra QUALQUER personagem/carta (ver
-  // Card.magicLocked em cardUtils.ts e o efeito de Visão Celestial abaixo).
-  if (card.magicLocked) {
+  // StatusEffect kind 'magicLocked' em statusEffects.ts e o efeito de Visão
+  // Celestial abaixo).
+  if (hasStatus(card, 'magicLocked')) {
     return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta foi revelada pela Visão Celestial e está trancada até o fim do turno!`) };
   }
 
@@ -3044,13 +3032,17 @@ function handleExecuteMagic(
 
       // FIX (pedido do usuário: "a rainha do anjo agora impede a ativação de
       // um efeito caso a carta revelada por ela seja uma carta mágica até o
-      // fim do turno") - marca `magicLocked` quando a carta revelada é J/Q/K
-      // (ver guarda de topo em handleExecuteMagic e o reset em
-      // resetForNewTurn).
+      // fim do turno") - aplica o StatusEffect 'magicLocked' quando a carta
+      // revelada é J/Q/K (ver guarda de topo em handleExecuteMagic e o tick
+      // em resetForNewTurn).
       const isMagicValue = targetHandCard.value === 'J' || targetHandCard.value === 'Q' || targetHandCard.value === 'K';
-      const newOpponentHand = opponentState.hand.map((c) =>
-        c.id === selectedCards[0] ? { ...c, revealed: true, ...(isMagicValue ? { magicLocked: true } : {}) } : c
-      );
+      const newOpponentHand = opponentState.hand.map((c) => {
+        if (c.id !== selectedCards[0]) return c;
+        const revealedCard = { ...c, revealed: true };
+        return isMagicValue
+          ? applyStatus(revealedCard, { kind: 'magicLocked', source: 'anjo', label: 'Visão Celestial', duration: { type: 'untilPhase', phase: 'draw' } })
+          : revealedCard;
+      });
       const { deck, discardPile } = pushToDiscard(state, [card]);
       const log = appendLog(
         state,
@@ -3080,11 +3072,14 @@ function handleExecuteMagic(
       }
 
       const isMagicValue = targetSlot.faceDownCard.value === 'J' || targetSlot.faceDownCard.value === 'Q' || targetSlot.faceDownCard.value === 'K';
+      const revealedFieldCard = { ...targetSlot.faceDownCard, revealed: true };
       const newField = [...opponentState.field] as [FieldSlot, FieldSlot, FieldSlot];
       newField[selectedSlot] = {
         ...newField[selectedSlot],
         revealed: true,
-        faceDownCard: { ...targetSlot.faceDownCard, revealed: true, ...(isMagicValue ? { magicLocked: true } : {}) },
+        faceDownCard: isMagicValue
+          ? applyStatus(revealedFieldCard, { kind: 'magicLocked', source: 'anjo', label: 'Visão Celestial', duration: { type: 'untilPhase', phase: 'draw' } })
+          : revealedFieldCard,
       };
 
       const { deck, discardPile } = pushToDiscard(state, [card]);
@@ -3124,31 +3119,37 @@ function handleExecuteMagic(
     const hasUnbattledHorizontal = horizontalCards.length > 0 && horizontalCards.every((c) => !c.battled);
     // FIX (pedido do usuário: "permita que o mago possa destruir marcadores
     // em sua magia do rei") - "Destruição de Reforço" agora também mira
-    // qualquer CombatModifier (Fúria Selvagem da Besta, Tiro Certeiro do
-    // Mosqueteiro) ainda ativo sobre uma carta AINDA NÃO batalhada deste
-    // slot (principal ou horizontal) - um marcador é tão "reforço" quanto
-    // uma carta horizontal empilhada, e a magia já existe pra neutralizar
-    // exatamente esse tipo de ameaça antes da disputa.
-    const unbattledCardIds = new Set<string>();
-    if (targetSlot.faceDownCard && !targetSlot.faceDownCard.battled) unbattledCardIds.add(targetSlot.faceDownCard.id);
-    horizontalCards.filter((c) => !c.battled).forEach((c) => unbattledCardIds.add(c.id));
-    const destroyableModifiers = opponentState.combatModifiers.filter((m) => unbattledCardIds.has(m.cardId));
-    if (!hasUnbattledHorizontal && destroyableModifiers.length === 0) return state;
+    // qualquer StatusEffect `kind: 'combatModifier'` (Fúria Selvagem da
+    // Besta, Tiro Certeiro do Mosqueteiro) ainda ativo sobre uma carta AINDA
+    // NÃO batalhada deste slot (principal ou horizontal) - um marcador é tão
+    // "reforço" quanto uma carta horizontal empilhada, e a magia já existe
+    // pra neutralizar exatamente esse tipo de ameaça antes da disputa.
+    const unbattledCards: Card[] = [];
+    if (targetSlot.faceDownCard && !targetSlot.faceDownCard.battled) unbattledCards.push(targetSlot.faceDownCard);
+    horizontalCards.filter((c) => !c.battled).forEach((c) => unbattledCards.push(c));
+    const hasDestroyableModifier = unbattledCards.some((c) => hasStatus(c, 'combatModifier'));
+    if (!hasUnbattledHorizontal && !hasDestroyableModifier) return state;
     if (isSlotProtected(state, opponent, selectedSlot)) {
       return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
     }
 
     const newField = [...opponentState.field] as [FieldSlot, FieldSlot, FieldSlot];
-    if (hasUnbattledHorizontal) {
-      newField[selectedSlot] = { ...newField[selectedSlot], horizontalCards: [] };
-    }
-    const newCombatModifiers =
-      destroyableModifiers.length > 0 ? opponentState.combatModifiers.filter((m) => !unbattledCardIds.has(m.cardId)) : opponentState.combatModifiers;
+    newField[selectedSlot] = {
+      ...newField[selectedSlot],
+      ...(hasUnbattledHorizontal
+        ? { horizontalCards: [] }
+        : hasDestroyableModifier
+        ? { horizontalCards: newField[selectedSlot].horizontalCards.map((c) => (!c.battled ? removeStatus(c, 'combatModifier') : c)) }
+        : {}),
+      ...(hasDestroyableModifier && targetSlot.faceDownCard && !targetSlot.faceDownCard.battled
+        ? { faceDownCard: removeStatus(newField[selectedSlot].faceDownCard!, 'combatModifier') }
+        : {}),
+    };
 
     const { deck, discardPile } = pushToDiscard(state, hasUnbattledHorizontal ? [card, ...horizontalCards] : [card]);
     const destroyedParts = [
       ...(hasUnbattledHorizontal ? [horizontalCards.length > 1 ? 'as cartas horizontais' : 'a carta horizontal'] : []),
-      ...(destroyableModifiers.length > 0 ? ['o(s) marcador(es) de reforço'] : []),
+      ...(hasDestroyableModifier ? ['o(s) marcador(es) de reforço'] : []),
     ];
     const log = appendLog(
       state,
@@ -3164,7 +3165,7 @@ function handleExecuteMagic(
       discardPile,
       log,
       [playerKey]: { ...playerState, hand: handWithoutMagic },
-      [opponentKey]: { ...opponentState, field: newField, combatModifiers: newCombatModifiers },
+      [opponentKey]: { ...opponentState, field: newField },
     };
   }
 
@@ -3211,7 +3212,7 @@ function handleExecuteMagic(
   if (character === 'mosqueteiro' && magicType === 'J') {
     const targetId = selectedCards?.[0];
     if (!targetId) return state;
-    const redirecting = playerState.mosqueteiroRedirectNextDiscard;
+    const redirecting = hasStatus(playerState, 'redirectNextDiscard');
     const opponentState = state[opponentKey];
 
     const targetCard = redirecting
@@ -3238,13 +3239,15 @@ function handleExecuteMagic(
       deck,
       discardPile,
       log,
-      [playerKey]: {
-        ...playerState,
-        hand: newOwnHand,
-        horizontalStackBonus: playerState.horizontalStackBonus + 1,
-        mosqueteiroDiscardsThisTurn: playerState.mosqueteiroDiscardsThisTurn + 1,
-        mosqueteiroRedirectNextDiscard: false,
-      },
+      [playerKey]: removeStatus(
+        {
+          ...playerState,
+          hand: newOwnHand,
+          horizontalStackBonus: playerState.horizontalStackBonus + 1,
+          mosqueteiroDiscardsThisTurn: playerState.mosqueteiroDiscardsThisTurn + 1,
+        },
+        'redirectNextDiscard'
+      ),
       [opponentKey]: { ...opponentState, hand: newOpponentHand },
     };
   }
@@ -3257,7 +3260,7 @@ function handleExecuteMagic(
   if (character === 'mosqueteiro' && magicType === 'Q') {
     const discardIds = (selectedCards ?? []).slice(0, 3);
     if (discardIds.length === 0) return state;
-    const redirecting = playerState.mosqueteiroRedirectNextDiscard;
+    const redirecting = hasStatus(playerState, 'redirectNextDiscard');
     const opponentState = state[opponentKey];
 
     const discardSourceHand = redirecting ? opponentState.hand : playerState.hand.filter((c) => c.id !== cardId);
@@ -3307,12 +3310,14 @@ function handleExecuteMagic(
       deck,
       discardPile,
       log,
-      [playerKey]: {
-        ...playerState,
-        hand: newOwnHand,
-        mosqueteiroDiscardsThisTurn: playerState.mosqueteiroDiscardsThisTurn + discardedCards.length,
-        mosqueteiroRedirectNextDiscard: false,
-      },
+      [playerKey]: removeStatus(
+        {
+          ...playerState,
+          hand: newOwnHand,
+          mosqueteiroDiscardsThisTurn: playerState.mosqueteiroDiscardsThisTurn + discardedCards.length,
+        },
+        'redirectNextDiscard'
+      ),
       [opponentKey]: { ...opponentState, hand: newOpponentHand, field: newOpponentField },
     };
     // Coringa (redesenho completo) - armadilhas de campo reagem quando um
@@ -3331,8 +3336,8 @@ function handleExecuteMagic(
   // `mosqueteiroDiscardsThisTurn + mosqueteiroDiscardsTurnMinus1` NO
   // INSTANTE da ativação (quantas cartas as magias do Mosqueteiro
   // descartaram NESTE turno E no ANTERIOR) - lido e congelado aqui num
-  // `CombatModifier` (`combatModifiers`, ver PlayerState), aplicado de
-  // verdade na resolução de combate (ver handleResolveCombat). Só os 2
+  // StatusEffect `kind: 'combatModifier'` (ver statusEffects.ts), aplicado
+  // de verdade na resolução de combate (ver handleResolveCombat). Só os 2
   // turnos mais recentes contam aqui - a janela de 3 turnos (T-2 incluso) é
   // só da Magia Numeral, ver handleFinalizeNumeralSpell.
   if (character === 'mosqueteiro' && magicType === 'K') {
@@ -3360,12 +3365,23 @@ function handleExecuteMagic(
     // um novo do zero com o `boostAmount` recém-calculado - reativar sobre a
     // MESMA carta não acumulava nada (só recomputava o mesmo valor), e
     // reativar sobre outra carta simplesmente MOVIA o bônus, nunca somava.
-    // Agora o marcador é procurado por `cardId`: reativar sobre a carta já
-    // marcada SOMA (nesse sentido, aprofunda) o valor existente; mirar uma
-    // carta diferente cria um marcador independente, permitindo vários
-    // "Tiro Certeiro" simultâneos em cartas diferentes do campo do oponente.
-    const existingMarker = opponentState.combatModifiers.find((m) => m.source === 'mosqueteiro' && m.cardId === targetId);
-    const newAmount = (existingMarker?.amount ?? 0) - boostAmount;
+    // Agora o StatusEffect é procurado por carta (`applyStatus` com merge
+    // customizado): reativar sobre a carta já marcada SOMA (nesse sentido,
+    // aprofunda) o valor existente; mirar uma carta diferente cria um
+    // marcador independente, permitindo vários "Tiro Certeiro" simultâneos
+    // em cartas diferentes do campo do oponente.
+    const markedCard = applyStatus(
+      targetCard,
+      { kind: 'combatModifier', source: 'mosqueteiro', label: 'Tiro Certeiro', mode: 'add', magnitude: -boostAmount, duration: { type: 'untilPhase', phase: 'draw' } },
+      (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+    );
+    const newAmount = getStatusMagnitude(markedCard, 'combatModifier', { source: 'mosqueteiro' });
+    const newField = [...opponentState.field] as [FieldSlot, FieldSlot, FieldSlot];
+    newField[targetSlotIndex] =
+      targetSlot.faceDownCard?.id === targetId
+        ? { ...targetSlot, faceDownCard: markedCard }
+        : { ...targetSlot, horizontalCards: targetSlot.horizontalCards.map((c) => (c.id === targetId ? markedCard : c)) };
+
     const { deck, discardPile } = pushToDiscard(state, [card]);
     const log = appendLog(
       state,
@@ -3381,13 +3397,7 @@ function handleExecuteMagic(
       discardPile,
       log,
       [playerKey]: { ...playerState, hand: handWithoutMagic },
-      [opponentKey]: {
-        ...opponentState,
-        combatModifiers: [
-          ...opponentState.combatModifiers.filter((m) => !(m.source === 'mosqueteiro' && m.cardId === targetId)),
-          { cardId: targetId, kind: 'add', amount: newAmount, source: 'mosqueteiro', label: 'Tiro Certeiro' },
-        ],
-      },
+      [opponentKey]: { ...opponentState, field: newField },
     };
   }
 
@@ -3556,8 +3566,28 @@ function handleExecuteMagic(
     const halved = Math.floor(brotoValue / 2);
     if (halved <= 0) return state; // Broto vale 1 (ou 0) - nada pra reduzir
     const markerAmount = halved + level;
-    const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
-    newField[brotoSlotIndex] = { ...brotoSlot, faceDownCard: { ...brotoTop, transformedValue: halved } };
+    const markedCard = applyStatus(targetCard, {
+      kind: 'combatModifier',
+      source: 'druida',
+      label: 'Simbiose',
+      mode: 'add',
+      magnitude: markerAmount,
+      duration: { type: 'untilPhase', phase: 'draw' },
+    });
+    // O alvo nunca é a `faceDownCard` do slot do Broto (é sempre o próprio
+    // `brotoTop`, já excluído acima) - só pode ser a carta principal de OUTRO
+    // slot, ou uma horizontal empilhada em qualquer slot (inclusive o do
+    // Broto). Por isso as duas mudanças (reduzir o Broto / marcar o alvo)
+    // nunca competem pelo mesmo `faceDownCard`, mas podem cair no mesmo
+    // índice de slot (horizontal sobre o próprio Broto).
+    const targetSlotIndex = playerState.field.findIndex((s) => s.faceDownCard?.id === targetId || s.horizontalCards.some((c) => c.id === targetId));
+    const newField = playerState.field.map((slot, i) => {
+      const withBrotoReduced = i === brotoSlotIndex ? { ...slot, faceDownCard: { ...brotoTop, transformedValue: halved } } : slot;
+      if (i !== targetSlotIndex) return withBrotoReduced;
+      return slot.faceDownCard?.id === targetId
+        ? { ...withBrotoReduced, faceDownCard: markedCard }
+        : { ...withBrotoReduced, horizontalCards: slot.horizontalCards.map((c) => (c.id === targetId ? markedCard : c)) };
+    }) as [FieldSlot, FieldSlot, FieldSlot];
     const { deck, discardPile } = pushToDiscard(state, [card]);
     const log = appendLog(
       state,
@@ -3571,12 +3601,7 @@ function handleExecuteMagic(
       deck,
       discardPile,
       log,
-      [playerKey]: {
-        ...playerState,
-        hand: handWithoutMagic,
-        field: newField,
-        combatModifiers: [...playerState.combatModifiers, { cardId: targetId, kind: 'add', amount: markerAmount, source: 'druida', label: 'Simbiose' }],
-      },
+      [playerKey]: { ...playerState, hand: handWithoutMagic, field: newField },
     };
   }
 
@@ -3584,8 +3609,8 @@ function handleExecuteMagic(
   // Fase de COMBATE. FIX (pedido do usuário: mesma mudança de Simbiose acima
   // - único efeito de ativação agora é reduzir o Broto pela metade): o
   // marcador é NEGATIVO e mira uma carta do OPONENTE - primeira magia do
-  // jogo a escrever em `combatModifiers` do adversário (Besta/Mosqueteiro só
-  // se auto-buffam - ver comentário completo em CombatModifier).
+  // jogo a escrever um StatusEffect `kind: 'combatModifier'` no campo do
+  // adversário (Besta/Mosqueteiro só se auto-buffam).
   if (character === 'druida' && magicType === 'K') {
     const brotoSlotIndex = playerState.field.findIndex(isBrotoSlot);
     if (brotoSlotIndex === -1) return state;
@@ -3611,6 +3636,19 @@ function handleExecuteMagic(
     const debuffAmount = halved + level;
     const newField = [...playerState.field] as [FieldSlot, FieldSlot, FieldSlot];
     newField[brotoSlotIndex] = { ...brotoSlot, faceDownCard: { ...brotoTop, transformedValue: halved } };
+    const markedCard = applyStatus(targetCard, {
+      kind: 'combatModifier',
+      source: 'druida',
+      label: 'Urtiga',
+      mode: 'add',
+      magnitude: -debuffAmount,
+      duration: { type: 'untilPhase', phase: 'draw' },
+    });
+    const newOpponentField = [...opponentState.field] as [FieldSlot, FieldSlot, FieldSlot];
+    newOpponentField[targetSlotIndex] =
+      targetSlot.faceDownCard?.id === targetId
+        ? { ...targetSlot, faceDownCard: markedCard }
+        : { ...targetSlot, horizontalCards: targetSlot.horizontalCards.map((c) => (c.id === targetId ? markedCard : c)) };
     const { deck, discardPile } = pushToDiscard(state, [card]);
     const log = appendLog(
       state,
@@ -3625,10 +3663,7 @@ function handleExecuteMagic(
       discardPile,
       log,
       [playerKey]: { ...playerState, hand: handWithoutMagic, field: newField },
-      [opponentKey]: {
-        ...opponentState,
-        combatModifiers: [...opponentState.combatModifiers, { cardId: targetId, kind: 'add', amount: -debuffAmount, source: 'druida', label: 'Urtiga' }],
-      },
+      [opponentKey]: { ...opponentState, field: newOpponentField },
     };
   }
 
@@ -4055,12 +4090,14 @@ function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumbe
     return {
       ...state,
       log,
-      [playerKey]: {
-        ...playerState,
-        monsterCard: { ...monster, monsterUsed: true, monsterUseCount: (monster.monsterUseCount ?? 0) + 1 },
-        monsterTargetSlot: undefined,
-        mosqueteiroRedirectNextDiscard: true,
-      },
+      [playerKey]: applyStatus(
+        {
+          ...playerState,
+          monsterCard: { ...monster, monsterUsed: true, monsterUseCount: (monster.monsterUseCount ?? 0) + 1 },
+          monsterTargetSlot: undefined,
+        },
+        { kind: 'redirectNextDiscard', source: 'mosqueteiro', label: 'Recarga Rápida', duration: { type: 'untilPhase', phase: 'draw' } }
+      ),
     };
   }
 
@@ -4106,6 +4143,28 @@ function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumbe
 
   const log = appendLog(state, state.log, 'monster', `Jogador ${player} ativou no slot ${targetSlotIndex + 1} - carta selecionada será dobrada no combate`, { player });
 
+  // FIX (pedido da Besta): reativar Fúria Selvagem limpa o marcador antigo do
+  // CAMPO INTEIRO (não só do slot alvo, já que a carta anterior pode ter
+  // saído do slot que a hospedava) antes de marcar a nova carta escolhida.
+  const fieldWithoutOldMarker = removeStatusFromField(playerState.field, 'combatModifier', 'besta');
+  const targetSlot = fieldWithoutOldMarker[targetSlotIndex];
+  const targetCard = (targetSlot.faceDownCard?.id === targetCardId ? targetSlot.faceDownCard : targetSlot.horizontalCards.find((c) => c.id === targetCardId))!;
+  const markedCard = applyStatus(targetCard, {
+    kind: 'combatModifier',
+    source: 'besta',
+    label: 'Fúria Selvagem',
+    mode: 'multiply',
+    magnitude: 2,
+    duration: { type: 'untilPhase', phase: 'draw' },
+  });
+  const newField = fieldWithoutOldMarker.map((slot, i) =>
+    i !== targetSlotIndex
+      ? slot
+      : slot.faceDownCard?.id === targetCardId
+      ? { ...slot, faceDownCard: markedCard }
+      : { ...slot, horizontalCards: slot.horizontalCards.map((c) => (c.id === targetCardId ? markedCard : c)) }
+  ) as [FieldSlot, FieldSlot, FieldSlot];
+
   return {
     ...state,
     log,
@@ -4113,10 +4172,7 @@ function handleActivateMonsterEffectSimple(state: GameState, player: PlayerNumbe
       ...playerState,
       monsterCard: { ...monster, monsterUsed: true, monsterUseCount: (monster.monsterUseCount ?? 0) + 1 },
       monsterTargetSlot: targetSlotIndex,
-      combatModifiers: [
-        ...playerState.combatModifiers.filter((m) => m.source !== 'besta'),
-        { cardId: targetCardId, kind: 'multiply', amount: 2, source: 'besta', label: 'Fúria Selvagem' },
-      ],
+      field: newField,
     },
   };
 }
@@ -4204,8 +4260,7 @@ function handleTransformCoringaMagicCard(state: GameState, player: PlayerNumber,
   if (characterOf(state, player) !== 'coringa') return state;
   const playerKey = playerKeyOf(player);
   const playerState = state[playerKey];
-  const windowUntil = playerState.coringaTransformWindowUntilTurn;
-  if (windowUntil === undefined || state.turn > windowUntil) return state;
+  if (!hasStatus(playerState, 'transformWindow')) return state;
 
   const card = playerState.hand.find((c) => c.id === cardId);
   if (!card || card.coringaTransformedToNumeral) return state;
@@ -4427,7 +4482,10 @@ function handleFinalizeNumeralSpell(state: GameState): GameState {
     // que o jogador enxerga é justamente o turno seguinte - onde o oponente
     // de fato compra e joga. Marcar o turno atual faria o efeito expirar no
     // mesmo instante em que foi criado.
-    updatedOpponent = { ...opponentState, hand: drawn, bestaBloodRageUntilTurn: state.turn + 1 };
+    updatedOpponent = applyStatus(
+      { ...opponentState, hand: drawn },
+      { kind: 'bloodRage', source: 'besta', label: 'Fúria Sanguinária', duration: { type: 'untilTurn', turn: state.turn + 1 } }
+    );
     log = appendLog(
       state,
       log,
@@ -4447,11 +4505,13 @@ function handleFinalizeNumeralSpell(state: GameState): GameState {
     // expiração de `coringaTempHandLimitBonus`, aplicado/expirado em
     // resetForNewTurn).
     const bonus = playerState.mosqueteiroDiscardsThisTurn + playerState.mosqueteiroDiscardsTurnMinus1 + playerState.mosqueteiroDiscardsTurnMinus2;
-    updatedPlayer = {
-      ...updatedPlayer,
-      mosqueteiroHandLimitBonusUntilTurn: state.turn + 1,
-      mosqueteiroHandLimitBonusAmount: bonus,
-    };
+    updatedPlayer = applyStatus(updatedPlayer, {
+      kind: 'handLimitBonus',
+      source: 'mosqueteiro',
+      label: 'Munição Infinita',
+      magnitude: bonus,
+      duration: { type: 'untilTurn', turn: state.turn + 1 },
+    });
     log =
       bonus > 0
         ? appendLog(state, log, 'numeral-spell', `Jogador ${player} terá o limite de mão aumentado em ${bonus} no próximo turno`, { player })
@@ -4466,10 +4526,12 @@ function handleFinalizeNumeralSpell(state: GameState): GameState {
     // em carta de número 11/12/13 (ver TRANSFORM_CORINGA_MAGIC_CARD). Não
     // faz mais nada sozinho - a transformação em si é uma ação separada,
     // escolhida pelo jogador carta a carta.
-    updatedPlayer = {
-      ...updatedPlayer,
-      coringaTransformWindowUntilTurn: state.turn + 1,
-    };
+    updatedPlayer = applyStatus(updatedPlayer, {
+      kind: 'transformWindow',
+      source: 'coringa',
+      label: 'Mão de Ferro',
+      duration: { type: 'untilTurn', turn: state.turn + 1 },
+    });
     log = appendLog(state, log, 'numeral-spell', `Pulando fase de combate - indo direto para o próximo turno`);
     log = appendLog(
       state,
@@ -4485,10 +4547,12 @@ function handleFinalizeNumeralSpell(state: GameState): GameState {
     // turno, ao contrário de coringaTransformWindowUntilTurn acima (fica
     // armado até realmente ser consumido por um lançamento, não importa
     // quantos turnos demore - ver executeFireballLaunch).
-    updatedPlayer = {
-      ...updatedPlayer,
-      piromanteSpreadArmed: true,
-    };
+    updatedPlayer = applyStatus(updatedPlayer, {
+      kind: 'spreadArmed',
+      source: 'piromante',
+      label: 'Chama Repartida',
+      duration: { type: 'permanent' },
+    });
     log = appendLog(state, log, 'numeral-spell', `Chama Repartida: o próximo lançamento da Bola de Fogo de Jogador ${player} vai atingir os 3 slots do oponente`, { player });
   } else if (character === 'mago') {
     // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
@@ -4615,17 +4679,19 @@ function handleSelectCombatSlot(state: GameState, player: PlayerNumber, slotInde
 
 /**
  * Calcula o valor de combate TOTAL de um slot (carta principal + horizontais
- * + reserva de torre) para UM jogador, aplicando `modifiers` (ver
- * `CombatModifier`) e registrando no log qualquer modificador que de fato
- * bateu numa carta presente no slot. Extraído daqui pra ser chamado uma vez
- * por jogador em `handleResolveCombat`, no lugar de ~25 linhas repetidas
- * P1/P2 (a mesma lógica, uma cópia por jogador) que existiam antes desta
- * função - `resolveWholeField` (handleFinalizeCombat, mais abaixo) já usava
- * esse mesmo padrão de helper compartilhado, este ponto era a exceção.
+ * + reserva de torre) para UM jogador, aplicando os StatusEffect de
+ * `kind: 'combatModifier'` já presentes em cada carta (overhaul de Status
+ * Effects - ver statusEffects.ts) e registrando no log qualquer modificador
+ * que de fato bateu numa carta presente no slot. Extraído daqui pra ser
+ * chamado uma vez por jogador em `handleResolveCombat`, no lugar de ~25
+ * linhas repetidas P1/P2 (a mesma lógica, uma cópia por jogador) que
+ * existiam antes desta função - `resolveWholeField` (handleFinalizeCombat,
+ * mais abaixo) já usava esse mesmo padrão de helper compartilhado, este
+ * ponto era a exceção.
  *
  * Torre NUNCA recebe modificador (só o topo do slot ou uma horizontal - ver
  * design do Modo Towers) - por isso `slot.towerReserve` é somado por fora,
- * sem passar por `applyCombatModifiers`.
+ * sem passar por `applyCombatModifierStatuses`.
  */
 function slotCombatTotal(
   state: GameState,
@@ -4633,37 +4699,37 @@ function slotCombatTotal(
   player: PlayerNumber,
   slot: FieldSlot,
   horizontalCards: Card[],
-  modifiers: CombatModifier[],
   spotlight: GameState['spotlight']
 ): { total: number; log: GameState['log'] } {
   let nextLog = log;
   const allCards = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...horizontalCards];
-  for (const modifier of modifiers) {
-    const card = allCards.find((c) => c.id === modifier.cardId);
-    if (!card) continue;
-    const base = getSpotlightAdjustedValue(card, spotlight);
-    // FIX (bug real exposto pela mudança de planos do Tiro Certeiro do
-    // Mosqueteiro, "marcadores negativos nas cartas do campo do oponente"):
-    // esta linha sempre disse "reforçou... em +{amount}", certo enquanto o
-    // ÚNICO modificador 'add' fora Simbiose (sempre positivo) era o Tiro
-    // Certeiro antigo (também sempre positivo) - com Urtiga do Druida
-    // (já existia, sempre negativo) e agora Tiro Certeiro (negativo também)
-    // usando o mesmo `kind: 'add'`, um `amount` negativo produzia "reforçou
-    // ... em +-3" (sinal duplicado, verbo errado). Agora escolhe o verbo e o
-    // sinal certos conforme o valor de verdade.
-    nextLog =
-      modifier.kind === 'multiply'
-        ? appendLog(state, nextLog, 'monster', `${modifier.label} dobrou a carta ${card.value}${card.suit} de Jogador ${player} (${base} → ${base * modifier.amount})`, { player })
-        : appendLog(
-            state,
-            nextLog,
-            'magic',
-            `${modifier.label} ${modifier.amount >= 0 ? 'reforçou' : 'enfraqueceu'} a carta ${card.value}${card.suit} de Jogador ${player} em ${modifier.amount >= 0 ? '+' : ''}${modifier.amount}`,
-            { player }
-          );
+  for (const card of allCards) {
+    for (const modifier of getCombatModifierStatuses(card)) {
+      const base = getSpotlightAdjustedValue(card, spotlight);
+      const amount = modifier.magnitude ?? 0;
+      // FIX (bug real exposto pela mudança de planos do Tiro Certeiro do
+      // Mosqueteiro, "marcadores negativos nas cartas do campo do oponente"):
+      // esta linha sempre disse "reforçou... em +{amount}", certo enquanto o
+      // ÚNICO modificador 'add' fora Simbiose (sempre positivo) era o Tiro
+      // Certeiro antigo (também sempre positivo) - com Urtiga do Druida
+      // (já existia, sempre negativo) e agora Tiro Certeiro (negativo também)
+      // usando o mesmo `mode: 'add'`, um `amount` negativo produzia "reforçou
+      // ... em +-3" (sinal duplicado, verbo errado). Agora escolhe o verbo e o
+      // sinal certos conforme o valor de verdade.
+      nextLog =
+        modifier.mode === 'multiply'
+          ? appendLog(state, nextLog, 'monster', `${modifier.label} dobrou a carta ${card.value}${card.suit} de Jogador ${player} (${base} → ${base * amount})`, { player })
+          : appendLog(
+              state,
+              nextLog,
+              'magic',
+              `${modifier.label} ${amount >= 0 ? 'reforçou' : 'enfraqueceu'} a carta ${card.value}${card.suit} de Jogador ${player} em ${amount >= 0 ? '+' : ''}${amount}`,
+              { player }
+            );
+    }
   }
-  const mainValue = slot.faceDownCard ? applyCombatModifiers(getSpotlightAdjustedValue(slot.faceDownCard, spotlight), slot.faceDownCard.id, modifiers) : 1;
-  const horizontalValue = horizontalCards.reduce((sum, c) => sum + applyCombatModifiers(getSpotlightAdjustedValue(c, spotlight), c.id, modifiers), 0);
+  const mainValue = slot.faceDownCard ? applyCombatModifierStatuses(getSpotlightAdjustedValue(slot.faceDownCard, spotlight), slot.faceDownCard) : 1;
+  const horizontalValue = horizontalCards.reduce((sum, c) => sum + applyCombatModifierStatuses(getSpotlightAdjustedValue(c, spotlight), c), 0);
   // FIX (Modo Towers, pedido do usuário): a reserva da torre (cartas
   // empilhadas ABAIXO do topo) soma ao valor de combate do slot - o topo
   // (mainValue acima) já é contado normalmente, então isso nunca soma em
@@ -4767,20 +4833,19 @@ function handleResolveCombat(state: GameState, coringaQCopyTargetId?: string): G
   // lugar de `getEffectiveCardValue` em toda esta função - já resolve o
   // valor efetivo normal quando não há Spotlight ativo (ver spotlight.ts).
   //
-  // Fúria Selvagem da Besta e Tiro Certeiro do Mosqueteiro (ver
-  // `PlayerState.combatModifiers`) são aplicados aqui via `slotCombatTotal`
-  // (helper compartilhado logo abaixo, chamado uma vez por jogador) em vez
-  // de lógica duplicada P1/P2 - `combatModifiers` de cada jogador só contém
-  // entradas do PRÓPRIO personagem (só Besta ativa 'besta', só Mosqueteiro
-  // ativa 'mosqueteiro'), então não precisa checar `player1Character`/
-  // `monsterCard?.monsterUsed` aqui: a presença da entrada já significa
-  // "ativado e ainda válido neste turno" (zerado em resetForNewTurn).
-  const p1Result = slotCombatTotal(state, log, 1, p1Slot, p1Horizontal, state.player1.combatModifiers, state.spotlight);
+  // Fúria Selvagem da Besta e Tiro Certeiro do Mosqueteiro (StatusEffect
+  // kind 'combatModifier', ver statusEffects.ts) são aplicados aqui via
+  // `slotCombatTotal` (helper compartilhado logo abaixo, chamado uma vez por
+  // jogador) em vez de lógica duplicada P1/P2 - o efeito já mora dentro da
+  // carta certa, então não precisa checar `player1Character`/
+  // `monsterCard?.monsterUsed` aqui: a presença do StatusEffect já significa
+  // "ativado e ainda válido neste turno" (removido pelo tick em resetForNewTurn).
+  const p1Result = slotCombatTotal(state, log, 1, p1Slot, p1Horizontal, state.spotlight);
   log = p1Result.log;
   const p1Total = p1Result.total;
   const p1TowerValue = (p1Slot.towerReserve ?? []).reduce((sum, c) => sum + getSpotlightAdjustedValue(c, state.spotlight), 0);
 
-  const p2Result = slotCombatTotal(state, log, 2, p2Slot, p2Horizontal, state.player2.combatModifiers, state.spotlight);
+  const p2Result = slotCombatTotal(state, log, 2, p2Slot, p2Horizontal, state.spotlight);
   log = p2Result.log;
   const p2Total = p2Result.total;
   const p2TowerValue = (p2Slot.towerReserve ?? []).reduce((sum, c) => sum + getSpotlightAdjustedValue(c, state.spotlight), 0);
@@ -5305,68 +5370,66 @@ function advancePhaseState(state: GameState): GameState {
   // só tem sentido DENTRO de uma única fase de combate, ele agora é sempre
   // zerado a cada transição de fase (nunca precisa "sobreviver" a uma
   // transição, mesmo dentro do mesmo turno).
-  const resetForNewTurn = (p: PlayerState, monster: { kept: Card | undefined }): PlayerState => ({
-    ...p,
-    // FIX (pedido do usuário: "a rainha do anjo agora impede a ativação de um
-    // efeito... até o fim do turno") - `magicLocked` (Card, cardUtils.ts) é
-    // zerado em TODA carta da mão na virada pra Compra, mesmo padrão de
-    // qualquer outro estado "até o fim do turno" já usado aqui (ex.:
-    // `mosqueteiroHandLimitBonusUntilTurn` acima).
-    hand: newPhase === 'draw' ? p.hand.map((c) => (c.magicLocked ? { ...c, magicLocked: false } : c)) : p.hand,
+  const resetForNewTurn = (p: PlayerState, monster: { kept: Card | undefined }): PlayerState => {
+    // FIX (overhaul de Status Effects, Fase 3+5): `tickEntityStatuses` expira
+    // sozinho qualquer StatusEffect cuja `duration` bate com esta transição
+    // (ex.: 'magicLocked' com `untilPhase: 'draw'`, ou os 5 contadores de
+    // jogador com `untilTurn`/`untilPhase`) - seguro chamar em TODA transição
+    // de fase, não só na virada pra Compra: a condição de duração já embute
+    // o filtro de fase certo, então nada é removido fora de hora. Calculado
+    // uma vez aqui pra `handLimit` (que precisa ler o bônus JÁ tickado) e o
+    // objeto de retorno usarem o mesmo resultado.
+    const tickedPlayerStatuses = tickStatuses(p.statusEffects ?? [], { newTurn, newPhase });
     // FIX (Modo Towers, pedido do usuário): "mão aumentada em 1".
-    // Mosqueteiro - Munição Infinita: bônus recalculado do zero em TODA
-    // transição de fase a partir de `mosqueteiroHandLimitBonusUntilTurn`
-    // (não somado uma vez só) - garante que o bônus suma sozinho, sem ação
-    // extra, no turno em que expira.
-    handLimit:
-      8 +
-      p.permanentDrawBonus +
-      (state.gameConfig.towersMode ? 1 : 0) +
-      (p.mosqueteiroHandLimitBonusUntilTurn !== undefined && newTurn <= p.mosqueteiroHandLimitBonusUntilTurn ? p.mosqueteiroHandLimitBonusAmount : 0),
-    mosqueteiroHandLimitBonusUntilTurn:
-      p.mosqueteiroHandLimitBonusUntilTurn !== undefined && newTurn <= p.mosqueteiroHandLimitBonusUntilTurn ? p.mosqueteiroHandLimitBonusUntilTurn : undefined,
-    mosqueteiroHandLimitBonusAmount:
-      p.mosqueteiroHandLimitBonusUntilTurn !== undefined && newTurn <= p.mosqueteiroHandLimitBonusUntilTurn ? p.mosqueteiroHandLimitBonusAmount : 0,
-    // Coringa (redesenho completo) - Mão de Ferro: a janela de transformação
-    // expira sozinha, mesmo padrão dos campos acima - só CONTROLA quando o
-    // botão de transformar pode ser apertado, nunca desfaz uma
-    // transformação já feita (ver `coringaTransformedToNumeral` em Card,
-    // permanente, nunca mexido aqui).
-    coringaTransformWindowUntilTurn:
-      p.coringaTransformWindowUntilTurn !== undefined && newTurn <= p.coringaTransformWindowUntilTurn ? p.coringaTransformWindowUntilTurn : undefined,
-    horizontalStackBonus: 0,
-    combatWins: 0,
-    // FIX (pedido do usuário, Modo Towers): a virada de turno preserva os
-    // slots de torre (ver keepPersistentFieldSlots) - quem chama já descartou o resto
-    // do campo, então nada fica em campo e no descarte ao mesmo tempo.
-    // FIX (pedido do usuário: "volte atrás com a ideia de ser um acúmulo por
-    // turno, é pra ser um acúmulo por fase") - reversão de uma decisão
-    // confirmada antes (1x por turno, na virada Combate->Compra) - agora
-    // `growDruidaBrotoField` roda em TODA transição de fase (Compra-
-    // >Estratégia, Estratégia->Combate, Combate->Compra: 3x por turno), não
-    // só na de turno. `keepPersistentFieldSlots` continua só na virada de
-    // turno de verdade (`newPhase === 'draw'`) - o campo não é "limpo" no
-    // meio do turno, só o Broto cresce mais vezes.
-    field: growDruidaBrotoField(newPhase === 'draw' ? keepPersistentFieldSlots(p.field) : p.field, p.druidaPhotosynthesisLevel),
-    monsterCard: newPhase === 'draw' ? monster.kept : p.monsterCard,
-    monsterTargetSlot: newPhase === 'draw' ? undefined : p.monsterTargetSlot,
-    monsterProtectedSlots: newPhase === 'draw' ? [] : p.monsterProtectedSlots,
-    combatModifiers: newPhase === 'draw' ? [] : p.combatModifiers,
-    discardsThisTurn: newPhase === 'draw' ? 0 : p.discardsThisTurn,
-    drawsThisTurn: newPhase === 'draw' ? 0 : p.drawsThisTurn,
-    fusesThisTurn: newPhase === 'draw' ? 0 : p.fusesThisTurn,
-    towerSlotThisTurn: newPhase === 'draw' ? undefined : p.towerSlotThisTurn,
-    // Mosqueteiro (personagem novo) - janela deslizante de 3 turnos (ver
-    // comentário completo em `mosqueteiroDiscardsThisTurn`, PlayerState): a
-    // cada nova virada de turno, T-1 vira T-2 e o valor final do turno que
-    // está terminando vira o novo T-1 - só acontece de verdade na entrada na
-    // fase de Compra (nova virada de turno), mesmo padrão de todo o resto
-    // deste helper.
-    mosqueteiroDiscardsTurnMinus2: newPhase === 'draw' ? p.mosqueteiroDiscardsTurnMinus1 : p.mosqueteiroDiscardsTurnMinus2,
-    mosqueteiroDiscardsTurnMinus1: newPhase === 'draw' ? p.mosqueteiroDiscardsThisTurn : p.mosqueteiroDiscardsTurnMinus1,
-    mosqueteiroDiscardsThisTurn: newPhase === 'draw' ? 0 : p.mosqueteiroDiscardsThisTurn,
-    mosqueteiroRedirectNextDiscard: newPhase === 'draw' ? false : p.mosqueteiroRedirectNextDiscard,
-  });
+    // Mosqueteiro - Munição Infinita: bônus lido do StatusEffect
+    // 'handLimitBonus' JÁ tickado acima - se expirou nesta transição, some
+    // do handLimit no mesmo instante, sem ação extra.
+    const handLimitBonus = getStatusMagnitude({ statusEffects: tickedPlayerStatuses }, 'handLimitBonus', { source: 'mosqueteiro' });
+    return {
+      ...p,
+      statusEffects: tickedPlayerStatuses,
+      hand: p.hand.map((c) => tickEntityStatuses(c, { newTurn, newPhase })),
+      handLimit: 8 + p.permanentDrawBonus + (state.gameConfig.towersMode ? 1 : 0) + handLimitBonus,
+      horizontalStackBonus: 0,
+      combatWins: 0,
+      // FIX (pedido do usuário, Modo Towers): a virada de turno preserva os
+      // slots de torre (ver keepPersistentFieldSlots) - quem chama já descartou o resto
+      // do campo, então nada fica em campo e no descarte ao mesmo tempo.
+      // FIX (pedido do usuário: "volte atrás com a ideia de ser um acúmulo por
+      // turno, é pra ser um acúmulo por fase") - reversão de uma decisão
+      // confirmada antes (1x por turno, na virada Combate->Compra) - agora
+      // `growDruidaBrotoField` roda em TODA transição de fase (Compra-
+      // >Estratégia, Estratégia->Combate, Combate->Compra: 3x por turno), não
+      // só na de turno. `keepPersistentFieldSlots` continua só na virada de
+      // turno de verdade (`newPhase === 'draw'`) - o campo não é "limpo" no
+      // meio do turno, só o Broto cresce mais vezes.
+      // FIX (overhaul de Status Effects, Fase 3): `tickFieldStatuses` expira
+      // sozinho qualquer StatusEffect de carta do campo cuja `duration` bate
+      // com esta transição (ex.: `combatModifier` do Fúria Selvagem/Tiro
+      // Certeiro/Simbiose/Urtiga, com `untilPhase: 'draw'`) - mesmo raciocínio
+      // do tick da mão acima, seguro chamar em toda transição de fase.
+      field: growDruidaBrotoField(
+        tickFieldStatuses(newPhase === 'draw' ? keepPersistentFieldSlots(p.field) : p.field, { newTurn, newPhase }),
+        p.druidaPhotosynthesisLevel
+      ),
+      monsterCard: newPhase === 'draw' ? monster.kept : p.monsterCard,
+      monsterTargetSlot: newPhase === 'draw' ? undefined : p.monsterTargetSlot,
+      monsterProtectedSlots: newPhase === 'draw' ? [] : p.monsterProtectedSlots,
+      discardsThisTurn: newPhase === 'draw' ? 0 : p.discardsThisTurn,
+      drawsThisTurn: newPhase === 'draw' ? 0 : p.drawsThisTurn,
+      fusesThisTurn: newPhase === 'draw' ? 0 : p.fusesThisTurn,
+      towerSlotThisTurn: newPhase === 'draw' ? undefined : p.towerSlotThisTurn,
+      // Mosqueteiro (personagem novo) - janela deslizante de 3 turnos (ver
+      // comentário completo em `mosqueteiroDiscardsThisTurn`, PlayerState): a
+      // cada nova virada de turno, T-1 vira T-2 e o valor final do turno que
+      // está terminando vira o novo T-1 - só acontece de verdade na entrada na
+      // fase de Compra (nova virada de turno), mesmo padrão de todo o resto
+      // deste helper.
+      mosqueteiroDiscardsTurnMinus2: newPhase === 'draw' ? p.mosqueteiroDiscardsTurnMinus1 : p.mosqueteiroDiscardsTurnMinus2,
+      mosqueteiroDiscardsTurnMinus1: newPhase === 'draw' ? p.mosqueteiroDiscardsThisTurn : p.mosqueteiroDiscardsTurnMinus1,
+      mosqueteiroDiscardsThisTurn: newPhase === 'draw' ? 0 : p.mosqueteiroDiscardsThisTurn,
+    };
+  };
 
   const player1Result = resetForNewTurn(state.player1, p1Monster);
   const player2Result = resetForNewTurn(state.player2, p2Monster);

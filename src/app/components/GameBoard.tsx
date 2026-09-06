@@ -99,6 +99,7 @@ import { enumerateLegalActions, checkActionDivergence } from '../lib/actionSpace
 import { checkInvariants, countAllCards } from '../lib/invariants';
 import { setSeed, getSeed, clearSeed } from '../lib/rng';
 import { decideHandCardSelection, toggleTowerCardSelection } from '../lib/handSelection';
+import { findFieldCardWithStatus, getCombatModifierStatuses, getStatusMagnitude, hasStatus } from '../lib/statusEffects';
 
 /**
  * Props do componente GameBoard
@@ -1857,7 +1858,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         // executeFireballLaunch em gameEngine.ts) - usado só para o flash
         // genérico (o burst de fogo de verdade é o FireShatterBurst, ver
         // applyMagicEffectPresentation abaixo).
-        const spread = gameState[playerKeyOf(pm.playerNumber)].piromanteSpreadArmed;
+        const spread = hasStatus(gameState[playerKeyOf(pm.playerNumber)], 'spreadArmed');
         if (spread) {
           for (let i = 0; i < 3; i++) slots.push({ player: opponentNumber, slotIndex: i });
         } else if (pm.selectedTargetSlot !== undefined) {
@@ -2247,7 +2248,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     if (slotPlayerNumber !== expectedDropSide) return false;
     // FIX (pedido do usuário: "a rainha do anjo impede a ativação... até o
     // fim do turno") - checagem por CARTA específica, ver PlayerZone.tsx.
-    if (card.magicLocked) return false;
+    if (hasStatus(card, 'magicLocked')) return false;
     if (!canActivateMagic(gameState.phase, character, magicType, getMagicActivationContext(gameState, ownerPlayerNumber))) return false;
     return rule.isValidSlotTarget(gameState, ownerPlayerNumber, slotIndex);
   };
@@ -2274,7 +2275,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     if (!rule) return false;
     // FIX (pedido do usuário: "a rainha do anjo impede a ativação... até o
     // fim do turno") - checagem por CARTA específica, ver PlayerZone.tsx.
-    if (card.magicLocked) return false;
+    if (hasStatus(card, 'magicLocked')) return false;
     if (!canActivateMagic(gameState.phase, character, magicType, getMagicActivationContext(gameState, ownerPlayerNumber))) return false;
     const targetSide: 1 | 2 = rule.side === 'own' ? ownerPlayerNumber : opponentOf(ownerPlayerNumber);
     const fieldLength = gameState[playerKeyOf(targetSide)].field.length;
@@ -3208,12 +3209,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     shatteringSlot={shatteringSlot}
                     smokingSlot={smokingSlot}
                     burningSlots={burningSlots}
-                    player1DoubledCardId={gameState.player1.combatModifiers.find((m) => m.kind === 'multiply')?.cardId}
-                    player2DoubledCardId={gameState.player2.combatModifiers.find((m) => m.kind === 'multiply')?.cardId}
-                    player1BoostedCardId={gameState.player1.combatModifiers.find((m) => m.kind === 'add' && m.source === 'mosqueteiro')?.cardId}
-                    player1BoostAmount={gameState.player1.combatModifiers.find((m) => m.kind === 'add' && m.source === 'mosqueteiro')?.amount ?? 0}
-                    player2BoostedCardId={gameState.player2.combatModifiers.find((m) => m.kind === 'add' && m.source === 'mosqueteiro')?.cardId}
-                    player2BoostAmount={gameState.player2.combatModifiers.find((m) => m.kind === 'add' && m.source === 'mosqueteiro')?.amount ?? 0}
+                    player1DoubledCardId={findFieldCardWithStatus(gameState.player1.field, 'combatModifier', { mode: 'multiply' })?.card.id}
+                    player2DoubledCardId={findFieldCardWithStatus(gameState.player2.field, 'combatModifier', { mode: 'multiply' })?.card.id}
+                    player1BoostedCardId={findFieldCardWithStatus(gameState.player1.field, 'combatModifier', { source: 'mosqueteiro' })?.card.id}
+                    player1BoostAmount={findFieldCardWithStatus(gameState.player1.field, 'combatModifier', { source: 'mosqueteiro' })?.status.magnitude ?? 0}
+                    player2BoostedCardId={findFieldCardWithStatus(gameState.player2.field, 'combatModifier', { source: 'mosqueteiro' })?.card.id}
+                    player2BoostAmount={findFieldCardWithStatus(gameState.player2.field, 'combatModifier', { source: 'mosqueteiro' })?.status.magnitude ?? 0}
                     combatValueSpec={combatValueReveal}
                     spotlight={gameState.spotlight}
                     towersMode={gameConfig.towersMode}
@@ -3223,8 +3224,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     player1FireballValue={player1Character === 'piromante' ? gameState.player1.fireballValue : undefined}
                     player2FireballValue={player2Character === 'piromante' ? gameState.player2.fireballValue : undefined}
                     fireballCap={getFireballCap(gameConfig)}
-                    player1SpreadArmed={gameState.player1.piromanteSpreadArmed}
-                    player2SpreadArmed={gameState.player2.piromanteSpreadArmed}
+                    player1SpreadArmed={hasStatus(gameState.player1, 'spreadArmed')}
+                    player2SpreadArmed={hasStatus(gameState.player2, 'spreadArmed')}
                   />
                 </div>
                 <SpotlightSidebar spotlight={gameState.spotlight} />
@@ -3372,9 +3373,14 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   if (!last) return null;
                   const character = characterOf(gameState, playerNumber);
                   const info = getMagicCardInfo(character, last.cardValue as MagicCardType);
-                  const stillActive =
-                    gameState.player1.combatModifiers.some((m) => m.label === info.name) ||
-                    gameState.player2.combatModifiers.some((m) => m.label === info.name);
+                  const fieldHasModifierLabeled = (field: typeof gameState.player1.field) =>
+                    field.some(
+                      (slot) =>
+                        [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...slot.horizontalCards].some((c) =>
+                          getCombatModifierStatuses(c).some((m) => m.label === info.name)
+                        )
+                    );
+                  const stillActive = fieldHasModifierLabeled(gameState.player1.field) || fieldHasModifierLabeled(gameState.player2.field);
                   return { info, turn: last.turn, stillActive, cardValue: last.cardValue!, cardSuit: last.cardSuit };
                 };
                 const p1Last = lastMagicFor(1);
@@ -3718,11 +3724,11 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 if (character === 'mago' && type === 'K') return 'Selecione uma carta horizontal do oponente (ainda não batalhada) para destruir';
                 if (character === 'besta' && type === 'K') return 'Selecione seu slot e o do oponente (ambos ainda não revelados) para trocar';
                 if (character === 'mosqueteiro' && type === 'J')
-                  return gameState[playerKeyOf(pendingMagic.playerNumber)].mosqueteiroRedirectNextDiscard
+                  return hasStatus(gameState[playerKeyOf(pendingMagic.playerNumber)], 'redirectNextDiscard')
                     ? 'Selecione (às cegas) 1 carta da mão do oponente para descartar'
                     : 'Selecione 1 carta da sua mão para descartar';
                 if (character === 'mosqueteiro' && type === 'Q')
-                  return gameState[playerKeyOf(pendingMagic.playerNumber)].mosqueteiroRedirectNextDiscard
+                  return hasStatus(gameState[playerKeyOf(pendingMagic.playerNumber)], 'redirectNextDiscard')
                     ? 'Selecione (às cegas) até 3 cartas da mão do oponente para descartar, depois escolha o que revelar'
                     : 'Selecione até 3 cartas da sua mão para descartar, depois escolha o que revelar';
                 if (character === 'mosqueteiro' && type === 'K') return 'Selecione uma carta do campo do oponente para enfraquecer';
@@ -4064,13 +4070,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                       {[0, 1, 2].map((slotIdx) => {
                         const slot = gameState[opponentKey].field[slotIdx];
                         const canSelect =
-                          getDestroyableReinforcementSlots(gameState[opponentKey].field, gameState[opponentKey].combatModifiers).includes(slotIdx) &&
+                          getDestroyableReinforcementSlots(gameState[opponentKey].field).includes(slotIdx) &&
                           !isSlotProtected(gameState, opponentNumber, slotIdx);
-                        const unbattledCardIds = new Set([
-                          ...(slot.faceDownCard && !slot.faceDownCard.battled ? [slot.faceDownCard.id] : []),
-                          ...slot.horizontalCards.filter((c) => !c.battled).map((c) => c.id),
-                        ]);
-                        const hasMarker = gameState[opponentKey].combatModifiers.some((m) => unbattledCardIds.has(m.cardId));
+                        const unbattledCards = [
+                          ...(slot.faceDownCard && !slot.faceDownCard.battled ? [slot.faceDownCard] : []),
+                          ...slot.horizontalCards.filter((c) => !c.battled),
+                        ];
+                        const hasMarker = unbattledCards.some((c) => hasStatus(c, 'combatModifier'));
                         const hasHorizontal = slot.horizontalCards.length > 0;
                         const label = [
                           hasHorizontal ? `Reforço presente${slot.horizontalCards.length > 1 ? ' (x2)' : ''}` : null,
@@ -4160,7 +4166,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     (própria mão, ou do OPONENTE às cegas por posição se a
                     Recarga Rápida estiver ativa). */}
                 {pendingMagic.character === 'mosqueteiro' && pendingMagic.type === 'J' && (() => {
-                  const redirecting = gameState[ownKey].mosqueteiroRedirectNextDiscard;
+                  const redirecting = hasStatus(gameState[ownKey], 'redirectNextDiscard');
                   const pool = redirecting ? gameState[opponentKey].hand : gameState[ownKey].hand.filter((c) => c.id !== pendingMagic.cardId);
                   const selectedId = (pendingMagic.selectedCards || [])[0];
                   return (
@@ -4200,7 +4206,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     mesma quantidade de alvos do oponente (mão OU campo,
                     ainda ocultos) pra revelar às cegas por posição. */}
                 {pendingMagic.character === 'mosqueteiro' && pendingMagic.type === 'Q' && (() => {
-                  const redirecting = gameState[ownKey].mosqueteiroRedirectNextDiscard;
+                  const redirecting = hasStatus(gameState[ownKey], 'redirectNextDiscard');
                   const discardPool = redirecting ? gameState[opponentKey].hand : gameState[ownKey].hand.filter((c) => c.id !== pendingMagic.cardId);
                   const selectedDiscardIds = pendingMagic.selectedCards || [];
                   const selectedRevealIds = pendingMagic.selectedRevealCardIds || [];
@@ -4343,7 +4349,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   // resumo abaixo mostra o total resultante ao selecionar uma
                   // já marcada. Marcadores aqui são sempre negativos ou zero.
                   const existingMarkerFor = (cardId: string) =>
-                    gameState[opponentKey].combatModifiers.find((m) => m.source === 'mosqueteiro' && m.cardId === cardId)?.amount ?? 0;
+                    getStatusMagnitude(candidates.find((c) => c.id === cardId)?.card, 'combatModifier', { source: 'mosqueteiro' });
                   const selectedExistingMarker = selectedId ? existingMarkerFor(selectedId) : 0;
                   return (
                     <div className="space-y-3">
@@ -4395,7 +4401,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     const ctx = getMagicActivationContext(gameState, pendingMagic.playerNumber);
                     const cap = getFireballCap(gameConfig);
                     const fireballValue = gameState[ownKey].fireballValue;
-                    const spreadArmed = gameState[ownKey].piromanteSpreadArmed;
+                    const spreadArmed = hasStatus(gameState[ownKey], 'spreadArmed');
                     // O efeito próprio de cada magia continua preso à fase da
                     // própria carta (J na Compra, Q na Estratégia, K no
                     // Combate) - no Combate, uma J/Q só pode LANÇAR (ver
@@ -4601,7 +4607,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                       if (character === 'mosqueteiro' && type === 'K') return !selectedCards || selectedCards.length === 0;
                       if (character === 'piromante') {
                         if (pendingMagic.fireballLaunch) {
-                          const spreadArmed = gameState[playerKeyOf(pendingMagic.playerNumber)].piromanteSpreadArmed;
+                          const spreadArmed = hasStatus(gameState[playerKeyOf(pendingMagic.playerNumber)], 'spreadArmed');
                           return !spreadArmed && selectedTargetSlot === undefined;
                         }
                         // FIX (bug real relatado pelo usuário: "não dá pra
