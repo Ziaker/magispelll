@@ -2295,6 +2295,15 @@ function handleSwapFieldCard(state: GameState, player: PlayerNumber, cardId: str
   // PLAY_CARD (plantar/empilhar) ou encolhe via Simbiose/Urtiga, nunca por
   // esta troca genérica.
   if (isTowerSlot(slot) || isBrotoSlot(slot)) return state;
+  // FIX (bug real achado por auditoria - mesma classe de "carta congelada
+  // entra em campo por um caminho que não é handlePlayCard", que já tem a
+  // guarda): esta troca é uma ação DIFERENTE de PLAY_CARD (SWAP_FIELD_CARD),
+  // com sua própria validação aqui - sem esta checagem, uma carta congelada
+  // da mão podia ser colocada em campo por este caminho irmão. A carta JÁ no
+  // slot também não pode ser removida/substituída se estiver congelada -
+  // mesma regra "não recebe efeitos transformadores de terceiros" já
+  // aplicada à Substituição Arcana do Mago (Q).
+  if (hasStatus(card, 'frozen') || hasStatus(slot.faceDownCard, 'frozen')) return state;
 
   const oldCard = slot.faceDownCard;
   const newHand = [...playerState.hand.filter((c) => c.id !== cardId), oldCard];
@@ -2441,6 +2450,13 @@ export function canFormOrReinforceTower(state: GameState, player: PlayerNumber, 
   const slot = playerState.field[slotIndex];
   const selected = cardIds.map((id) => playerState.hand.find((c) => c.id === id)).filter((c): c is Card => Boolean(c));
   if (selected.length !== cardIds.length) return false; // algum id não existe na mão - nunca confiar só na UI
+  // FIX (bug real achado por auditoria - mesma classe de "carta congelada
+  // entra em campo por um caminho que não é handlePlayCard", que já tem a
+  // guarda): formar/reforçar uma Torre é uma ação DIFERENTE de PLAY_CARD
+  // (FORM_OR_REINFORCE_TOWER), com sua própria validação aqui - sem esta
+  // checagem, uma carta congelada na mão (que handlePlayCard já bloqueia
+  // corretamente) podia ser empilhada numa Torre de qualquer jeito.
+  if (selected.some((c) => hasStatus(c, 'frozen'))) return false;
 
   const values = selected.map(towerEligibleValue);
   if (values.some((v) => v === null)) return false;
@@ -3489,7 +3505,16 @@ function handleExecuteMagic(
     const newOpponentField = opponentState.field.map((slot) => {
       let newSlot = slot;
       if (slot.faceDownCard && revealIds.has(slot.faceDownCard.id)) {
-        newSlot = { ...newSlot, faceDownCard: revealCard(slot.faceDownCard), revealed: true };
+        // FIX (bug real achado por auditoria): `revealCard` já no-opa numa
+        // carta congelada (devolve ela intocada, `revealed` continua false) -
+        // mas isto marcava `slot.revealed = true` de qualquer jeito, mesmo
+        // quando a carta por baixo continuou oculta. Como vários lugares do
+        // jogo confiam em `slot.revealed` pra decidir se PODEM mostrar o
+        // valor real (ex.: o diálogo de Descongelar, `canSeeValue`), isso
+        // vazava a existência de um valor "público" que na verdade nunca foi
+        // revelado - `slot.revealed` agora reflete o resultado de verdade.
+        const revealedCard = revealCard(slot.faceDownCard);
+        newSlot = { ...newSlot, faceDownCard: revealedCard, revealed: revealedCard.revealed === true };
       }
       if (slot.horizontalCards.some((h) => revealIds.has(h.id))) {
         newSlot = { ...newSlot, horizontalCards: newSlot.horizontalCards.map((h) => (revealIds.has(h.id) ? revealCard(h) : h)) };
@@ -3622,6 +3647,13 @@ function handleExecuteMagic(
     // Fogo, nunca pra queimar combustível fora da hora.
     if (state.phase !== 'draw') return state;
     const cap = getFireballCap(state.gameConfig);
+    // DECISÃO DE DESIGN (pedido explícito do usuário, não um bug pra
+    // corrigir): o combustível ganho aqui usa `getEffectiveCardValue`
+    // (valor cru), de propósito NUNCA `getSpotlightAdjustedValue` como o
+    // resto do jogo (combate, Magia Numeral, Torres) - deixar o Spotlight
+    // multiplicar o ganho de combustível (x3 num número positivo) deixaria a
+    // Bola de Fogo forte demais. Mesma decisão vale para Roubo Flamejante
+    // (Q) e Queima do Reforço (K) logo abaixo.
     const fuelCards = handWithoutMagic.filter((c) => isPlainNumeralCard(c) && getEffectiveCardValue(c) < 5);
     const fuelSum = fuelCards.reduce((sum, c) => sum + getEffectiveCardValue(c), 0);
     const fuelIds = new Set(fuelCards.map((c) => c.id));
@@ -3667,6 +3699,8 @@ function handleExecuteMagic(
     const horizTarget = opponentState.field.flatMap((slot) => slot.horizontalCards).find((c) => c.id === targetId);
     const targetCard = handTarget ?? horizTarget;
     if (!targetCard || !targetCard.revealed) return state;
+    // DECISÃO DE DESIGN (não um bug): mesmo motivo do Valete acima - valor
+    // cru de propósito, Spotlight nunca multiplica combustível.
     const value = getEffectiveCardValue(targetCard);
     if (value < 2 || value > 10) return state;
     if (horizTarget && isSlotProtected(state, opponent, 0)) return state;
@@ -3715,6 +3749,8 @@ function handleExecuteMagic(
     if (isSlotProtected(state, opponent, targetSlotIndex)) return state;
     const targetCard = opponentState.field[targetSlotIndex].horizontalCards.find((c) => c.id === targetId)!;
 
+    // DECISÃO DE DESIGN (não um bug): mesmo motivo do Valete/Rainha acima -
+    // valor cru de propósito, Spotlight nunca multiplica combustível.
     const value = getEffectiveCardValue(targetCard);
     const newOpponentField = opponentState.field.map((slot, i) =>
       i === targetSlotIndex ? { ...slot, horizontalCards: slot.horizontalCards.filter((c) => c.id !== targetId) } : slot
