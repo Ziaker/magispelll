@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Orbit, Feather, Sparkles, Zap, Flame, Sprout, Leaf } from 'lucide-react';
+import { Orbit, Feather, Sparkles, Zap, Flame, Sprout, Leaf, Snowflake } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import type { CharacterId } from '../lib/gameEngine';
 
@@ -310,6 +310,74 @@ export function CharacterMagicBurst({ active, character }: { active: boolean; ch
                   transition={{ duration: 1, ease: 'easeOut' }}
                 >
                   <Sprout className="w-14 h-14" style={{ color, filter: `drop-shadow(0 0 8px ${color})` }} />
+                </motion.div>
+              </>
+            )}
+
+            {/* Glacial (personagem novo, pedido EXPLÍCITO do usuário: "não
+                deixasse os efeitos visuais das magias de gelo genéricas") -
+                cristais de gelo crescendo das bordas pra dentro (mesmo papel
+                das gavinhas do Druida/línguas de fogo do Piromante, mas
+                rígidos e retos - gelo não se curva), flocos de neve girando
+                e flutuando pelo centro (mesmo papel das brasas/folhas), um
+                anel de geada se expandindo (em vez do anel de choque reto -
+                a borda tem uma textura de "vidro fosco" via radial-gradient,
+                mesma técnica do brilho do Anjo), e o floco de neve central
+                pulsando - o MESMO ícone já usado no overlay de carta
+                congelada (PlayingCard.tsx) e no selo de keyword
+                (CardKeywords.tsx), reforçando a mesma identidade visual do
+                personagem em todo lugar que ele aparece. */}
+            {character === 'glacial' && (
+              <>
+                {/* Cristais de gelo crescendo dos 4 cantos - retos, não curvos como as gavinhas do Druida. */}
+                {[
+                  { corner: 'top-0 left-0', rotate: 45 },
+                  { corner: 'top-0 right-0', rotate: -45 },
+                  { corner: 'bottom-0 left-0', rotate: -45 },
+                  { corner: 'bottom-0 right-0', rotate: 45 },
+                ].map(({ corner, rotate }, idx) => (
+                  <motion.div
+                    key={idx}
+                    className={`absolute ${corner} origin-center`}
+                    style={{
+                      width: 4,
+                      height: 50,
+                      background: `linear-gradient(to top, transparent, ${color}, #FFFFFF)`,
+                      transformOrigin: corner.includes('top') ? 'top' : 'bottom',
+                      clipPath: 'polygon(50% 0%, 100% 15%, 65% 100%, 35% 100%, 0% 15%)',
+                    }}
+                    initial={{ opacity: 0, scaleY: 0, rotate: rotate * 1.8 }}
+                    animate={{ opacity: [0, 1, 0.8, 0], scaleY: [0, 1, 0.9], rotate }}
+                    transition={{ duration: 1, delay: idx * 0.05, ease: 'easeOut' }}
+                  />
+                ))}
+                {/* Flocos de neve girando e flutuando pelo centro (mesmo papel das brasas do Piromante/folhas do Druida). */}
+                {[-16, -6, 4, 14].map((x, idx) => (
+                  <motion.div
+                    key={`flake-${idx}`}
+                    className="absolute"
+                    style={{ left: `calc(50% + ${x}px)`, bottom: '28%' }}
+                    initial={{ opacity: 0, y: 0, rotate: 0, scale: 0.4 }}
+                    animate={{ opacity: [0, 1, 0], y: [0, -42, -60], rotate: [0, idx % 2 === 0 ? 200 : -200], scale: [0.4, 0.85, 0.65] }}
+                    transition={{ duration: 1.1, delay: idx * 0.09, ease: 'easeOut' }}
+                  >
+                    <Snowflake className="w-4 h-4" style={{ color, filter: `drop-shadow(0 0 4px ${color})` }} />
+                  </motion.div>
+                ))}
+                {/* Anel de geada se expandindo - "vidro fosco" via radial-gradient (mesma técnica do brilho do Anjo), não um anel reto de choque. */}
+                <motion.div
+                  className="absolute rounded-full"
+                  style={{ background: `radial-gradient(circle, ${color}90 0%, ${color}40 45%, transparent 75%)`, width: 46, height: 46 }}
+                  initial={{ opacity: 0.9, scale: 0.5 }}
+                  animate={{ opacity: 0, scale: 7.5 }}
+                  transition={{ duration: 1.3, ease: 'easeOut' }}
+                />
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.3, rotate: 0 }}
+                  animate={{ opacity: [0, 1, 0], scale: [0.3, 2.1, 1.5], rotate: 90 }}
+                  transition={{ duration: 1, ease: 'easeOut' }}
+                >
+                  <Snowflake className="w-14 h-14" style={{ color, filter: `drop-shadow(0 0 8px ${color})` }} />
                 </motion.div>
               </>
             )}

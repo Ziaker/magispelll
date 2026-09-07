@@ -900,6 +900,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         // Druida - o Monstro também nunca usa a Zona Monstro/ACTIVATE_MONSTER_EFFECT_SIMPLE
         // (ver handlePlaceMonsterCard) - mesmo motivo do Broto acima.
         soundManager.play(monsterSoundFor('druida'));
+      } else if (entry.type === 'monster' && entry.player && entry.text.includes('posicionou o Criogolem')) {
+        // Glacial (personagem novo) - Criogolem também nunca usa a Zona
+        // Monstro/ACTIVATE_MONSTER_EFFECT_SIMPLE (ver handlePlayCard,
+        // branch isGlacialMonsterCard) - mesmo motivo do Broto/Monstro do
+        // Druida acima, texto de log próprio ("posicionou o Criogolem",
+        // nunca "posicionou o Monstro") em vez de checar characterOf, já
+        // que só o Glacial usa este texto. Pedido EXPLÍCITO do usuário: som
+        // de RUGIDO (monster-glacial, não um som de gelo genérico) + o
+        // motivo visual próprio do personagem no slot exato onde caiu.
+        soundManager.play(monsterSoundFor('glacial'));
+        if (entry.slotIndex !== undefined) {
+          flashEffectTargets({ slots: [{ player: entry.player, slotIndex: entry.slotIndex }] }, 'glacial', 'Criogolem');
+        }
       }
 
       const isNumeralSpellActivation = entry.type === 'numeral-spell' && entry.cardValue !== undefined;
@@ -2031,6 +2044,20 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     const { character, type } = pm;
     const targets = computeMagicEffectTargets(pm);
     flashEffectTargets(targets, character, getMagicCardInfo(character, type).name);
+    // FIX (pedido do usuário: "aplique o mesmo efeito de gelo quebrando...
+    // quando o jogador de glacial ativa uma magia própria congelada") - a
+    // gimmick do Glacial (ver resolveGlacialCardConsumption em
+    // gameEngine.ts) faz a 1ª ativação de uma magia própria já congelada só
+    // remover o status (a carta nem é consumida) - aqui, ANTES do dispatch
+    // de verdade, o estado ainda reflete a carta congelada, então dá pra
+    // checar isso e trocar o som de magia genérico por 'ice-break' (mesmo
+    // som do descongelamento via pagamento). O visual de gelo se
+    // estilhaçando já dispara sozinho, sem nenhum código extra aqui - ver
+    // wasFrozenRef/justUnfroze em PlayingCard.tsx, que reage a QUALQUER
+    // transição congelada->descongelada da própria carta (mesmo `id`/`key`
+    // preservados na mão), não a uma ação específica.
+    const isGlacialUnfreezeActivation =
+      character === 'glacial' && hasStatus(gameState[playerKeyOf(pm.playerNumber)].hand.find((c) => c.id === pm.cardId), 'frozen');
     // FIX (pedido do usuário, item 5: "cartas destruídas se estilhaçando") -
     // só a Destruição de Reforço do Mago (K) realmente DESTRÓI uma carta (as
     // outras 8 combinações de J/Q/K revelam ou trocam, nunca destroem) -
@@ -2120,7 +2147,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // cada bala (ver abaixo) - mas sem nenhum alvo válido (não deveria
       // acontecer na prática, guarda defensiva) cai aqui como fallback, pra
       // nunca ficar mudo.
-      soundManager.play(isShatterEffect ? 'card-shatter' : magicSoundFor(character, type));
+      soundManager.play(isShatterEffect ? 'card-shatter' : isGlacialUnfreezeActivation ? 'ice-break' : magicSoundFor(character, type));
     }
 
     // Mosqueteiro (pedido do usuário: "efeitos visuais de balas sendo
@@ -5084,6 +5111,15 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                       // intacta e o jogador só precisa clicar de novo depois
                       // que a pausa/transição terminar.
                       if (showPhaseTransition || postMagicPause) return;
+                      // FIX (pedido do usuário: "sons relacionados a gelo
+                      // quando uma carta é descongelada/gelo quebrar") - o
+                      // efeito VISUAL de estilhaçamento (IceShatterBurst)
+                      // já dispara sozinho, reativamente, dentro de
+                      // PlayingCard.tsx (detecta a transição congelada ->
+                      // descongelada na própria carta) - só o som precisa
+                      // de um gatilho explícito aqui, no único outro ponto
+                      // do jogo (além da gimmick abaixo) que remove 'frozen'.
+                      soundManager.play('ice-break');
                       dispatch({
                         type: 'PAY_TO_UNFREEZE',
                         player: pendingUnfreeze.playerNumber,

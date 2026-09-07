@@ -1490,7 +1490,16 @@ export function PlayerZone({
                       {card.revealed || forceRevealHand ? (
                         <PlayingCard value={card.value} suit={card.suit} card={card} />
                       ) : (
-                        <PlayingCard faceDown backTheme={theme} />
+                        // FIX (achado ao verificar o Glacial ao vivo): faltava
+                        // `card` aqui - mesmo bug já corrigido em
+                        // FieldSlotView.tsx (overlay de congelado nunca
+                        // aparecia na face de costas). Passar `card` não vaza
+                        // o VALOR da carta (`value`/`suit` continuam de fora,
+                        // PlayingCard só mostra a face real quando recebe
+                        // esses props) - só permite o overlay de status
+                        // (congelado) calculado a partir de `card.statusEffects`
+                        // aparecer mesmo numa carta da IA ainda não revelada.
+                        <PlayingCard faceDown backTheme={theme} card={card} />
                       )}
                       <CharacterMagicBurst
                         active={Boolean(effectFlashCardIds?.includes(card.id))}

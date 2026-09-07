@@ -235,3 +235,66 @@ tocam de verdade a partir de um gatilho dedicado por texto de log em
 GameBoard.tsx (mesmo padrão já usado pelas armadilhas reveladas do Coringa),
 não do caminho genérico applyMagicEffectPresentation que cobre os outros
 personagens.
+
+---
+
+Glacial (personagem novo, tema congelamento/gelo) - 5 sons novos (Valete/
+Rainha/Rei + Monstro + Magia Numeral), mais 1 som extra (`ice-break.ogg`)
+compartilhado por todo efeito de DESCONGELAR (PAY_TO_UNFREEZE e a gimmick de
+reativação - ver GameBoard.tsx). Pedido explícito do usuário: "não deixasse
+os efeitos visuais/sonoros das magias de gelo genéricas" + "pegue um som de
+rugido para o golem ao invés de algo genérico relacionado a gelo" + "sons
+relacionados a gelo quando uma carta é descongelada/gelo quebrar". Nenhum
+pacote CC0 já usado no projeto (Kenney, os 2 do opengameart.org, Mixkit fogo/
+natureza) tem tema gelo/cristal de verdade - pesquisados e baixados de 3
+fontes, todas CC0 (domínio público, sem exigência de crédito):
+
+  "Ice Spells" por bart (https://opengameart.org/content/ice-spells,
+  CC0) - 2 sons de gelo genuínos, cada um recortado com ffmpeg
+  (silencedetect, mesma técnica já usada nos sons do Piromante/Druida) pro
+  trecho com o som de verdade, com fade-out curto:
+
+    glacial-k.ogg        <- coldsnap.wav, recortado de 0.40s a 1.10s
+                             (Crioescudo - o estalo seco/decisivo do "cold
+                             snap" combina com um reforço instantâneo em
+                             massa)
+    glacial-numeral.ogg  <- ice.wav, recortado de 0s a 0.65s (Criogênese -
+                             o momento de congelamento mais "cheio" pra
+                             magia mais impactante do personagem)
+
+  "Free Spell Sound Effects" da Mixkit (https://mixkit.co/free-sound-effects/spell/,
+  Mixkit License - Sound Effects Free License, mesma já usada nos sons do
+  Piromante/Druida) - 2 sons de icicles (pingentes de gelo), recortados com
+  a mesma técnica:
+
+    glacial-j.ogg  <- "Thin icicles spell", recortado de 0.25s a 1.10s
+                       (Criogenar - um toque fino/pontual de gelo combina
+                       com congelar 1 carta só)
+    glacial-q.ogg  <- "Icicles spell whoosh", recortado de 0.40s a 1.70s
+                       (Crioespinho - o "whoosh" de um pingente de gelo
+                       combina com um espinho de gelo sendo cravado)
+
+  "Ice Breaking/Shattering" por IgnasD
+  (https://opengameart.org/content/ice-breakingshattering, CC0) - 5
+  variações de estalo/estilhaço de gelo nesta submissão; escolhida a 5ª
+  (mais parecida em duração/impacto com os outros sons curtos do projeto),
+  recortada com fade-out curto no final:
+
+    ice-break.ogg  <- IceShatters/LedasLuzta5.ogg (Descongelar - toca
+                       tanto em PAY_TO_UNFREEZE quanto na gimmick de
+                       reativação de magia própria congelada, os 2 únicos
+                       lugares do jogo onde o status 'frozen' é removido)
+
+  "CC0 Deep Monster Roar" por trazzz123
+  (https://opengameart.org/content/cc0-deep-monster-roar, CC0) - pedido
+  EXPLÍCITO do usuário: um rugido de criatura de verdade pro Criogolem, não
+  mais um som genérico de gelo (o efeito de Monstro de todo outro
+  personagem já usa o tema do PRÓPRIO personagem, não do elemento - Fúria
+  Selvagem da Besta usa rugido de fera, não "força bruta" genérica; Brasa
+  do Piromante usa som de isqueiro, não "energia" genérica). Recortado da
+  frente do rugido original (~5.3s de conteúdo real) pro trecho de maior
+  impacto, mais longo que os monstros dos outros personagens (0.85-1.4s
+  hoje) de propósito - um rugido precisa de um pouco mais de fôlego que um
+  "zap"/estalo instantâneo pra soar como um rugido de verdade:
+
+    glacial-monster.ogg  <- monster_roar.wav, recortado de 0.05s a 1.40s

@@ -96,6 +96,18 @@ import druidaQSrc from '../../assets/sfx/druida-q.ogg';
 import druidaKSrc from '../../assets/sfx/druida-k.ogg';
 import druidaMonsterSrc from '../../assets/sfx/druida-monster.ogg';
 import druidaNumeralSrc from '../../assets/sfx/druida-numeral.ogg';
+// Glacial (personagem novo, tema congelamento/gelo) - Valete/Rainha/Rei +
+// Monstro + Magia Numeral, mais 1 som extra (ice-break) exclusivo pra
+// Descongelar (PAY_TO_UNFREEZE e a gimmick de reativação) - ver LICENSE.txt
+// pra origem/licença de cada arquivo. Pedido explícito do usuário: efeitos de
+// gelo de verdade pras 4 magias (nunca genéricos), mas um RUGIDO de
+// criatura pro Criogolem (não mais um som de gelo genérico).
+import glacialJSrc from '../../assets/sfx/glacial-j.ogg';
+import glacialQSrc from '../../assets/sfx/glacial-q.ogg';
+import glacialKSrc from '../../assets/sfx/glacial-k.ogg';
+import glacialMonsterSrc from '../../assets/sfx/glacial-monster.ogg';
+import glacialNumeralSrc from '../../assets/sfx/glacial-numeral.ogg';
+import iceBreakSrc from '../../assets/sfx/ice-break.ogg';
 
 export type SoundEffectName =
   | 'card-play'
@@ -154,7 +166,15 @@ export type SoundEffectName =
   | 'magic-druida-q'
   | 'magic-druida-k'
   | 'monster-druida'
-  | 'numeral-druida';
+  | 'numeral-druida'
+  /** Glacial (personagem novo) - Valete/Rainha/Rei + Monstro (rugido, pedido explícito do usuário) + Magia Numeral. */
+  | 'magic-glacial-j'
+  | 'magic-glacial-q'
+  | 'magic-glacial-k'
+  | 'monster-glacial'
+  | 'numeral-glacial'
+  /** Descongelar (PAY_TO_UNFREEZE e a gimmick de reativação de magia própria congelada) - único som do jogo tocado por uma AÇÃO (remover 'frozen'), não por um personagem - ver GameBoard.tsx. */
+  | 'ice-break';
 
 const SOUND_SOURCES: Record<SoundEffectName, string> = {
   'card-play': cardPlaySrc,
@@ -201,6 +221,12 @@ const SOUND_SOURCES: Record<SoundEffectName, string> = {
   'magic-druida-k': druidaKSrc,
   'monster-druida': druidaMonsterSrc,
   'numeral-druida': druidaNumeralSrc,
+  'magic-glacial-j': glacialJSrc,
+  'magic-glacial-q': glacialQSrc,
+  'magic-glacial-k': glacialKSrc,
+  'monster-glacial': glacialMonsterSrc,
+  'numeral-glacial': glacialNumeralSrc,
+  'ice-break': iceBreakSrc,
 };
 
 /**
@@ -237,6 +263,9 @@ export function magicSoundFor(character: CharacterId, magicType: 'J' | 'Q' | 'K'
   if (character === 'druida' && magicType === 'J') return 'magic-druida-j';
   if (character === 'druida' && magicType === 'Q') return 'magic-druida-q';
   if (character === 'druida' && magicType === 'K') return 'magic-druida-k';
+  if (character === 'glacial' && magicType === 'J') return 'magic-glacial-j';
+  if (character === 'glacial' && magicType === 'Q') return 'magic-glacial-q';
+  if (character === 'glacial' && magicType === 'K') return 'magic-glacial-k';
   // FIX (endurecimento, pedido do usuário: "está pronto para mais um
   // personagem?") - o único fallback LEGÍTIMO aqui é Mago K (Destruição de
   // Reforço, comentário acima) - qualquer outra combinação chegando até
@@ -257,6 +286,7 @@ export function monsterSoundFor(character: CharacterId): SoundEffectName {
   if (character === 'coringa') return 'monster-coringa';
   if (character === 'piromante') return 'monster-piromante';
   if (character === 'druida') return 'monster-druida';
+  if (character === 'glacial') return 'monster-glacial';
   // FIX (endurecimento): Anjo é o único fallback legítimo - avisa pra
   // qualquer OUTRO personagem não reconhecido.
   if (character !== 'anjo' && import.meta.env.DEV) {
@@ -273,6 +303,7 @@ export function numeralSoundFor(character: CharacterId): SoundEffectName {
   if (character === 'coringa') return 'numeral-coringa';
   if (character === 'piromante') return 'numeral-piromante';
   if (character === 'druida') return 'numeral-druida';
+  if (character === 'glacial') return 'numeral-glacial';
   // FIX (endurecimento): mesma ideia de monsterSoundFor acima.
   if (character !== 'anjo' && import.meta.env.DEV) {
     console.warn(`numeralSoundFor: personagem não mapeado (${character}) - tocando som do Anjo`);

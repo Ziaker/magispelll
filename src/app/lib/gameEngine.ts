@@ -2163,7 +2163,12 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
       faceDownCard: { ...card, revealed: true, transformedValue: golemValue },
       revealed: true,
     };
-    log = appendLog(state, log, 'monster', `Jogador ${player} posicionou o Criogolem no slot ${slotIndex + 1} (valendo ${golemValue})`, { player, cardValue: '🃏' });
+    // FIX (pedido do usuário: "efeitos... para o golem") - `slotIndex` no
+    // metadata do log (mesmo padrão do Broto do Druida, gameEngine.ts acima)
+    // é o que permite GameBoard.tsx disparar o burst visual no slot exato
+    // onde o Criogolem caiu - sem isso, `entry.slotIndex` chegaria sempre
+    // `undefined` e o burst nunca dispararia (só o som).
+    log = appendLog(state, log, 'monster', `Jogador ${player} posicionou o Criogolem no slot ${slotIndex + 1} (valendo ${golemValue})`, { player, cardValue: '🃏', slotIndex });
   } else {
     if (newField[slotIndex].faceDownCard) return state;
 
