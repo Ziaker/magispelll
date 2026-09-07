@@ -865,7 +865,21 @@ export function FieldSlotView({
                             spotlight={spotlight}
                           />
                         }
-                        back={<PlayingCard faceDown backTheme={theme} />}
+                        // FIX (pedido do usuário: "deixe extremamente bem
+                        // notável que a carta está congelada" - achado
+                        // testando ao vivo): a face de costas nunca recebia
+                        // `card`, só `backTheme` - o overlay de congelada em
+                        // PlayingCard.tsx (`hasStatus(card, 'frozen')`)
+                        // nunca aparecia na face de costas, mesmo sendo essa
+                        // a face realmente visível pro oponente (e pro dono,
+                        // até a carta ser revelada). Passar `card` aqui é
+                        // seguro (mesmo comentário de FlipCard.tsx: as duas
+                        // faces já ficam montadas com o valor real em
+                        // memória o tempo todo) - a face de costas em si
+                        // nunca lê `value`/`suit`/`displayValue` de `card`,
+                        // só o novo overlay de congelada, que não depende do
+                        // valor.
+                        back={<PlayingCard faceDown backTheme={theme} card={slot.faceDownCard} />}
                       />
                     </motion.div>
                   </motion.div>
@@ -1134,7 +1148,10 @@ export function FieldSlotView({
                       className="w-16 h-10"
                       faceUp={cardFaceUp}
                       front={<PlayingCard horizontal value={hCard.value} suit={hCard.suit} card={hCard} />}
-                      back={<PlayingCard horizontal faceDown backTheme={theme} />}
+                      // FIX: mesmo motivo do slot principal acima - `card`
+                      // precisa chegar na face de costas pro overlay de
+                      // congelada aparecer.
+                      back={<PlayingCard horizontal faceDown backTheme={theme} card={hCard} />}
                     />
                   </motion.div>
                   {/* Piromante (pedido do usuário: "as magias do piromante

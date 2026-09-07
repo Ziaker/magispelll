@@ -1,11 +1,13 @@
 import { cn } from './ui/utils';
-import { useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { motion } from 'motion/react';
+import { Sparkles, Snowflake } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { getDisplayValue, getDisplaySuit, type Card } from '../lib/cardUtils';
 import { getMonsterEffect } from '../lib/monsterCards';
 import { getSpotlightEntry, type SpotlightState } from '../lib/spotlight';
 import { CardKeywords, type CardKeywordId } from './CardKeywords';
+import { IceShatterBurst } from './IceShatterBurst';
 import type { CharacterId } from '../lib/gameEngine';
 import { useSettings } from '../context/SettingsContext';
 import { hasStatus } from '../lib/statusEffects';
@@ -151,6 +153,66 @@ export function PlayingCard({
   const { settings } = useSettings();
   const suit = card ? getDisplaySuit(card) : suitProp;
 
+  // Glacial (personagem novo) - StatusEffect kind 'frozen' (statusEffects.ts).
+  // Computado bem no topo (antes de qualquer `return` antecipado) porque o
+  // overlay de "congelada" (ver `renderFrozenOverlay` abaixo) precisa
+  // aparecer em TODAS as variantes de carta - inclusive virada pra baixo
+  // (`faceDown`) e a pequena horizontal, não só nos 3 corpos de carta virada
+  // pra cima que já usavam isso pros selos de palavra-chave.
+  const isFrozen = hasStatus(card, 'frozen');
+  // FIX (pedido do usuário: "faça o efeito do gelo quebrando quando a carta
+  // é descongelada") - detecta a TRANSIÇÃO congelada -> descongelada
+  // comparando com o valor do render anterior (via ref, não estado - não
+  // pode disparar outro render só de guardar isso). Funciona pra QUALQUER
+  // carta (mão ou campo) porque cada instância de PlayingCard já é mantida
+  // viva entre renders pela mesma `key={card.id}` de quem a lista (
+  // HandCardView.tsx/FieldSlotView.tsx) - React preserva este estado/ref
+  // durante toda a vida daquela carta específica, não precisa de nenhuma
+  // coordenação nova com GameBoard.tsx.
+  const wasFrozenRef = useRef(isFrozen);
+  const [justUnfroze, setJustUnfroze] = useState(false);
+  useEffect(() => {
+    if (wasFrozenRef.current && !isFrozen) {
+      setJustUnfroze(true);
+      const t = setTimeout(() => setJustUnfroze(false), 900);
+      wasFrozenRef.current = isFrozen;
+      return () => clearTimeout(t);
+    }
+    wasFrozenRef.current = isFrozen;
+  }, [isFrozen]);
+
+  /**
+   * Overlay "extremamente bem notável" de carta congelada (pedido explícito
+   * do usuário) - tingimento azul-clarinho por cima da carta inteira +
+   * floco de neve grande centralizado, na cor/glow do tema do Glacial
+   * (#0ADEFF/#7FF2FF/#CBF9FF - characterThemes.ts). `pointer-events-none`
+   * de propósito - nunca bloqueia nenhum clique já existente na carta (ex.:
+   * a gimmick do próprio Glacial de reativar uma magia congelada continua
+   * clicável por baixo). `iconSizeClass` deixa o mesmo overlay servir tanto
+   * as cartas grandes (mão/campo, 112x160) quanto a horizontal pequena
+   * (64x40) com um floco proporcional a cada uma. Sempre inclui
+   * `IceShatterBurst` por cima (`justUnfroze`) pro momento exato em que o
+   * gelo quebra, mesmo com `isFrozen` já false no mesmo render.
+   */
+  const renderFrozenOverlay = (iconSizeClass: string, roundedClass: string) => (
+    <>
+      {isFrozen && (
+        <div
+          className={cn('absolute inset-0 z-30 pointer-events-none overflow-hidden flex items-center justify-center', roundedClass)}
+          style={{ backgroundColor: 'rgba(127, 242, 255, 0.38)' }}
+        >
+          <motion.div
+            animate={{ opacity: [0.75, 1, 0.75], scale: [0.94, 1, 0.94] }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            <Snowflake className={iconSizeClass} style={{ color: '#0ADEFF', filter: 'drop-shadow(0 0 8px #0ADEFF) drop-shadow(0 0 16px #7FF2FF)' }} />
+          </motion.div>
+        </div>
+      )}
+      <IceShatterBurst active={justUnfroze} />
+    </>
+  );
+
   if (slot) {
     return (
       <div className={cn(
@@ -170,13 +232,14 @@ export function PlayingCard({
     if (faceDown) {
       return (
         <div
-          className={cn("w-16 h-10 rounded-md border shadow-md flex items-center justify-center", className)}
+          className={cn("w-16 h-10 rounded-md border shadow-md flex items-center justify-center relative", className)}
           style={{
             background: `linear-gradient(135deg, ${backTheme.primary}, ${backTheme.secondary})`,
             borderColor: backTheme.secondary,
           }}
         >
           <span className="text-[#0F1113] text-[16px] font-display opacity-40">✦</span>
+          {renderFrozenOverlay('w-6 h-6', 'rounded-md')}
         </div>
       );
     }
@@ -194,7 +257,7 @@ export function PlayingCard({
 
     return (
       <div className={cn(
-        "w-16 h-10 rounded-md flex items-center justify-center border shadow-md",
+        "w-16 h-10 rounded-md flex items-center justify-center border shadow-md relative",
         isMagic
           ? "bg-gradient-to-br from-[#1E1A16] to-[#0F1113] border-[#C59E4F] text-[#C59E4F]"
           : "bg-[#EFE7D6] border-[#8F6A30]",
@@ -205,6 +268,7 @@ export function PlayingCard({
           {horizontalDisplayValue}
           <span className="ml-0.5">{suit}</span>
         </span>
+        {renderFrozenOverlay('w-6 h-6', 'rounded-md')}
       </div>
     );
   }
@@ -228,6 +292,7 @@ export function PlayingCard({
           <div className="absolute bottom-3 right-3 text-[#0F1113] text-[18px] font-display">ᛗ</div>
         </div>
         <div className="text-[#0F1113] text-[48px] font-display opacity-30">✦</div>
+        {renderFrozenOverlay('w-16 h-16', 'rounded-lg')}
       </div>
     );
   }
@@ -263,20 +328,21 @@ export function PlayingCard({
   // caso a carta revelada por ela seja mágica até o fim do turno") - ver
   // StatusEffect kind 'magicLocked' (statusEffects.ts).
   const isMagicLocked = hasStatus(card, 'magicLocked');
-  // Glacial (personagem novo) - StatusEffect kind 'frozen' (statusEffects.ts).
-  const isFrozen = hasStatus(card, 'frozen');
+  // FIX (pedido do usuário: "deixe extremamente bem notável que a carta está
+  // congelada... floco de neve enorme no meio dela") - `isFrozen` já foi
+  // computado no topo da função (ver `renderFrozenOverlay` acima) e agora
+  // sai destas 3 listas: o selo pequeno de CardKeywords virou redundante
+  // (e visualmente poluído) ao lado do overlay grande e chamativo.
   const magicKeywords: CardKeywordId[] = [
     ...(isRevealed ? (['revealed'] as const) : []),
     ...(isFused ? (['fused'] as const) : []),
     ...(isMagicLocked ? (['magicLocked'] as const) : []),
-    ...(isFrozen ? (['frozen'] as const) : []),
   ];
   const aceKeywords: CardKeywordId[] = [
     ...(isRevealed ? (['revealed'] as const) : []),
     ...(hasTransformedValue ? (['transformedAce'] as const) : []),
     ...(isFused ? (['fused'] as const) : []),
     ...(spotlightKeyword ? [spotlightKeyword] : []),
-    ...(isFrozen ? (['frozen'] as const) : []),
   ];
   const normalKeywords: CardKeywordId[] = [
     ...(isRevealed ? (['revealed'] as const) : []),
@@ -286,7 +352,6 @@ export function PlayingCard({
     ...(isAce && hasTransformedValue ? (['transformedAce'] as const) : []),
     ...(isFused ? (['fused'] as const) : []),
     ...(spotlightKeyword ? [spotlightKeyword] : []),
-    ...(isFrozen ? (['frozen'] as const) : []),
   ];
 
   if (isMagic) {
@@ -353,6 +418,7 @@ export function PlayingCard({
               )}
 
               <CardKeywords active={magicKeywords} />
+              {renderFrozenOverlay('w-16 h-16', 'rounded-lg')}
 
               <div className="text-[18px] font-bold z-10" style={{ color: magicAccent }}>
                 {value}
@@ -464,6 +530,7 @@ export function PlayingCard({
                   quando há uma carta horizontal empilhada em cima (evita
                   sobrepor o valor dela). */}
               <CardKeywords active={aceKeywords} overrides={hasHorizontalOverlay ? { revealed: 'top-left' } : undefined} />
+              {renderFrozenOverlay('w-16 h-16', 'rounded-lg')}
 
               <div className={cn("text-[18px] font-bold", isRed ? "text-[#D45D4A]" : "text-[#0F1113]")}>
                 {displayValue}
@@ -517,6 +584,7 @@ export function PlayingCard({
           palavra-chave (Revelada/Ás Transformado/Fusão) - ver
           CardKeywords.tsx e normalKeywords acima. */}
       <CardKeywords active={normalKeywords} overrides={hasHorizontalOverlay ? { revealed: 'top-left' } : undefined} />
+      {renderFrozenOverlay('w-16 h-16', 'rounded-lg')}
 
       <div className={cn("text-[18px] font-bold", isRed ? "text-[#D45D4A]" : "text-[#0F1113]")}>
         {displayValue}
