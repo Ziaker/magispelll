@@ -45,6 +45,7 @@
  * diálogo de clique já monta pro mesmo caso.
  */
 import {
+  getDestroyableReinforcementSlots,
   isBrotoSlot,
   isSlotProtected,
   opponentOf,
@@ -82,14 +83,26 @@ const fireballLaunchRule: DragActivationRule = {
   buildSelection: (_state, _player, slotIndex) => ({ fireballLaunch: true, selectedTargetSlot: slotIndex }),
 };
 
-/** Mago K - Destruição de Reforço: mesma checagem de elegibilidade que handleExecuteMagic usa (slot com reforço horizontal, nenhum já batalhado). */
+/**
+ * Mago K - Destruição de Reforço: mesma checagem de elegibilidade que o
+ * motor/diálogo usam - `getDestroyableReinforcementSlots` (gameEngine.ts),
+ * que aceita tanto um reforço horizontal não batalhado QUANTO um marcador de
+ * combate (`combatModifier`) ainda ativo sobre a carta principal, mesmo sem
+ * nenhuma horizontal.
+ *
+ * FIX (bug real achado por auditoria): esta regra reimplementava só a METADE
+ * antiga do critério (só "tem horizontal não batalhada"), de antes do FIX
+ * "permita que o mago possa destruir marcadores" ser aplicado no motor e no
+ * diálogo - arrastar sobre um slot válido-só-por-marcador era rejeitado em
+ * silêncio pelo atalho de drag, embora clicar funcionasse normalmente.
+ * Reaproveita a função exportada em vez de manter uma 2ª cópia da regra.
+ */
 const magoKRule: DragActivationRule = {
   side: 'opponent',
   isValidSlotTarget: (state, player, slotIndex) => {
     const opponent = opponentOf(player);
     if (isSlotProtected(state, opponent, slotIndex)) return false;
-    const horizontalCards = state[playerKeyOf(opponent)].field[slotIndex].horizontalCards;
-    return horizontalCards.length > 0 && !horizontalCards.some((c) => c.battled);
+    return getDestroyableReinforcementSlots(state[playerKeyOf(opponent)].field).includes(slotIndex);
   },
   buildSelection: (_state, _player, slotIndex) => ({ selectedSlot: slotIndex }),
 };

@@ -151,6 +151,16 @@ interface PlayerZoneProps {
   onActivateNumeralSpell: () => void;
   hasActiveNumeralSpell: boolean;
   /**
+   * Descongelar (PAY_TO_UNFREEZE) - true quando fase=Estratégia, a mão deste
+   * jogador não está vazia, E existe >=1 carta congelada em qualquer
+   * mão/campo dos DOIS jogadores. Calculado em GameBoard.tsx porque só ele
+   * enxerga o lado do oponente (mesmo motivo de `isMagicCardDraggable` acima)
+   * - PlayerZone só recebe a própria `playerState`.
+   */
+  canPayToUnfreeze: boolean;
+  /** Abre o diálogo de 2 passos (pendingUnfreeze) - o diálogo em si vive em GameBoard.tsx, não aqui. */
+  onOpenPayToUnfreeze: () => void;
+  /**
    * FIX (pedido do usuário: "permitindo que o jogador arraste sua magia até
    * o campo do alvo... para ativar ela") - `PlayerZone.tsx` só enxerga a
    * própria mão/fase, não o campo do oponente (onde a maioria dos alvos de
@@ -289,6 +299,8 @@ export function PlayerZone({
   magicContext,
   onActivateNumeralSpell,
   hasActiveNumeralSpell,
+  canPayToUnfreeze,
+  onOpenPayToUnfreeze,
   isMagicCardDraggable,
   isAiControlled = false,
   hotseatPrivacyActive = false,
@@ -1096,6 +1108,29 @@ export function PlayerZone({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+        )}
+
+        {/* Botão de Descongelar (PAY_TO_UNFREEZE) - ação padrão de Estratégia,
+            disponível a QUALQUER personagem (handlePayToUnfreeze em gameEngine.ts
+            não filtra por character), não só Glacial - descarta 1 carta qualquer
+            da própria mão pra remover 'frozen' de uma carta congelada em qualquer
+            mão/campo dos dois jogadores. */}
+        {!isAiControlled && phase === 'strategy' && (
+          <button
+            onClick={canPayToUnfreeze ? onOpenPayToUnfreeze : undefined}
+            disabled={!canPayToUnfreeze}
+            className={`w-full px-3 py-2 rounded-lg transition-all border-2 flex items-center justify-center gap-2 ${
+              canPayToUnfreeze ? 'cursor-pointer hover:scale-105' : 'cursor-not-allowed opacity-40'
+            }`}
+            style={{
+              backgroundColor: canPayToUnfreeze ? '#0ADEFF20' : '#1E1A16',
+              borderColor: canPayToUnfreeze ? '#0ADEFF' : '#404040',
+              color: canPayToUnfreeze ? '#0ADEFF' : '#808080',
+            }}
+          >
+            <Snowflake className="w-4 h-4" />
+            <span className="text-[11px]">Descongelar (descarte 1 carta)</span>
+          </button>
         )}
 
         {/* Ações da Fase de Compra */}

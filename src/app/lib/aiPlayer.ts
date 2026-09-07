@@ -1371,7 +1371,14 @@ function decideMagoQ(state: GameState, ai: PlayerNumber): GameAction | null {
   // sem sentido nenhum pra esta função, que só existe pra "trocar por uma
   // carta melhor de graça". Excluída dos candidatos - reforçar a própria
   // torre já tem um caminho dedicado e correto (decideTowerAction).
-  const ownFilled = me.field.map((slot, i) => ({ slot, i })).filter(({ slot }) => slot.faceDownCard && !isTowerSlot(slot));
+  // FIX (bug real achado por auditoria - expandir a matriz de matchups
+  // IA-vs-IA pra incluir Glacial achou uma partida real onde o motor
+  // rejeitava esta ação em silêncio): uma carta CONGELADA no campo não pode
+  // ser substituída (ver o guard em handleExecuteMagic, Mago Q), mas nada
+  // aqui excluía esse caso - a IA podia escolher justamente a própria carta
+  // congelada como "a pior do campo" pra trocar, e o motor recusava a
+  // ativação inteira.
+  const ownFilled = me.field.map((slot, i) => ({ slot, i })).filter(({ slot }) => slot.faceDownCard && !isTowerSlot(slot) && !hasStatus(slot.faceDownCard, 'frozen'));
   if (ownFilled.length === 0) return null;
 
   // FIX (auditoria completa do Mago - bug real encontrado): esta era a única
@@ -1382,7 +1389,12 @@ function decideMagoQ(state: GameState, ai: PlayerNumber): GameAction | null {
   // tática real. Mesma proteção que decideFieldPlacement/
   // decideHorizontalPlacement/as funções de fusão já usam.
   const reserved = reservedNumeralCardIds(me.hand, 'mago', state.spotlight);
-  const numeralCandidates = me.hand.filter((c) => c.id !== qCard.id && !reserved.has(c.id) && isNumeralCard(c));
+  // FIX (bug real achado por auditoria - mesma classe do fieldTarget acima):
+  // uma carta congelada da própria mão não pode ser usada como peça de troca
+  // (ver o guard em handleExecuteMagic, Mago Q) - sem excluí-la aqui, a IA
+  // podia escolhê-la como "a melhor carta da mão" e o motor recusava a
+  // ativação inteira.
+  const numeralCandidates = me.hand.filter((c) => c.id !== qCard.id && !reserved.has(c.id) && isNumeralCard(c) && !hasStatus(c, 'frozen'));
   if (numeralCandidates.length === 0) return null;
 
   const bestHandCard = pickHighestBy(numeralCandidates, (c) => combatValue(c, state.spotlight));
@@ -1522,7 +1534,15 @@ function decideAnjoQ(state: GameState, ai: PlayerNumber): GameAction | null {
 
   const opponent = opponentOf(ai);
   const opponentField = state[opponentKeyOf(ai)].field;
-  const fieldTarget = opponentField.findIndex((slot, i) => slot.faceDownCard && !slot.revealed && !isSlotProtected(state, opponent, i));
+  // FIX (bug real achado por auditoria - expandir a matriz de matchups
+  // IA-vs-IA pra incluir Glacial achou uma partida real onde o motor
+  // rejeitava esta ação em silêncio): uma carta CONGELADA nunca pode ser
+  // revelada (ver o guard em handleExecuteMagic/aqui em gameEngine.ts, Anjo
+  // Q), mas como uma carta congelada também nunca está `revealed`, ela
+  // passava despercebida pelo mesmo filtro `!slot.revealed` que decide "vale
+  // a pena revelar" - a IA tentava revelar uma carta congelada, e o motor
+  // recusava a ativação inteira (perdendo a Rainha à toa).
+  const fieldTarget = opponentField.findIndex((slot, i) => slot.faceDownCard && !slot.revealed && !hasStatus(slot.faceDownCard, 'frozen') && !isSlotProtected(state, opponent, i));
   if (fieldTarget !== -1) {
     return {
       type: 'EXECUTE_MAGIC',
@@ -1535,7 +1555,7 @@ function decideAnjoQ(state: GameState, ai: PlayerNumber): GameAction | null {
   }
 
   const opponentHand = state[opponentKeyOf(ai)].hand;
-  const handTarget = opponentHand.find((c) => !c.revealed);
+  const handTarget = opponentHand.find((c) => !c.revealed && !hasStatus(c, 'frozen'));
   if (handTarget) {
     return {
       type: 'EXECUTE_MAGIC',

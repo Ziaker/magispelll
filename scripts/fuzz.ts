@@ -19,14 +19,20 @@
  *                                                 impresso automaticamente quando uma falha é encontrada -
  *                                                 nunca depende de índice de loop, só desses 4 valores).
  */
-import { createInitialState, type CharacterId } from '../src/app/lib/gameEngine';
+import { createInitialState, ALL_CHARACTER_IDS } from '../src/app/lib/gameEngine';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../src/app/lib/gameConfig';
 import { fuzzSteps } from '../src/app/lib/simulateGame';
 import { checkActionDivergence } from '../src/app/lib/actionSpace';
 import { setSeed } from '../src/app/lib/rng';
 import { countAllCards } from '../src/app/lib/invariants';
 
-const ALL_CHARACTERS: CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante'];
+// FIX (achado real por auditoria): esta lista era hardcoded e esqueceu
+// Druida e Glacial desde que foram adicionados - nenhum dos dois nunca foi
+// fuzzado por padrão. Agora deriva de ALL_CHARACTER_IDS (gameEngine.ts), a
+// mesma lista canônica usada pelos testes de exaustividade de UI - um
+// personagem novo entra no fuzz automaticamente, sem precisar lembrar de
+// atualizar este arquivo.
+const ALL_CHARACTERS = ALL_CHARACTER_IDS;
 
 const CONFIGS: Record<string, GameConfig> = {
   base: { ...DEFAULT_GAME_CONFIG, monsterCards: true },

@@ -15,6 +15,7 @@ import {
   getMagicActivationContext,
   getFireballCap,
   canFormOrReinforceTower,
+  ALL_CHARACTER_IDS,
   type CharacterId,
   type GameState,
   type PlayerNumber,
@@ -1627,77 +1628,26 @@ function simulateAiVsAiGame(
   return simulateSteps(state, { maxSteps });
 }
 
+/**
+ * Todo par ORDENADO de personagens, incluindo espelhos (mesmo personagem nos
+ * dois lados) - as 4 suítes de IA-vs-IA completa abaixo (base/Towers/
+ * Spotlight/Reações) usavam cada uma sua PRÓPRIA lista hardcoded desta
+ * mesma matriz, mantida à mão toda vez que um personagem novo era
+ * adicionado. FIX (achado real por auditoria): a lista parava em Druida nas
+ * 4 - Glacial nunca foi adicionado a NENHUMA, então nenhuma partida IA-vs-IA
+ * completa com Glacial (nem mesmo espelhada) nunca rodou nesta suíte. Gerada
+ * a partir de ALL_CHARACTER_IDS (gameEngine.ts) para nunca mais ficar
+ * defasada - os espelhos (`p1 === p2`) existem de propósito: um bug real só
+ * era reproduzível numa partida espelhada (mão enchendo de J/Q/K, nenhum
+ * lado nunca descartando por considerá-los "valiosos" - ver decideDrawPhase
+ * em aiPlayer.ts).
+ */
+const ALL_CHARACTER_MATCHUPS: Array<[CharacterId, CharacterId]> = ALL_CHARACTER_IDS.flatMap((p1) =>
+  ALL_CHARACTER_IDS.map((p2): [CharacterId, CharacterId] => [p1, p2])
+);
+
 (function testAiVsAiFullGames() {
-  const matchups: Array<[CharacterId, CharacterId]> = [
-    ['mago', 'besta'],
-    ['besta', 'mago'],
-    ['besta', 'anjo'],
-    ['anjo', 'besta'],
-    ['anjo', 'mago'],
-    ['mago', 'anjo'],
-    // Confrontos espelhados (mesmo personagem nos dois lados) - adicionados
-    // depois de um bug real só reproduzível em partidas espelhadas: quando a
-    // mão de um jogador enchia inteiramente de J/Q/K (nunca elegíveis para o
-    // campo), a IA travava para sempre (nunca descartava por considerá-los
-    // "valiosos", nunca comprava por já estar no limite da mão). Corrigido em
-    // decideDrawPhase (aiPlayer.ts); esses 3 confrontos ficam aqui para
-    // proteger contra regressão.
-    ['mago', 'mago'],
-    ['besta', 'besta'],
-    ['anjo', 'anjo'],
-    // Mosqueteiro (personagem novo, foco em descarte) - mesma cobertura dos
-    // outros 3: um confronto contra cada personagem existente + o espelho
-    // (mesmo motivo dos espelhos acima - travamentos só reproduzíveis
-    // quando os dois lados compartilham a mesma lógica de decisão).
-    ['mosqueteiro', 'mago'],
-    ['mago', 'mosqueteiro'],
-    ['mosqueteiro', 'besta'],
-    ['besta', 'mosqueteiro'],
-    ['mosqueteiro', 'anjo'],
-    ['anjo', 'mosqueteiro'],
-    ['mosqueteiro', 'mosqueteiro'],
-    // Coringa (personagem novo, foco em ilusão/blefe) - mesma cobertura dos
-    // outros 4: um confronto contra cada personagem existente + o espelho.
-    ['coringa', 'mago'],
-    ['mago', 'coringa'],
-    ['coringa', 'besta'],
-    ['besta', 'coringa'],
-    ['coringa', 'anjo'],
-    ['anjo', 'coringa'],
-    ['coringa', 'mosqueteiro'],
-    ['mosqueteiro', 'coringa'],
-    ['coringa', 'coringa'],
-    // Piromante (personagem novo, "momento game design" - Bola de Fogo/carta-
-    // token) - mesma cobertura dos outros 5: um confronto contra cada
-    // personagem existente + o espelho.
-    ['piromante', 'mago'],
-    ['mago', 'piromante'],
-    ['piromante', 'besta'],
-    ['besta', 'piromante'],
-    ['piromante', 'anjo'],
-    ['anjo', 'piromante'],
-    ['piromante', 'mosqueteiro'],
-    ['mosqueteiro', 'piromante'],
-    ['piromante', 'coringa'],
-    ['coringa', 'piromante'],
-    ['piromante', 'piromante'],
-    // Druida (personagem novo, "crescimento e simbiose" - Broto/Fotossíntese)
-    // - mesma cobertura dos outros 6: um confronto contra cada personagem
-    // existente + o espelho.
-    ['druida', 'mago'],
-    ['mago', 'druida'],
-    ['druida', 'besta'],
-    ['besta', 'druida'],
-    ['druida', 'anjo'],
-    ['anjo', 'druida'],
-    ['druida', 'mosqueteiro'],
-    ['mosqueteiro', 'druida'],
-    ['druida', 'coringa'],
-    ['coringa', 'druida'],
-    ['druida', 'piromante'],
-    ['piromante', 'druida'],
-    ['druida', 'druida'],
-  ];
+  const matchups = ALL_CHARACTER_MATCHUPS;
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, monsterCards: true };
   const expectedTotalCards = 54; // 52 + 2 Coringas
 
@@ -1756,66 +1706,10 @@ function simulateAiVsAiGame(
 //      só nos cenários pontuais já testados manualmente acima.
 // ---------------------------------------------------------------------------
 (function testAiVsAiFullGamesTowersMode() {
-  // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
-  // personagem?") - antes só tinha 2 entradas do Piromante (sem
-  // Mosqueteiro/Coringa) - matriz completada pra espelhar EXATAMENTE
-  // testAiVsAiFullGames() acima (um confronto contra cada personagem
-  // existente + espelho, pra cada personagem novo desde que foi
-  // adicionado), fechando a lacuna de cobertura pros modos especiais.
-  const matchups: Array<[CharacterId, CharacterId]> = [
-    ['mago', 'besta'],
-    ['besta', 'mago'],
-    ['besta', 'anjo'],
-    ['anjo', 'besta'],
-    ['anjo', 'mago'],
-    ['mago', 'anjo'],
-    ['mago', 'mago'],
-    ['besta', 'besta'],
-    ['anjo', 'anjo'],
-    ['mosqueteiro', 'mago'],
-    ['mago', 'mosqueteiro'],
-    ['mosqueteiro', 'besta'],
-    ['besta', 'mosqueteiro'],
-    ['mosqueteiro', 'anjo'],
-    ['anjo', 'mosqueteiro'],
-    ['mosqueteiro', 'mosqueteiro'],
-    ['coringa', 'mago'],
-    ['mago', 'coringa'],
-    ['coringa', 'besta'],
-    ['besta', 'coringa'],
-    ['coringa', 'anjo'],
-    ['anjo', 'coringa'],
-    ['coringa', 'mosqueteiro'],
-    ['mosqueteiro', 'coringa'],
-    ['coringa', 'coringa'],
-    ['piromante', 'mago'],
-    ['mago', 'piromante'],
-    ['piromante', 'besta'],
-    ['besta', 'piromante'],
-    ['piromante', 'anjo'],
-    ['anjo', 'piromante'],
-    ['piromante', 'mosqueteiro'],
-    ['mosqueteiro', 'piromante'],
-    ['piromante', 'coringa'],
-    ['coringa', 'piromante'],
-    ['piromante', 'piromante'],
-    // Druida (personagem novo, "crescimento e simbiose" - Broto/Fotossíntese)
-    // - mesma cobertura dos outros 6: um confronto contra cada personagem
-    // existente + o espelho.
-    ['druida', 'mago'],
-    ['mago', 'druida'],
-    ['druida', 'besta'],
-    ['besta', 'druida'],
-    ['druida', 'anjo'],
-    ['anjo', 'druida'],
-    ['druida', 'mosqueteiro'],
-    ['mosqueteiro', 'druida'],
-    ['druida', 'coringa'],
-    ['coringa', 'druida'],
-    ['druida', 'piromante'],
-    ['piromante', 'druida'],
-    ['druida', 'druida'],
-  ];
+  // FIX (achado real por auditoria): mesma matriz gerada de
+  // ALL_CHARACTER_MATCHUPS que testAiVsAiFullGames() acima usa - ver o
+  // comentário completo ali.
+  const matchups = ALL_CHARACTER_MATCHUPS;
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, monsterCards: true, towersMode: true };
   // FIX (Modo Towers): baralho comum (54) + 20 numerais extras + 2 Áses extras = 76.
   const expectedTotalCards = 76;
@@ -2477,65 +2371,10 @@ function simulateAiVsAiGame(
 //      decisões) não trava, não lança exceção, e a IA nunca propõe uma ação
 //      que o motor rejeita em silêncio.
 (function testAiVsAiFullGamesSpotlightMode() {
-  // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
-  // personagem?") - antes só cobria mago/besta/anjo, nunca ganhou
-  // Mosqueteiro/Coringa/Piromante - matriz completada espelhando
-  // testAiVsAiFullGames() acima (mesmo motivo do comentário em
-  // testAiVsAiFullGamesTowersMode()).
-  const matchups: Array<[CharacterId, CharacterId]> = [
-    ['mago', 'besta'],
-    ['besta', 'mago'],
-    ['besta', 'anjo'],
-    ['anjo', 'besta'],
-    ['anjo', 'mago'],
-    ['mago', 'anjo'],
-    ['mago', 'mago'],
-    ['besta', 'besta'],
-    ['anjo', 'anjo'],
-    ['mosqueteiro', 'mago'],
-    ['mago', 'mosqueteiro'],
-    ['mosqueteiro', 'besta'],
-    ['besta', 'mosqueteiro'],
-    ['mosqueteiro', 'anjo'],
-    ['anjo', 'mosqueteiro'],
-    ['mosqueteiro', 'mosqueteiro'],
-    ['coringa', 'mago'],
-    ['mago', 'coringa'],
-    ['coringa', 'besta'],
-    ['besta', 'coringa'],
-    ['coringa', 'anjo'],
-    ['anjo', 'coringa'],
-    ['coringa', 'mosqueteiro'],
-    ['mosqueteiro', 'coringa'],
-    ['coringa', 'coringa'],
-    ['piromante', 'mago'],
-    ['mago', 'piromante'],
-    ['piromante', 'besta'],
-    ['besta', 'piromante'],
-    ['piromante', 'anjo'],
-    ['anjo', 'piromante'],
-    ['piromante', 'mosqueteiro'],
-    ['mosqueteiro', 'piromante'],
-    ['piromante', 'coringa'],
-    ['coringa', 'piromante'],
-    ['piromante', 'piromante'],
-    // Druida (personagem novo, "crescimento e simbiose" - Broto/Fotossíntese)
-    // - mesma cobertura dos outros 6: um confronto contra cada personagem
-    // existente + o espelho.
-    ['druida', 'mago'],
-    ['mago', 'druida'],
-    ['druida', 'besta'],
-    ['besta', 'druida'],
-    ['druida', 'anjo'],
-    ['anjo', 'druida'],
-    ['druida', 'mosqueteiro'],
-    ['mosqueteiro', 'druida'],
-    ['druida', 'coringa'],
-    ['coringa', 'druida'],
-    ['druida', 'piromante'],
-    ['piromante', 'druida'],
-    ['druida', 'druida'],
-  ];
+  // FIX (achado real por auditoria): mesma matriz gerada de
+  // ALL_CHARACTER_MATCHUPS que testAiVsAiFullGames() acima usa - ver o
+  // comentário completo ali.
+  const matchups = ALL_CHARACTER_MATCHUPS;
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, spotlightMode: true, spotlightCount: 3, spotlightPositive: true, spotlightNegative: true };
   const expectedTotalCards = 54;
 
@@ -2703,63 +2542,10 @@ function makeReactionsBaseState(config: GameConfig): GameState {
 //    (decideReactionToMagic decidindo aleatoriamente) não trava, não lança
 //    exceção, e a IA nunca propõe uma ação que o motor rejeita em silêncio.
 (function testAiVsAiFullGamesReactionsMode() {
-  // FIX (endurecimento pedido pelo usuário: "está pronto para mais um
-  // personagem?") - mesma lacuna e mesmo fix de
-  // testAiVsAiFullGamesSpotlightMode() acima.
-  const matchups: Array<[CharacterId, CharacterId]> = [
-    ['mago', 'besta'],
-    ['besta', 'mago'],
-    ['besta', 'anjo'],
-    ['anjo', 'besta'],
-    ['anjo', 'mago'],
-    ['mago', 'anjo'],
-    ['mago', 'mago'],
-    ['besta', 'besta'],
-    ['anjo', 'anjo'],
-    ['mosqueteiro', 'mago'],
-    ['mago', 'mosqueteiro'],
-    ['mosqueteiro', 'besta'],
-    ['besta', 'mosqueteiro'],
-    ['mosqueteiro', 'anjo'],
-    ['anjo', 'mosqueteiro'],
-    ['mosqueteiro', 'mosqueteiro'],
-    ['coringa', 'mago'],
-    ['mago', 'coringa'],
-    ['coringa', 'besta'],
-    ['besta', 'coringa'],
-    ['coringa', 'anjo'],
-    ['anjo', 'coringa'],
-    ['coringa', 'mosqueteiro'],
-    ['mosqueteiro', 'coringa'],
-    ['coringa', 'coringa'],
-    ['piromante', 'mago'],
-    ['mago', 'piromante'],
-    ['piromante', 'besta'],
-    ['besta', 'piromante'],
-    ['piromante', 'anjo'],
-    ['anjo', 'piromante'],
-    ['piromante', 'mosqueteiro'],
-    ['mosqueteiro', 'piromante'],
-    ['piromante', 'coringa'],
-    ['coringa', 'piromante'],
-    ['piromante', 'piromante'],
-    // Druida (personagem novo, "crescimento e simbiose" - Broto/Fotossíntese)
-    // - mesma cobertura dos outros 6: um confronto contra cada personagem
-    // existente + o espelho.
-    ['druida', 'mago'],
-    ['mago', 'druida'],
-    ['druida', 'besta'],
-    ['besta', 'druida'],
-    ['druida', 'anjo'],
-    ['anjo', 'druida'],
-    ['druida', 'mosqueteiro'],
-    ['mosqueteiro', 'druida'],
-    ['druida', 'coringa'],
-    ['coringa', 'druida'],
-    ['druida', 'piromante'],
-    ['piromante', 'druida'],
-    ['druida', 'druida'],
-  ];
+  // FIX (achado real por auditoria): mesma matriz gerada de
+  // ALL_CHARACTER_MATCHUPS que testAiVsAiFullGames() acima usa - ver o
+  // comentário completo ali.
+  const matchups = ALL_CHARACTER_MATCHUPS;
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, reactionsMode: true, reactionsLimit: 3 };
   const expectedTotalCards = 54;
 

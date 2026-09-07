@@ -63,6 +63,18 @@ export type Phase = 'draw' | 'strategy' | 'combat';
 export type PlayerNumber = 1 | 2;
 export type PlayerKey = 'player1' | 'player2';
 export type CharacterId = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante' | 'druida' | 'glacial';
+/**
+ * Lista canônica de todo CharacterId - fonte única de verdade pra qualquer
+ * lugar que precise iterar "todos os personagens" (fuzzer, matchups de
+ * IA-vs-IA em sanity-test.ts, testes de exaustividade de UI). FIX (achado
+ * real por auditoria): antes desses lugares hardcoded a própria lista à mão,
+ * ficando defasados sempre que um personagem novo era adicionado -
+ * `scripts/fuzz.ts` só fuzzava 6 dos 8, esquecendo Druida e Glacial. Usar
+ * esta constante em vez de outro array datilografado à mão não impede um
+ * novo esquecimento sozinho, mas deixa TODOS os consumidores atualizados de
+ * graça na próxima vez que alguém adicionar um personagem aqui.
+ */
+export const ALL_CHARACTER_IDS: readonly CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida', 'glacial'];
 
 export type FieldSlot = {
   faceDownCard?: Card;
@@ -2336,18 +2348,32 @@ function handlePayToUnfreeze(state: GameState, player: PlayerNumber, paymentCard
       applyToKey(key, { hand: ps.hand.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) });
       break;
     }
-    const slotIndex = ps.field.findIndex((slot) => {
-      const c = slot.faceDownCard?.id === targetCardId ? slot.faceDownCard : slot.horizontalCards.find((h) => h.id === targetCardId);
-      return c && hasStatus(c, 'frozen');
-    });
+    // FIX (bug real achado por auditoria de cobertura - a expansão da matriz
+    // de matchups IA-vs-IA pra incluir Glacial, em testAiVsAiFullGames*,
+    // achou uma partida real em Modo Towers onde a IA propunha um
+    // PAY_TO_UNFREEZE que o motor rejeitava em silêncio): esta varredura só
+    // olhava `faceDownCard`/`horizontalCards`, mas uma carta congelada pode
+    // ficar SOTERRADA em `towerReserve` (cartas empilhadas abaixo do topo
+    // visível de uma Torre) ou `brotoReserve` (Druida) depois de congelada -
+    // `fieldCards()` (usada tanto pela IA em decidePayToUnfreeze quanto pelo
+    // diálogo "Descongelar" em GameBoard.tsx) já inclui as duas reservas,
+    // então os dois ACHAVAM um alvo válido que o motor não sabia procurar,
+    // rejeitando uma ação que deveria ter funcionado.
+    const cardsInSlot = (s: FieldSlot): Card[] => [...(s.faceDownCard ? [s.faceDownCard] : []), ...s.horizontalCards, ...(s.towerReserve ?? []), ...(s.brotoReserve ?? [])];
+    const slotIndex = ps.field.findIndex((s) => cardsInSlot(s).some((c) => c.id === targetCardId && hasStatus(c, 'frozen')));
     if (slotIndex !== -1) {
       found = true;
       applyToKey(key, {
-        field: updateFieldSlot(ps.field, slotIndex, (s) =>
-          s.faceDownCard?.id === targetCardId
-            ? { faceDownCard: removeStatus(s.faceDownCard!, 'frozen') }
-            : { horizontalCards: s.horizontalCards.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) }
-        ),
+        field: updateFieldSlot(ps.field, slotIndex, (s) => {
+          if (s.faceDownCard?.id === targetCardId) return { faceDownCard: removeStatus(s.faceDownCard, 'frozen') };
+          if (s.horizontalCards.some((c) => c.id === targetCardId)) {
+            return { horizontalCards: s.horizontalCards.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) };
+          }
+          if (s.towerReserve?.some((c) => c.id === targetCardId)) {
+            return { towerReserve: s.towerReserve!.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) };
+          }
+          return { brotoReserve: s.brotoReserve!.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) };
+        }),
       });
       break;
     }

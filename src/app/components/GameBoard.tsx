@@ -29,7 +29,7 @@ import { Badge } from './ui/badge';
 import { Switch } from './ui/switch';
 import { Slider } from './ui/slider';
 import { Label } from './ui/label';
-import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box, Settings as SettingsIcon, Sparkles, ScrollText, Brain } from 'lucide-react';
+import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box, Settings as SettingsIcon, Sparkles, ScrollText, Brain, Snowflake } from 'lucide-react';
 import { PlayerZone } from './PlayerZone';
 import { BattleField } from './BattleField';
 import { CharacterMagicReference } from './CharacterMagicReference';
@@ -43,6 +43,7 @@ import type { CombatValueRevealSpec } from './CombatValueReveal';
 import { SpeedlinesBackground } from './SpeedlinesBackground';
 import { SpotlightSidebar } from './SpotlightSidebar';
 import { ReactionAlertBanner } from './ReactionAlertBanner';
+import { MagicPauseSpotlight } from './MagicPauseSpotlight';
 import { ReactionNegatedBurst, type ReactionNegatedBurstSpec } from './ReactionNegatedBurst';
 import { BulletImpactBurst, type BulletImpactSpec } from './BulletImpactBurst';
 import { FireballProjectile, type FireballProjectileSpec } from './FireballProjectile';
@@ -61,6 +62,7 @@ import { getNumeralSpellInfo } from '../lib/numeralSpells';
 import { ZoomContainerContext } from '../lib/zoomContainerContext';
 import { getMagicCardInfo, canActivateMagic, type MagicCardType } from '../lib/magicCards';
 import { getDragActivationRule } from '../lib/dragActivation';
+import { MONSTER_ACTIVATION_MODE } from '../lib/activationModes';
 import { getMonsterEffect } from '../lib/monsterCards';
 import type { GameConfig } from '../lib/gameConfig';
 import { useSettings } from '../context/SettingsContext';
@@ -143,6 +145,22 @@ interface PendingMagic {
   fireballLaunch?: boolean;
 }
 
+/**
+ * Seleção em andamento no diálogo de Descongelar (PAY_TO_UNFREEZE) - estado
+ * só de UI, irmão de PendingMagic mas propositalmente separado dele: esta
+ * não é uma ativação de magia (nenhuma carta da mão "é" esta ação) e o
+ * motor não faz nenhuma checagem de `character` (ver handlePayToUnfreeze em
+ * gameEngine.ts, ~linha 2315) - qualquer jogador, com qualquer personagem,
+ * pode pagar pra descongelar qualquer carta congelada de qualquer jogador
+ * (a sua ou a do oponente, na mão ou no campo), sempre que for a vez da
+ * fase de Estratégia.
+ */
+interface PendingUnfreeze {
+  playerNumber: 1 | 2;
+  paymentCardId?: string;
+  targetCardId?: string;
+}
+
 export function GameBoard({ onBack, player1Character, player2Character, gameConfig }: GameBoardProps) {
   const [gameState, reducerDispatch] = useReducer(
     gameReducer,
@@ -215,15 +233,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [showPhaseTransition, setShowPhaseTransition] = useState(false);
   /**
    * FIX (item 23 do Grupo F da lista de afazeres, "intervalo mínimo pós
-   * ativação de magia... trava as ações... com um pop-up mostrando o efeito
-   * e os alvos, sem obscurecer"): só existe quando `gameConfig.postMagicPauseMs
-   * > 0` (opção do pré-jogo) - `title`/`detail` alimentam um banner FINO no
-   * topo do tabuleiro (nunca um overlay que cobre o campo, ver JSX mais
-   * abaixo), e a MERA presença deste estado trava `dispatch` (mesmo guard
-   * de `showPhaseTransition` logo abaixo) até o timer da própria duração
-   * escolhida zerar.
+   * ativação de magia... trava as ações"): só existe quando
+   * `gameConfig.postMagicPauseMs > 0` (opção do pré-jogo) - a MERA presença
+   * deste estado trava `dispatch` (mesmo guard de `showPhaseTransition` logo
+   * abaixo) até o timer da própria duração escolhida zerar.
+   *
+   * FIX (pedido do usuário, depois de 4 tentativas rejeitadas: "mostra carta
+   * na tela NO MEIO DELA, deixa a tela obscurecida, faz highlight na carta
+   * (deixando SÓ ELA fora desse efeito de obscurecido), e mostra o que o
+   * efeito dela faz") - não é mais um banner fino; `rect` guarda a posição
+   * real da carta ativada (via cardPositionsRef) e alimenta o recorte de
+   * escurecimento em MagicPauseSpotlight.tsx (ver JSX mais abaixo).
    */
-  const [postMagicPause, setPostMagicPause] = useState<{ title: string; detail: string } | null>(null);
+  const [postMagicPause, setPostMagicPause] = useState<{ title: string; detail: string; character: CharacterId; rect: DOMRect | null } | null>(null);
   /**
    * FIX (pedido do usuário: "só permita movimento de cartas ou efeitos após
    * o fim da notificação [de troca de fase], não durante") - o popup de
@@ -491,6 +513,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [showRestartConfirmDialog, setShowRestartConfirmDialog] = useState(false);
   const [showNumeralSpellPopup, setShowNumeralSpellPopup] = useState(false);
   const [pendingMagic, setPendingMagic] = useState<PendingMagic | null>(null);
+  const [pendingUnfreeze, setPendingUnfreeze] = useState<PendingUnfreeze | null>(null);
   const [pendingAceTransform, setPendingAceTransform] = useState<{ playerNumber: 1 | 2; aceCardId: string } | null>(null);
   // FIX (itens 4 e 7 da 3ª rodada): `targetSlotIndex` agora é o slot de
   // COMBATE (0-2) escolhido como alvo do efeito do Mago (Ilusão Arcana) -
@@ -1451,7 +1474,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // completamente, senão pediria uma decisão de FASE (draw/strategy/combat)
     // pra um estado que o motor está bloqueando por completo agora mesmo.
     if (gameState.pendingReaction) return;
-    if (pendingMagic || pendingAceTransform || pendingMonsterEffect || pendingMonsterTarget || pendingBestaMonsterTarget || pendingCoringaQChoice) return;
+    if (pendingMagic || pendingAceTransform || pendingMonsterEffect || pendingMonsterTarget || pendingBestaMonsterTarget || pendingCoringaQChoice || pendingUnfreeze) return;
     if (showPhaseTransition) return; // ver comentário do `dispatch` guardado acima
     if (postMagicPause) return; // idem - ver comentário do `dispatch` guardado acima
 
@@ -1523,7 +1546,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // Agora, ao voltar a `false`, este efeito roda de novo e agenda a próxima
     // decisão normalmente.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, aiPlayers, pendingMagic, pendingAceTransform, pendingMonsterEffect, pendingMonsterTarget, pendingBestaMonsterTarget, pendingCoringaQChoice, showPhaseTransition, postMagicPause]);
+  }, [gameState, aiPlayers, pendingMagic, pendingAceTransform, pendingMonsterEffect, pendingMonsterTarget, pendingBestaMonsterTarget, pendingCoringaQChoice, pendingUnfreeze, showPhaseTransition, postMagicPause]);
 
   // FIX (pedido do usuário: "ainda ocorre softlocks no espectador... adicione
   // um timer de 10 segundos pra IA rever o que está ou deveria fazer, caso
@@ -1752,6 +1775,25 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       return;
     }
 
+    // Glacial K (Crioescudo) também não precisa de assistente: é um efeito
+    // em massa sem alvo escolhível (+1 em TODAS as próprias cartas já
+    // congeladas no campo, ver handleExecuteMagic em gameEngine.ts) - mas ao
+    // contrário do Anjo acima, sua lógica já mora em EXECUTE_MAGIC (não
+    // ACTIVATE_SIMPLE_MAGIC, que só cobre Anjo J/K), então despacha essa
+    // action diretamente com `selection: {}` em vez de abrir o diálogo
+    // genérico (que nunca teria nenhum campo pra preencher pra esta magia).
+    if (character === 'glacial' && magicType === 'K') {
+      const action: GameAction = { type: 'EXECUTE_MAGIC', player: playerNumber, cardId, character, magicType: 'K', selection: {} };
+      if (!canMagicTriggerReactionAnnouncement(gameState, playerNumber, cardId)) {
+        flashSelfEffect(playerNumber, character, getMagicCardInfo(character, magicType).name);
+        soundManager.play(magicSoundFor(character, magicType));
+        dispatchWithMagicPause(action, () => dispatchMagicAction(action));
+      } else {
+        dispatchMagicAction(action);
+      }
+      return;
+    }
+
     // Coringa (redesenho completo) - o "botão de magia" só aparece nesta
     // carta durante a janela da Magia Numeral "Mão de Ferro" (ver
     // PlayerZone.tsx, canActivateMagicNow) - clicar transforma ela
@@ -1941,18 +1983,23 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    * passando pelos mesmos 4 pontos de dispatch que chamam
    * `dispatchWithMagicPause` (ela simplesmente devolve `null` e despacha na
    * hora pra qualquer ação que não seja magia).
+   *
+   * Também devolve `character` + `cardId` - `dispatchWithMagicPause` usa
+   * `cardId` pra buscar a posição real da carta em `cardPositionsRef` (a
+   * carta ainda está na mão nesse instante - o dispatch de verdade só
+   * acontece DEPOIS da pausa) e monta o recorte de MagicPauseSpotlight.tsx.
    */
-  const getMagicPauseInfo = (action: GameAction): { title: string; detail: string } | null => {
+  const getMagicPauseInfo = (action: GameAction): { title: string; detail: string; character: CharacterId; cardId: string } | null => {
     if (action.type === 'EXECUTE_MAGIC') {
       const info = getMagicCardInfo(action.character, action.magicType);
-      return { title: `${action.character.toUpperCase()} ativou ${info.name}`, detail: info.description };
+      return { title: `${action.character.toUpperCase()} ativou ${info.name}`, detail: info.description, character: action.character, cardId: action.cardId };
     }
     if (action.type === 'ACTIVATE_SIMPLE_MAGIC') {
       const character = characterOf(gameState, action.player);
       const card = gameState[playerKeyOf(action.player)].hand.find((c) => c.id === action.cardId);
       if (card && (card.value === 'J' || card.value === 'K')) {
         const info = getMagicCardInfo(character, card.value);
-        return { title: `${character.toUpperCase()} ativou ${info.name}`, detail: info.description };
+        return { title: `${character.toUpperCase()} ativou ${info.name}`, detail: info.description, character, cardId: action.cardId };
       }
     }
     return null;
@@ -1964,7 +2011,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       dispatchFn();
       return;
     }
-    setPostMagicPause(pauseInfo);
+    const rect = cardPositionsRef.current.get(pauseInfo.cardId) ?? null;
+    setPostMagicPause({ title: pauseInfo.title, detail: pauseInfo.detail, character: pauseInfo.character, rect });
     setTimeout(() => {
       setPostMagicPause(null);
       dispatchFn();
@@ -2433,7 +2481,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // nunca despachar a ativação. Mesmo padrão do Anjo acima: sem alvo de
       // campo pra destacar, usa flashSelfEffect (mesmo burst "algo
       // aconteceu com este jogador" que J/K do Anjo já usam).
-      if (character === 'piromante') {
+      // FIX (bug real achado por auditoria - mesma classe do bug do Glacial
+      // hoje: motor e IA corretos, clique da UI nunca despachava nada): a
+      // lista de "quem ativa direto, sem escolher slot" costumava ser um
+      // `character === 'x' || character === 'y'` hardcoded que simplesmente
+      // esquecia personagens (Recarga Rápida do Mosqueteiro nunca tinha sido
+      // adicionada - um clique na Zona Monstro caía no fluxo padrão de
+      // pendingMonsterTarget, que só sabe tratar Mago/Besta/Anjo em
+      // handleFieldSlotClick, e um clique de slot depois disso só limpava o
+      // estado pendente em silêncio). Agora consulta MONSTER_ACTIVATION_MODE
+      // (activationModes.ts) - um Record sobre CharacterId inteiro, então
+      // esquecer um personagem novo aqui vira erro de compilação, não um bug
+      // que só aparece quando alguém clica na tela de verdade.
+      if (MONSTER_ACTIVATION_MODE[character] === 'direct') {
         flashSelfEffect(playerNumber, character, getMonsterEffect(character).name);
         dispatch({ type: 'ACTIVATE_MONSTER_EFFECT_SIMPLE', player: playerNumber });
         soundManager.play(monsterSoundFor(character));
@@ -2544,6 +2604,84 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     soundManager.play(monsterSoundFor(character));
     setPendingBestaMonsterTarget(null);
   };
+
+  /** Igual a hasStatus(card, 'frozen'), só com uma guarda extra pra slot vazio (faceDownCard pode ser undefined). */
+  const isCardFrozen = (card: Card | null | undefined): boolean => Boolean(card) && hasStatus(card as Card, 'frozen');
+
+  interface FrozenTarget {
+    id: string;
+    ownerPlayer: 1 | 2;
+    location: 'hand' | 'field';
+    handIndex?: number;
+    slotIndex?: number;
+    isHorizontal?: boolean;
+    /** Carta soterrada na reserva de uma Torre (Modo Towers) ou do Broto (Druida) - empilhada abaixo do topo visível do slot, ver FieldSlot.towerReserve/brotoReserve em gameEngine.ts. */
+    isReserve?: boolean;
+    card: Card;
+  }
+
+  /**
+   * Enumera toda carta congelada em qualquer mão/campo dos dois jogadores -
+   * mesma varredura que handlePayToUnfreeze faz no motor (gameEngine.ts,
+   * dentro do for (const key of ['player1', 'player2'])), reimplementada
+   * aqui só para EXIBIÇÃO no diálogo (o motor continua sendo a única fonte
+   * de verdade sobre o que é de fato válido - ver reduceGameAction).
+   *
+   * FIX (bug real achado por auditoria de cobertura): faltava `towerReserve`/
+   * `brotoReserve` aqui - a MESMA lacuna que existia no motor (corrigida em
+   * handlePayToUnfreeze). Uma carta congelada enquanto era a principal/topo
+   * de um slot pode ficar SOTERRADA depois (Modo Towers empilhando mais
+   * cartas por cima) - sem isso, o diálogo simplesmente nunca oferecia essa
+   * carta como alvo, mesmo o motor já sabendo descongelá-la corretamente.
+   */
+  const findFrozenTargets = (state: GameState): FrozenTarget[] => {
+    const results: FrozenTarget[] = [];
+    ([1, 2] as const).forEach((pNum) => {
+      const ps = state[playerKeyOf(pNum)];
+      ps.hand.forEach((c, idx) => {
+        if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: pNum, location: 'hand', handIndex: idx, card: c });
+      });
+      ps.field.forEach((slot, slotIdx) => {
+        if (isCardFrozen(slot.faceDownCard)) {
+          results.push({ id: slot.faceDownCard!.id, ownerPlayer: pNum, location: 'field', slotIndex: slotIdx, isHorizontal: false, card: slot.faceDownCard! });
+        }
+        slot.horizontalCards.forEach((c) => {
+          if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: pNum, location: 'field', slotIndex: slotIdx, isHorizontal: true, card: c });
+        });
+        (slot.towerReserve ?? []).forEach((c) => {
+          if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: pNum, location: 'field', slotIndex: slotIdx, isReserve: true, card: c });
+        });
+        (slot.brotoReserve ?? []).forEach((c) => {
+          if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: pNum, location: 'field', slotIndex: slotIdx, isReserve: true, card: c });
+        });
+      });
+    });
+    return results;
+  };
+
+  /**
+   * Espelha o guard de fase + "existe carta de pagamento legal" de
+   * handlePayToUnfreeze, mais "existe >=1 alvo congelado em algum lugar do
+   * tabuleiro" - usado só para habilitar/desabilitar o botão em
+   * PlayerZone.tsx. NUNCA usado para validar de verdade a ação (isso é
+   * sempre o motor, via reduceGameAction) - se este cálculo divergir do
+   * motor no futuro, o pior caso é um botão habilitado que dispara um
+   * PAY_TO_UNFREEZE que o motor rejeita como no-op, nunca uma ação incorreta
+   * sendo aplicada.
+   *
+   * FIX (achado real pela revisão adversarial deste recurso): não basta a
+   * mão não estar vazia - o motor também rejeita pagar com uma carta JÁ
+   * congelada (gameEngine.ts:2320). Sem este segundo `some`, uma mão 100%
+   * congelada (ex.: logo depois de Criogênese) deixava o botão habilitado
+   * mesmo sem NENHUMA carta de pagamento válida - o diálogo abria com todas
+   * as cartas da Etapa 1 desabilitadas e "Confirmar" travado pra sempre, só
+   * "Cancelar" funcionando (exatamente o "presente mas impossível de usar"
+   * que a spec original pediu pra evitar).
+   */
+  const canPayToUnfreeze = (playerNumber: 1 | 2): boolean =>
+    gameState.phase === 'strategy' &&
+    gameState[playerKeyOf(playerNumber)].hand.some((c) => !hasStatus(c, 'frozen')) &&
+    findFrozenTargets(gameState).length > 0;
 
   // FIX (item 8 da 6ª rodada): "os efeitos de magia mal são perceptíveis...
   // as que não possuem, adicione" - as 3 Magias Numerais (Mago/Besta/Anjo)
@@ -3144,6 +3282,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 magicContext={getMagicActivationContext(gameState, 2)}
                 isMagicCardDraggable={(card) => isMagicCardDraggable(2, card)}
                 onActivateNumeralSpell={() => handleActivateNumeralSpell(2)}
+                canPayToUnfreeze={canPayToUnfreeze(2)}
+                onOpenPayToUnfreeze={() => setPendingUnfreeze({ playerNumber: 2 })}
                 // FIX (item 8 da 2ª rodada): ver gameEngine.ts (handleActivateNumeralSpell)
                 // - o bloqueio de "já tem uma ativa" precisa ser por jogador, não global,
                 // senão a Magia Numeral do Mago (a única que fica "pendurada" durante o
@@ -3269,6 +3409,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 magicContext={getMagicActivationContext(gameState, 1)}
                 isMagicCardDraggable={(card) => isMagicCardDraggable(1, card)}
                 onActivateNumeralSpell={() => handleActivateNumeralSpell(1)}
+                canPayToUnfreeze={canPayToUnfreeze(1)}
+                onOpenPayToUnfreeze={() => setPendingUnfreeze({ playerNumber: 1 })}
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[1] !== undefined}
                 isAiControlled={isAi(1)}
                 hotseatPrivacyActive={hotseatPrivacyActive}
@@ -4057,6 +4199,165 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   </div>
                 )}
 
+                {/* Glacial J - Criogenar: 1 carta, mão OU campo, de QUALQUER
+                    jogador (alvo omisso na especificação = qualquer alvo
+                    possível). Mesmo par slot/carta que Mago Q/Anjo Q já usam
+                    - `selectedTargetPlayer` sempre gravado explicitamente no
+                    clique (nunca depende do default `?? opponent` do
+                    reducer, mesma convenção do resto do diálogo). Cartas já
+                    congeladas somem da lista de alvos válidos (ver
+                    handleExecuteMagic em gameEngine.ts, que rejeitaria
+                    silenciosamente do mesmo jeito). */}
+                {pendingMagic.character === 'glacial' && pendingMagic.type === 'J' && (
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-[#BFB6A6] text-[12px] mb-2">Campo (qualquer slot ocupado e não congelado):</p>
+                      <div className="flex gap-2">
+                        {(['Seu Campo', 'Campo Oponente'] as const).map((label, playerIdx) => (
+                          <div key={label} className="flex-1">
+                            <p className="text-[10px] text-[#BFB6A6] mb-1">{label}</p>
+                            <div className="flex gap-1">
+                              {[0, 1, 2].map((slotIdx) => {
+                                const targetPlayerNum = playerIdx === 0 ? pendingMagic.playerNumber : opponentNumber;
+                                const targetKey = playerKeyOf(targetPlayerNum);
+                                const slot = gameState[targetKey].field[slotIdx];
+                                const isOwn = targetPlayerNum === pendingMagic.playerNumber;
+                                const canSelect =
+                                  Boolean(slot.faceDownCard) &&
+                                  !hasStatus(slot.faceDownCard, 'frozen') &&
+                                  !(!isOwn && isSlotProtected(gameState, targetPlayerNum, slotIdx));
+                                const isSelected =
+                                  pendingMagic.selectedSlot === slotIdx &&
+                                  !pendingMagic.selectedCards?.length &&
+                                  pendingMagic.selectedTargetPlayer === targetPlayerNum;
+
+                                return (
+                                  <button
+                                    key={slotIdx}
+                                    onClick={() =>
+                                      canSelect &&
+                                      setPendingMagic({ ...pendingMagic, selectedSlot: slotIdx, selectedCards: undefined, selectedTargetPlayer: targetPlayerNum })
+                                    }
+                                    disabled={!canSelect}
+                                    className={`flex-1 h-16 border-2 rounded ${
+                                      isSelected
+                                        ? 'border-[#6CC47A] bg-[#6CC47A]/10'
+                                        : canSelect
+                                        ? 'border-[#C59E4F]/30 hover:border-[#C59E4F]'
+                                        : 'border-[#C59E4F]/10 opacity-30'
+                                    } transition-all text-[10px] text-[#BFB6A6]`}
+                                  >
+                                    {slot.faceDownCard ? (slot.revealed || isOwn ? `${getDisplayValue(slot.faceDownCard)}${slot.faceDownCard.suit}` : '🃏') : 'Vazio'}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[#BFB6A6] text-[12px] mb-2">Ou Mão (sua ou do oponente, qualquer carta não congelada):</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {gameState[ownKey].hand.map((handCard) => {
+                          const canSelect = !hasStatus(handCard, 'frozen');
+                          const isSelected = (pendingMagic.selectedCards || [])[0] === handCard.id && pendingMagic.selectedTargetPlayer === pendingMagic.playerNumber;
+                          return (
+                            <div
+                              key={handCard.id}
+                              onClick={() => canSelect && setPendingMagic({ ...pendingMagic, selectedCards: [handCard.id], selectedSlot: undefined, selectedTargetPlayer: pendingMagic.playerNumber })}
+                              className={`cursor-pointer transition-all ${isSelected ? 'ring-2 ring-[#6CC47A]' : ''} ${!canSelect ? 'opacity-30 cursor-not-allowed' : ''}`}
+                            >
+                              <PlayingCard value={handCard.value} suit={handCard.suit} card={handCard} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex gap-2 flex-wrap mt-2">
+                        {gameState[opponentKey].hand.map((handCard, idx) => {
+                          const canSelect = !hasStatus(handCard, 'frozen');
+                          const isSelected = (pendingMagic.selectedCards || [])[0] === handCard.id && pendingMagic.selectedTargetPlayer === opponentNumber;
+                          return (
+                            <button
+                              key={handCard.id}
+                              onClick={() => canSelect && setPendingMagic({ ...pendingMagic, selectedCards: [handCard.id], selectedSlot: undefined, selectedTargetPlayer: opponentNumber })}
+                              disabled={!canSelect}
+                              className={`w-16 h-24 border-2 rounded ${
+                                isSelected
+                                  ? 'border-[#6CC47A] bg-[#6CC47A]/10'
+                                  : canSelect
+                                  ? 'border-[#C59E4F]/30 hover:border-[#C59E4F]'
+                                  : 'border-[#C59E4F]/10 opacity-30 cursor-not-allowed'
+                              } transition-all text-[10px] text-[#BFB6A6]`}
+                            >
+                              Carta {idx + 1} (oponente)
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Glacial Q - Crioespinho: 1 carta NO CAMPO (principal ou
+                    horizontal), de qualquer jogador - precisa de slot + id
+                    da carta específica dentro dele (ver handleExecuteMagic
+                    em gameEngine.ts, que também aceita horizontais). */}
+                {pendingMagic.character === 'glacial' && pendingMagic.type === 'Q' && (
+                  <div className="space-y-3">
+                    <p className="text-[#BFB6A6] text-[12px]">Selecione uma carta no campo (principal ou reforço), sua ou do oponente:</p>
+                    <div className="flex gap-3">
+                      {(['Seu Campo', 'Campo Oponente'] as const).map((label, playerIdx) => (
+                        <div key={label} className="flex-1">
+                          <p className="text-[10px] text-[#BFB6A6] mb-1">{label}</p>
+                          <div className="flex gap-1">
+                            {[0, 1, 2].map((slotIdx) => {
+                              const targetPlayerNum = playerIdx === 0 ? pendingMagic.playerNumber : opponentNumber;
+                              const targetKey = playerKeyOf(targetPlayerNum);
+                              const slot = gameState[targetKey].field[slotIdx];
+                              const isOwn = targetPlayerNum === pendingMagic.playerNumber;
+                              const slotBlocked = !isOwn && isSlotProtected(gameState, targetPlayerNum, slotIdx);
+                              const candidates = [...(slot.faceDownCard ? [slot.faceDownCard] : []), ...slot.horizontalCards];
+
+                              return (
+                                <div key={slotIdx} className="flex-1 space-y-1">
+                                  {candidates.length === 0 && <div className="h-16 border-2 border-[#C59E4F]/10 rounded opacity-30 flex items-center justify-center text-[10px] text-[#BFB6A6]">Vazio</div>}
+                                  {candidates.map((candidate) => {
+                                    const canSelect = !slotBlocked && !hasStatus(candidate, 'frozen');
+                                    const isSelected =
+                                      pendingMagic.selectedSlot === slotIdx &&
+                                      (pendingMagic.selectedCards || [])[0] === candidate.id &&
+                                      pendingMagic.selectedTargetPlayer === targetPlayerNum;
+                                    return (
+                                      <button
+                                        key={candidate.id}
+                                        onClick={() =>
+                                          canSelect &&
+                                          setPendingMagic({ ...pendingMagic, selectedSlot: slotIdx, selectedCards: [candidate.id], selectedTargetPlayer: targetPlayerNum })
+                                        }
+                                        disabled={!canSelect}
+                                        className={`w-full h-16 border-2 rounded ${
+                                          isSelected
+                                            ? 'border-[#6CC47A] bg-[#6CC47A]/10'
+                                            : canSelect
+                                            ? 'border-[#C59E4F]/30 hover:border-[#C59E4F]'
+                                            : 'border-[#C59E4F]/10 opacity-30'
+                                        } transition-all text-[10px] text-[#BFB6A6]`}
+                                      >
+                                        {slot.revealed || isOwn ? `${getDisplayValue(candidate)}${candidate.suit}` : '🃏'}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Mago K - Selecionar horizontal ou marcador do oponente */}
                 {/* FIX (pedido do usuário: "permita que o mago possa destruir
                     marcadores em sua magia do rei") - agora também aceita um
@@ -4630,6 +4931,14 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                       if (character === 'druida') {
                         return !selectedCards || selectedCards.length === 0;
                       }
+                      // Glacial J (Criogenar): alvo é OU uma carta da mão
+                      // (selectedCards) OU um slot do campo (selectedSlot) -
+                      // nunca os dois nem nenhum. Q (Crioespinho) é só campo,
+                      // mas precisa da carta ESPECÍFICA dentro do slot (pode
+                      // ser uma horizontal, não só a principal), por isso
+                      // exige selectedSlot E selectedCards juntos.
+                      if (character === 'glacial' && type === 'J') return pSlot === undefined && (!selectedCards || selectedCards.length === 0);
+                      if (character === 'glacial' && type === 'Q') return pSlot === undefined || !selectedCards || selectedCards.length === 0;
                       return false;
                     })()}
                     className="flex-1 bg-[#6CC47A] hover:bg-[#4A8A5A] text-[#0F1113] disabled:opacity-30"
@@ -4641,6 +4950,154 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     variant="outline"
                     className="flex-1 border-[#C59E4F] text-[#C59E4F]"
                   >
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de Descongelar (PAY_TO_UNFREEZE) - ação padrão de Estratégia,
+          disponível a QUALQUER personagem (handlePayToUnfreeze em gameEngine.ts
+          não filtra por character) - descarta 1 carta qualquer da própria mão
+          pra remover 'frozen' de uma carta congelada em qualquer mão/campo dos
+          dois jogadores. Propositalmente FORA de `pendingMagic` (não é ativação
+          de magia - ver PendingUnfreeze acima) mas com a mesma cara: Dialog +
+          tiles selecionáveis + Confirmar desabilitado até os 2 campos estarem
+          preenchidos, mesma família visual do diálogo de magia logo acima. */}
+      <Dialog open={!!pendingUnfreeze} onOpenChange={(open) => !open && setPendingUnfreeze(null)}>
+        <DialogContent className="bg-[#1E1A16] border-[#0ADEFF] max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-[#EFE7D6] font-display text-[20px]">Descongelar</DialogTitle>
+            <DialogDescription className="text-[#BFB6A6]">
+              Descarte 1 carta qualquer da sua mão para remover o status Congelado de uma carta congelada (sua ou do oponente, na mão ou no campo).
+            </DialogDescription>
+          </DialogHeader>
+
+          {pendingUnfreeze && (() => {
+            const targets = findFrozenTargets(gameState);
+            return (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[#BFB6A6] text-[12px] mb-2">
+                    1. Pagamento - escolha 1 carta da sua mão para descartar (qualquer carta, mesmo não numeral):
+                  </p>
+                  <div className="flex gap-2 flex-wrap">
+                    {gameState[playerKeyOf(pendingUnfreeze.playerNumber)].hand.map((handCard) => {
+                      // Uma carta congelada nunca pode ser pagamento (guard do
+                      // motor). Isso também garante, sem checagem extra, que a
+                      // própria carta-alvo nunca aparece selecionável aqui como
+                      // pagamento: ela SÓ pode aparecer na lista de alvos (passo
+                      // 2) porque está congelada, e uma carta congelada nunca
+                      // passa neste filtro - paymentCardId !== targetCardId do
+                      // motor está garantido de graça pelos dois filtros juntos.
+                      const canSelect = !hasStatus(handCard, 'frozen');
+                      const isSelected = pendingUnfreeze.paymentCardId === handCard.id;
+                      return (
+                        <div
+                          key={handCard.id}
+                          onClick={() => canSelect && setPendingUnfreeze({ ...pendingUnfreeze, paymentCardId: handCard.id })}
+                          className={`cursor-pointer transition-all ${isSelected ? 'ring-2 ring-[#0ADEFF]' : ''} ${!canSelect ? 'opacity-30 cursor-not-allowed' : ''}`}
+                        >
+                          <PlayingCard value={handCard.value} suit={handCard.suit} card={handCard} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[#BFB6A6] text-[12px] mb-2">
+                    2. Alvo - escolha 1 carta congelada em qualquer mão/campo:
+                  </p>
+                  {targets.length === 0 ? (
+                    <p className="text-[11px] text-[#BFB6A6] opacity-60">Nenhuma carta congelada no momento.</p>
+                  ) : (
+                    <ScrollArea className="h-48 border border-[#0ADEFF]/30 rounded p-2">
+                      <div className="space-y-1.5">
+                        {targets.map((t) => {
+                          const isOwn = t.ownerPlayer === pendingUnfreeze.playerNumber;
+                          const isSelected = pendingUnfreeze.targetCardId === t.id;
+                          const slot = t.location === 'field' ? gameState[playerKeyOf(t.ownerPlayer)].field[t.slotIndex!] : undefined;
+                          // FIX (achado real pela revisão adversarial deste
+                          // recurso): uma horizontal tem seu PRÓPRIO
+                          // `revealed`, independente do `slot.revealed` (que
+                          // só descreve a carta PRINCIPAL) - mesma regra já
+                          // usada em FieldSlotView.tsx (`mainFaceUp` soma os
+                          // dois pra principal; `cardFaceUp` de uma
+                          // horizontal olha só `hCard.revealed`). Usar
+                          // `slot.revealed` pra uma horizontal vazava o
+                          // valor de um reforço ainda oculto (quando a
+                          // principal do mesmo slot já tinha sido revelada
+                          // antes) ou escondia um reforço já revelado (quando
+                          // a principal nunca foi).
+                          // FIX (achado real por auditoria): uma carta
+                          // soterrada em towerReserve/brotoReserve segue a
+                          // MESMA regra de uma horizontal - `revealed`
+                          // próprio da carta, nunca o do slot (ver
+                          // FIX acima sobre `t.isHorizontal`).
+                          const canSeeValue = isOwn || (t.isHorizontal || t.isReserve ? t.card.revealed === true : (slot?.revealed || t.card.revealed) === true);
+                          let label: string;
+                          if (t.location === 'hand') {
+                            label = isOwn
+                              ? `${getDisplayValue(t.card)}${t.card.suit} (sua mão)`
+                              : `Carta ${t.handIndex! + 1} da mão do oponente (congelada)`;
+                          } else {
+                            const where = isOwn ? 'seu campo' : 'campo do oponente';
+                            const tag = t.isReserve ? ' - empilhada (Torre/Broto)' : t.isHorizontal ? ' - reforço' : '';
+                            label = canSeeValue
+                              ? `${getDisplayValue(t.card)}${t.card.suit} - Slot ${t.slotIndex! + 1}${tag} (${where})`
+                              : `Slot ${t.slotIndex! + 1}${tag} do ${where} (congelada)`;
+                          }
+                          return (
+                            <button
+                              key={t.id}
+                              onClick={() => setPendingUnfreeze({ ...pendingUnfreeze, targetCardId: t.id })}
+                              className={`w-full text-left px-3 py-2 rounded border-2 transition-all text-[11px] flex items-center gap-2 ${
+                                isSelected ? 'border-[#0ADEFF] bg-[#0ADEFF]/10 text-[#EFE7D6]' : 'border-[#C59E4F]/30 hover:border-[#0ADEFF] text-[#BFB6A6]'
+                              }`}
+                            >
+                              <Snowflake className="w-3.5 h-3.5 text-[#0ADEFF] shrink-0" />
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </div>
+
+                <div className="flex gap-4">
+                  <Button
+                    onClick={() => {
+                      if (!pendingUnfreeze.paymentCardId || !pendingUnfreeze.targetCardId) return;
+                      // FIX (achado real pela revisão adversarial deste
+                      // recurso): `dispatch` (definido acima) já vira um
+                      // no-op silencioso durante `postMagicPause`/
+                      // `showPhaseTransition` - sem esta mesma checagem
+                      // aqui, o Confirmar fechava o diálogo como se tivesse
+                      // funcionado mesmo quando o dispatch foi engolido,
+                      // sem NENHUM feedback de que nada aconteceu. Aqui,
+                      // simplesmente não fecha o diálogo - a seleção fica
+                      // intacta e o jogador só precisa clicar de novo depois
+                      // que a pausa/transição terminar.
+                      if (showPhaseTransition || postMagicPause) return;
+                      dispatch({
+                        type: 'PAY_TO_UNFREEZE',
+                        player: pendingUnfreeze.playerNumber,
+                        paymentCardId: pendingUnfreeze.paymentCardId,
+                        targetCardId: pendingUnfreeze.targetCardId,
+                      });
+                      setPendingUnfreeze(null);
+                    }}
+                    disabled={!pendingUnfreeze.paymentCardId || !pendingUnfreeze.targetCardId}
+                    className="flex-1 bg-[#0ADEFF] hover:bg-[#0ABEDF] text-[#0F1113] disabled:opacity-30"
+                  >
+                    Confirmar
+                  </Button>
+                  <Button onClick={() => setPendingUnfreeze(null)} variant="outline" className="flex-1 border-[#C59E4F] text-[#C59E4F]">
                     Cancelar
                   </Button>
                 </div>
@@ -5295,24 +5752,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         </div>
       </div>
     )}
-    {/* FIX (item 23 do Grupo F, "pop-up mostrando o efeito e os alvos, sem
-        obscurecer"): banner FINO no topo, nunca um overlay/backdrop cobrindo
-        o campo - o jogador continua vendo tudo, só não consegue AGIR
-        enquanto ele estiver na tela (ver guard em `dispatch` acima). Mesmo
-        motivo de viver fora da árvore com `zoom` que a Pontuação flutuante/
-        CardDragLayer/BulletImpactBurst logo acima. */}
-    {postMagicPause && (
-      <div
-        className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#1E1A16]/95 border border-[#C59E4F] rounded-lg px-4 py-3 shadow-xl flex items-start gap-3"
-        style={{ maxWidth: 420 }}
-      >
-        <Sparkles className="w-4 h-4 text-[#C59E4F] flex-shrink-0 mt-0.5" />
-        <div>
-          <p className="text-[12px] text-[#EFE7D6] font-semibold">{postMagicPause.title}</p>
-          <p className="text-[11px] text-[#BFB6A6] leading-snug mt-0.5">{postMagicPause.detail}</p>
-        </div>
-      </div>
-    )}
+    {/* Pausa pós-ativação de magia (ver comentário completo em
+        MagicPauseSpotlight.tsx e no estado `postMagicPause` acima) - tela
+        inteira escurecida, exceto um recorte na posição real da carta
+        ativada. Mesmo motivo de viver fora da árvore com `zoom` que a
+        Pontuação flutuante/CardDragLayer/BulletImpactBurst logo acima. */}
+    <MagicPauseSpotlight spec={postMagicPause} />
     {/* Item 39 do Grupo J ("inspetor de IA ao vivo no navegador") - mesmo
         motivo de viver AQUI, fora da árvore com `zoom`, que a Pontuação
         flutuante/CardDragLayer acima. Um bloco por IA em `aiPlayers`, sempre
