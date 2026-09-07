@@ -1796,7 +1796,12 @@ function decideStrategyMagic(state: GameState, ai: PlayerNumber, character: Char
   if (character === 'druida') return decideDruidaQ(state, ai);
   // Glacial (personagem novo): Criogenar (J) e Crioespinho (Q) são AMBOS de
   // Estratégia - tenta o Valete primeiro, mesmo padrão do Mosqueteiro acima.
-  if (character === 'glacial') return decideGlacialJ(state, ai) ?? decideGlacialQ(state, ai);
+  // FIX (mudança de efeito pedida pelo usuário: "adicione também este efeito
+  // para esta magia que só funciona na fase de estratégia") - Crioescudo (K)
+  // agora TAMBÉM tem uma janela de Estratégia (congelar carta própria);
+  // tentada por ÚLTIMO (ver decideGlacialKStrategy abaixo: só ativa quando
+  // não há motivo pra guardar o Rei pro efeito de Combate).
+  if (character === 'glacial') return decideGlacialJ(state, ai) ?? decideGlacialQ(state, ai) ?? decideGlacialKStrategy(state, ai);
   return null;
 }
 
@@ -2408,13 +2413,52 @@ function decideGlacialQ(state: GameState, ai: PlayerNumber): GameAction | null {
   };
 }
 
-/** Crioescudo (Rei): efeito em massa sem seleção de alvo - ativa sempre que `canActivateMagic` já confirma pelo menos 1 carta própria congelada no campo. */
-function decideGlacialK(state: GameState, ai: PlayerNumber): GameAction | null {
+/**
+ * Crioescudo (Rei), efeito de COMBATE: em massa, sem seleção de alvo - ativa
+ * sempre que `canActivateMagic` já confirma pelo menos 1 carta congelada no
+ * campo (própria OU do oponente, desde a mudança de efeito pedida pelo
+ * usuário - antes só considerava a própria).
+ */
+function decideGlacialKCombat(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
   const kCard = findActivatableMagicCard(me.hand, 'K', 'glacial');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'glacial', 'K', getMagicActivationContext(state, ai))) return null;
   return { type: 'EXECUTE_MAGIC', player: ai, cardId: kCard.id, character: 'glacial', magicType: 'K', selection: {} };
+}
+
+/**
+ * Crioescudo (Rei), NOVO efeito de ESTRATÉGIA (pedido do usuário: "adicione
+ * também este efeito para esta magia que só funciona na fase de estratégia:
+ * Congele uma carta sua"): reaproveita `buildGlacialFreezeSelection` (mesma
+ * função usada por decideGlacialJ), sempre mirando a SI MESMO.
+ *
+ * Prioridade BAIXA de propósito (só decideGlacialKStrategy roda por último
+ * em decideStrategyMagic, depois de J e Q): o papel canônico do Rei continua
+ * sendo o efeito de Combate, então só vale gastá-lo aqui congelando a
+ * própria carta quando esse efeito de Combate JÁ estaria sem nenhum alvo
+ * este turno (nenhuma carta congelada em NENHUM dos dois campos ainda) - do
+ * contrário a IA guardaria o Rei pra reforçar/enfraquecer na próxima
+ * disputa, exatamente como já faz com Q/J quando não há alvo bom.
+ */
+function decideGlacialKStrategy(state: GameState, ai: PlayerNumber): GameAction | null {
+  const me = state[playerKeyOf(ai)];
+  const kCard = findActivatableMagicCard(me.hand, 'K', 'glacial');
+  if (!kCard) return null;
+  if (!canActivateMagic('strategy', 'glacial', 'K', getMagicActivationContext(state, ai))) return null;
+
+  const opponentState = state[opponentKeyOf(ai)];
+  const anyFrozenInField = fieldCards(me.field).some((c) => hasStatus(c, 'frozen')) || fieldCards(opponentState.field).some((c) => hasStatus(c, 'frozen'));
+  if (anyFrozenInField) return null;
+
+  const ownFreezable = [...me.hand.filter((c) => c.id !== kCard.id), ...fieldCards(me.field)].filter((c) => !hasStatus(c, 'frozen'));
+  if (ownFreezable.length === 0) return null;
+  const magicCards = ownFreezable.filter((c) => c.value === 'J' || c.value === 'Q' || c.value === 'K');
+  const pool = magicCards.length > 0 && random() < GLACIAL_FREEZE_OWN_MAGIC_BIAS ? magicCards : ownFreezable;
+  const chosen = pool[Math.floor(random() * pool.length)];
+  const selection = buildGlacialFreezeSelection(ai, me, chosen);
+  if (!selection) return null;
+  return { type: 'EXECUTE_MAGIC', player: ai, cardId: kCard.id, character: 'glacial', magicType: 'K', selection };
 }
 
 /** Criogolem (Monstro): joga assim que possível - diferente do Broto Espelhado do Druida, o valor não cresce sozinho esperando, não há benefício em segurar a carta. */
@@ -3034,7 +3078,7 @@ function decideCombatMagic(state: GameState, ai: PlayerNumber, character: Charac
   if (character === 'mosqueteiro') return decideMosqueteiroK(state, ai);
   if (character === 'piromante') return decidePiromanteK(state, ai) ?? decidePiromanteCombatFireball(state, ai);
   if (character === 'druida') return decideDruidaK(state, ai);
-  if (character === 'glacial') return decideGlacialK(state, ai);
+  if (character === 'glacial') return decideGlacialKCombat(state, ai);
   return null;
 }
 

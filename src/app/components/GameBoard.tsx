@@ -1861,14 +1861,22 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       return;
     }
 
-    // Glacial K (Crioescudo) também não precisa de assistente: é um efeito
-    // em massa sem alvo escolhível (+1 em TODAS as próprias cartas já
-    // congeladas no campo, ver handleExecuteMagic em gameEngine.ts) - mas ao
-    // contrário do Anjo acima, sua lógica já mora em EXECUTE_MAGIC (não
-    // ACTIVATE_SIMPLE_MAGIC, que só cobre Anjo J/K), então despacha essa
-    // action diretamente com `selection: {}` em vez de abrir o diálogo
-    // genérico (que nunca teria nenhum campo pra preencher pra esta magia).
-    if (character === 'glacial' && magicType === 'K') {
+    // Glacial K (Crioescudo) no Combate também não precisa de assistente: é
+    // um efeito em massa sem alvo escolhível (+1 em TODAS as próprias cartas
+    // já congeladas no campo e -1 em TODAS as do oponente, ver
+    // handleExecuteMagic em gameEngine.ts) - mas ao contrário do Anjo acima,
+    // sua lógica já mora em EXECUTE_MAGIC (não ACTIVATE_SIMPLE_MAGIC, que só
+    // cobre Anjo J/K), então despacha essa action diretamente com
+    // `selection: {}` em vez de abrir o diálogo genérico.
+    //
+    // FIX (mudança de efeito pedida pelo usuário: "a carta agora tem 2
+    // efeitos... outro só na fase de estratégia que permite você congelar
+    // uma carta sua") - esse atalho SEM diálogo só vale mais pro efeito de
+    // Combate (`gameState.phase === 'combat'`); na Estratégia o NOVO efeito
+    // (congelar 1 carta própria) PRECISA de um alvo escolhido, então cai pro
+    // fluxo normal do diálogo genérico logo abaixo (mesmo padrão de
+    // Criogenar/J), exatamente como qualquer magia com alvo faz.
+    if (character === 'glacial' && magicType === 'K' && gameState.phase === 'combat') {
       const action: GameAction = { type: 'EXECUTE_MAGIC', player: playerNumber, cardId, character, magicType: 'K', selection: {} };
       if (!canMagicTriggerReactionAnnouncement(gameState, playerNumber, cardId)) {
         flashSelfEffect(playerNumber, character, getMagicCardInfo(character, magicType).name);
@@ -4458,6 +4466,65 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   </div>
                 )}
 
+                {/* Glacial K - Crioescudo, efeito de ESTRATÉGIA (NOVO, pedido
+                    do usuário: "permite você congelar uma carta sua na mão
+                    ou campo") - mesmo padrão do bloco de Criogenar (J) acima,
+                    mas restrito ao PRÓPRIO lado (nunca mira o oponente, "uma
+                    carta SUA"): sem coluna "Campo Oponente" nem seção de mão
+                    do oponente. O efeito de COMBATE desta mesma carta nunca
+                    abre este diálogo (ver handleActivateMagicClick, fluxo
+                    "sem assistente" restrito a `gameState.phase === 'combat'`). */}
+                {pendingMagic.character === 'glacial' && pendingMagic.type === 'K' && (
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-[#BFB6A6] text-[12px] mb-2">Seu campo (qualquer slot ocupado e não congelado):</p>
+                      <div className="flex gap-1">
+                        {[0, 1, 2].map((slotIdx) => {
+                          const slot = gameState[ownKey].field[slotIdx];
+                          const canSelect = Boolean(slot.faceDownCard) && !hasStatus(slot.faceDownCard, 'frozen');
+                          const isSelected = pendingMagic.selectedSlot === slotIdx && !pendingMagic.selectedCards?.length;
+                          return (
+                            <button
+                              key={slotIdx}
+                              onClick={() => canSelect && setPendingMagic({ ...pendingMagic, selectedSlot: slotIdx, selectedCards: undefined })}
+                              disabled={!canSelect}
+                              className={`flex-1 h-16 border-2 rounded ${
+                                isSelected
+                                  ? 'border-[#6CC47A] bg-[#6CC47A]/10'
+                                  : canSelect
+                                  ? 'border-[#C59E4F]/30 hover:border-[#C59E4F]'
+                                  : 'border-[#C59E4F]/10 opacity-30'
+                              } transition-all text-[10px] text-[#BFB6A6]`}
+                            >
+                              {slot.faceDownCard ? `${getDisplayValue(slot.faceDownCard)}${slot.faceDownCard.suit}` : 'Vazio'}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[#BFB6A6] text-[12px] mb-2">Ou sua mão (qualquer carta não congelada):</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {gameState[ownKey].hand
+                          .filter((handCard) => handCard.id !== pendingMagic.cardId)
+                          .map((handCard) => {
+                            const canSelect = !hasStatus(handCard, 'frozen');
+                            const isSelected = (pendingMagic.selectedCards || [])[0] === handCard.id;
+                            return (
+                              <div
+                                key={handCard.id}
+                                onClick={() => canSelect && setPendingMagic({ ...pendingMagic, selectedCards: [handCard.id], selectedSlot: undefined })}
+                                className={`cursor-pointer transition-all ${isSelected ? 'ring-2 ring-[#6CC47A]' : ''} ${!canSelect ? 'opacity-30 cursor-not-allowed' : ''}`}
+                              >
+                                <PlayingCard value={handCard.value} suit={handCard.suit} card={handCard} />
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Mago K - Selecionar horizontal ou marcador do oponente */}
                 {/* FIX (pedido do usuário: "permita que o mago possa destruir
                     marcadores em sua magia do rei") - agora também aceita um
@@ -5039,6 +5106,11 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                       // exige selectedSlot E selectedCards juntos.
                       if (character === 'glacial' && type === 'J') return pSlot === undefined && (!selectedCards || selectedCards.length === 0);
                       if (character === 'glacial' && type === 'Q') return pSlot === undefined || !selectedCards || selectedCards.length === 0;
+                      // Glacial K (Crioescudo), efeito de Estratégia (NOVO):
+                      // mesma forma de alvo que J - carta da mão OU slot do
+                      // campo, nunca os dois nem nenhum (sempre a SI MESMO,
+                      // sem `selectedTargetPlayer` pra escolher aqui).
+                      if (character === 'glacial' && type === 'K') return pSlot === undefined && (!selectedCards || selectedCards.length === 0);
                       return false;
                     })()}
                     className="flex-1 bg-[#6CC47A] hover:bg-[#4A8A5A] text-[#0F1113] disabled:opacity-30"

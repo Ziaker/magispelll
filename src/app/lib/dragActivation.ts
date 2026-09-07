@@ -55,6 +55,7 @@ import {
   type MagicSelection,
   type PlayerNumber,
 } from './gameEngine';
+import { hasStatus } from './statusEffects';
 import type { MagicCardType } from './magicCards';
 
 export interface DragActivationRule {
@@ -185,6 +186,37 @@ const druidaKRule: DragActivationRule = {
   }),
 };
 
+/**
+ * Glacial K - Crioescudo, efeito de ESTRATÉGIA (NOVO, pedido do usuário:
+ * "permita a ativação drag & drop no efeito da fase de estratégia") -
+ * congela 1 carta PRÓPRIA no campo. Mesmo padrão de druidaQRule/druidaKRule
+ * (`side: 'own'`, arrastar sempre mira a carta PRINCIPAL do slot - mirar uma
+ * carta da MÃO continua exigindo o diálogo, ver o bloco "Glacial K" em
+ * GameBoard.tsx: nenhuma outra magia deste jogo tem alvo de mão arrastável,
+ * a mão nunca é uma zona de drop neste jogo, ver o comentário no topo deste
+ * arquivo).
+ *
+ * A checagem `state.phase !== 'strategy'` é OBRIGATÓRIA aqui, mesmo com
+ * `canActivateMagic` já sendo checado antes por quem chama esta regra
+ * (GameBoard.tsx): o Rei também é ativável no COMBATE, mas por um motivo
+ * TOTALMENTE diferente (`hasAnyFrozenFieldCard` - existe carta JÁ congelada
+ * em jogo) que nada tem a ver com "este slot tem uma carta própria AINDA NÃO
+ * congelada" (o critério daqui). Sem esta guarda, um drop no Combate
+ * pareceria mirar aquele slot específico, mas handleExecuteMagic
+ * (gameEngine.ts) ignora a seleção nessa fase e roda o efeito em MASSA
+ * mesmo assim - o feedback visual do arraste mentiria sobre o que vai
+ * acontecer.
+ */
+const glacialKRule: DragActivationRule = {
+  side: 'own',
+  isValidSlotTarget: (state, player, slotIndex) => {
+    if (state.phase !== 'strategy') return false;
+    const slot = state[playerKeyOf(player)].field[slotIndex];
+    return Boolean(slot.faceDownCard) && !hasStatus(slot.faceDownCard, 'frozen');
+  },
+  buildSelection: (_state, _player, slotIndex) => ({ selectedSlot: slotIndex }),
+};
+
 type DragActivationKey = `${CharacterId}-${MagicCardType}`;
 
 const DRAG_ACTIVATION_RULES: Partial<Record<DragActivationKey, DragActivationRule>> = {
@@ -200,6 +232,11 @@ const DRAG_ACTIVATION_RULES: Partial<Record<DragActivationKey, DragActivationRul
   // no escopo original (seleção inteira = 1 carta de campo).
   'druida-Q': druidaQRule,
   'druida-K': druidaKRule,
+  // FIX (mudança de efeito pedida pelo usuário: "permita a ativação drag &
+  // drop no efeito da fase de estratégia") - Crioescudo (Rei do Glacial)
+  // ganhou um efeito de Estratégia com alvo simples (1 slot de campo
+  // próprio) que se encaixa no mesmo escopo.
+  'glacial-K': glacialKRule,
 };
 
 export function getDragActivationRule(character: CharacterId, magicType: MagicCardType): DragActivationRule | undefined {

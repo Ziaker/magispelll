@@ -1511,8 +1511,14 @@ export function getMagicActivationContext(state: GameState, player: PlayerNumber
       fieldCards(opponentState.field).some((c) => !hasStatus(c, 'frozen')),
     // Crioespinho (Rainha do Glacial): só campo, de qualquer jogador.
     hasFreezableFieldCard: fieldCards(playerState.field).some((c) => !hasStatus(c, 'frozen')) || fieldCards(opponentState.field).some((c) => !hasStatus(c, 'frozen')),
-    // Crioescudo (Rei do Glacial): pelo menos 1 carta PRÓPRIA já congelada no campo.
-    hasOwnFrozenFieldCard: fieldCards(playerState.field).some((c) => hasStatus(c, 'frozen')),
+    // Crioescudo (Rei do Glacial), efeito de COMBATE (mudança de efeito
+    // pedida pelo usuário: "adicione marcador -1 para cartas congeladas do
+    // oponente, podendo ser ativado caso há no mínimo 1 carta congelada no
+    // campo") - antes exigia uma congelada PRÓPRIA; agora qualquer lado serve.
+    hasAnyFrozenFieldCard: fieldCards(playerState.field).some((c) => hasStatus(c, 'frozen')) || fieldCards(opponentState.field).some((c) => hasStatus(c, 'frozen')),
+    // Crioescudo (Rei do Glacial), NOVO efeito de ESTRATÉGIA: alguma carta
+    // PRÓPRIA (mão ou campo) ainda não congelada pra congelar.
+    hasFreezableOwnCard: playerState.hand.some((c) => !hasStatus(c, 'frozen')) || fieldCards(playerState.field).some((c) => !hasStatus(c, 'frozen')),
   };
 }
 
@@ -4044,42 +4050,112 @@ function handleExecuteMagic(
   }
 
   // ----- Glacial K: Crioescudo -----
-  // Efeito em massa, sem seleção de alvo: soma +1 de marcador de combate em
-  // TODAS as próprias cartas já congeladas no campo, de uma vez.
+  // Mudança de efeito pedida pelo usuário: a carta agora tem DOIS efeitos
+  // independentes, um por fase - `state.phase` decide qual roda (canActivateMagic
+  // já garante, via a janela extra na Estratégia, que só chega aqui numa
+  // fase onde o efeito correspondente é mesmo ativável).
   if (character === 'glacial' && magicType === 'K') {
-    const ownFrozenCards = fieldCards(playerState.field).filter((c) => hasStatus(c, 'frozen'));
-    if (ownFrozenCards.length === 0) return state;
-    const newField = playerState.field.map((slot) => ({
-      ...slot,
-      faceDownCard:
-        slot.faceDownCard && hasStatus(slot.faceDownCard, 'frozen')
-          ? applyStatus(
-              slot.faceDownCard,
-              { kind: 'combatModifier', source: 'glacial', label: 'Crioescudo', mode: 'add', magnitude: 1, duration: { type: 'untilPhase', phase: 'draw' } },
-              (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
-            )
-          : slot.faceDownCard,
-      horizontalCards: slot.horizontalCards.map((c) =>
-        hasStatus(c, 'frozen')
-          ? applyStatus(
-              c,
-              { kind: 'combatModifier', source: 'glacial', label: 'Crioescudo', mode: 'add', magnitude: 1, duration: { type: 'untilPhase', phase: 'draw' } },
-              (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
-            )
-          : c
-      ),
-    })) as [FieldSlot, FieldSlot, FieldSlot];
+    if (state.phase === 'combat') {
+      // Efeito de COMBATE (o original, agora também mirando o oponente):
+      // sem seleção de alvo, soma +1 de marcador em TODAS as próprias cartas
+      // já congeladas no campo E -1 em TODAS as já congeladas do campo do
+      // OPONENTE, de uma vez.
+      const opponentState = state[opponentKey];
+      const ownFrozenCards = fieldCards(playerState.field).filter((c) => hasStatus(c, 'frozen'));
+      const opponentFrozenCards = fieldCards(opponentState.field).filter((c) => hasStatus(c, 'frozen'));
+      if (ownFrozenCards.length === 0 && opponentFrozenCards.length === 0) return state;
 
-    const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption(playerState, card, cardId);
-    const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
-    const log = appendLog(
-      state,
-      state.log,
-      'magic',
-      `Jogador ${player} reforçou +1 em ${ownFrozenCards.length} carta(s) congelada(s) no próprio campo`,
-      { player, cardValue: card.value, cardSuit: card.suit }
-    );
-    return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: consumedHand, field: newField } };
+      const applyCrioescudoMarker = (field: [FieldSlot, FieldSlot, FieldSlot], magnitude: number): [FieldSlot, FieldSlot, FieldSlot] =>
+        field.map((slot) => ({
+          ...slot,
+          faceDownCard:
+            slot.faceDownCard && hasStatus(slot.faceDownCard, 'frozen')
+              ? applyStatus(
+                  slot.faceDownCard,
+                  { kind: 'combatModifier', source: 'glacial', label: 'Crioescudo', mode: 'add', magnitude, duration: { type: 'untilPhase', phase: 'draw' } },
+                  (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+                )
+              : slot.faceDownCard,
+          horizontalCards: slot.horizontalCards.map((c) =>
+            hasStatus(c, 'frozen')
+              ? applyStatus(
+                  c,
+                  { kind: 'combatModifier', source: 'glacial', label: 'Crioescudo', mode: 'add', magnitude, duration: { type: 'untilPhase', phase: 'draw' } },
+                  (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+                )
+              : c
+          ),
+        })) as [FieldSlot, FieldSlot, FieldSlot];
+
+      const newField = applyCrioescudoMarker(playerState.field, 1);
+      const newOpponentField = applyCrioescudoMarker(opponentState.field, -1);
+
+      const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption(playerState, card, cardId);
+      const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+      const parts = [
+        ...(ownFrozenCards.length > 0 ? [`+1 em ${ownFrozenCards.length} carta(s) própria(s)`] : []),
+        ...(opponentFrozenCards.length > 0 ? [`-1 em ${opponentFrozenCards.length} carta(s) de Jogador ${opponent}`] : []),
+      ];
+      const log = appendLog(
+        state,
+        state.log,
+        'magic',
+        `Jogador ${player} reforçou o Crioescudo: ${parts.join(' e ')} (congelada(s) no campo)`,
+        { player, cardValue: card.value, cardSuit: card.suit }
+      );
+      return {
+        ...state,
+        deck,
+        discardPile,
+        log,
+        [playerKey]: { ...playerState, hand: consumedHand, field: newField },
+        [opponentKey]: { ...opponentState, field: newOpponentField },
+      };
+    }
+
+    if (state.phase === 'strategy') {
+      // NOVO efeito de ESTRATÉGIA (pedido do usuário: "permite você congelar
+      // uma carta sua na mão ou campo") - sempre mira o PRÓPRIO jogador
+      // (nunca o oponente, "uma carta SUA"), mesmo par de campos de seleção
+      // que Criogenar (J) usa pro alvo (`selectedCards` mira a mão,
+      // `selectedSlot` mira o campo), mas sem `selectedTargetPlayer` - não
+      // há "de quem" pra escolher aqui.
+      let targetCard: Card | undefined;
+      let newHand = playerState.hand;
+      let newField = playerState.field;
+      if (selectedCards?.[0]) {
+        const targetId = selectedCards[0];
+        // Nunca a si mesma - congelar a própria carta que está sendo
+        // ativada agora não faz sentido (ela seria descartada de qualquer
+        // jeito ao final desta mesma ativação).
+        if (targetId === cardId) return state;
+        targetCard = playerState.hand.find((c) => c.id === targetId);
+        if (!targetCard || hasStatus(targetCard, 'frozen')) return state;
+        const frozenCard = applyStatus(targetCard, { kind: 'frozen', source: 'glacial', label: 'Crioescudo', duration: { type: 'permanent' } });
+        newHand = playerState.hand.map((c) => (c.id === targetId ? frozenCard : c));
+      } else if (selectedSlot !== undefined) {
+        const targetSlot = playerState.field[selectedSlot];
+        targetCard = targetSlot.faceDownCard;
+        if (!targetCard || hasStatus(targetCard, 'frozen')) return state;
+        const frozenCard = applyStatus(targetCard, { kind: 'frozen', source: 'glacial', label: 'Crioescudo', duration: { type: 'permanent' } });
+        newField = updateFieldSlot(playerState.field, selectedSlot, { faceDownCard: frozenCard });
+      } else {
+        return state;
+      }
+
+      const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption({ ...playerState, hand: newHand }, card, cardId);
+      const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+      const log = appendLog(
+        state,
+        state.log,
+        'magic',
+        `Jogador ${player} congelou a própria ${targetCard.value}${targetCard.suit} com o Crioescudo`,
+        { player, cardValue: card.value, cardSuit: card.suit }
+      );
+      return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: consumedHand, field: newField } };
+    }
+
+    return state;
   }
 
   return state;

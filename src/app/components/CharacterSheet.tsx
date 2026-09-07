@@ -413,7 +413,8 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
           card: 'Rei (K)',
           phase: 'Combate',
           name: 'Crioescudo',
-          description: 'Some +1 de marcador de combate em TODAS as suas cartas já congeladas no campo, de uma vez.',
+          description:
+            'Some +1 de marcador em TODAS as suas cartas já congeladas no campo e -1 em TODAS as já congeladas do campo do oponente, de uma vez (sem escolher alvo). Ou, na Estratégia: congele 1 carta SUA - da mão ou do campo.',
         },
       ],
       strategies: [
@@ -423,7 +424,7 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
         },
         {
           title: 'A trava é sua amiga',
-          description: 'Congelar as próprias magias (mesmo sem querer) não é desperdício: ativá-las de qualquer jeito descongela de graça na primeira vez, e a segunda ativação ainda funciona normalmente depois.',
+          description: 'Congelar as próprias magias não é desperdício: ativá-las de qualquer jeito descongela de graça na primeira vez, e a segunda ativação ainda funciona normalmente depois. O Rei (Estratégia) agora congela uma carta sua sob demanda, sem depender da sorte de Criogenar mirar o próprio lado.',
         },
         {
           title: 'Descongelar custa uma carta',

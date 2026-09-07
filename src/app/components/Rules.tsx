@@ -416,9 +416,15 @@ FOTOSSÍNTESE (Magia Numeral, A, 3, 7):
 • Aplique também um marcador de combate: +2 se a carta for sua, -2 se for do oponente
 
 ═══════════════════════════════════════
-🔵 REI - Crioescudo (Fase de Combate)
+🔵 REI - Crioescudo (DOIS efeitos, um por fase)
 ═══════════════════════════════════════
-• Sem escolher alvo: some +1 de marcador de combate em TODAS as suas cartas já congeladas no campo, de uma vez
+No Combate - sem escolher alvo:
+• Some +1 de marcador em TODAS as suas cartas já congeladas no campo
+• Some -1 de marcador em TODAS as já congeladas do campo do oponente
+• Ativável com pelo menos 1 carta congelada em qualquer um dos dois campos
+
+Na Estratégia:
+• Congele 1 carta SUA - da mão ou do campo (nunca a do oponente)
 
 ═══════════════════════════════════════
 ❄️ DESCONGELAR (ação nova, só na Fase de Estratégia)

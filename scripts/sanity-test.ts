@@ -5034,6 +5034,129 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(!hasStatus(state.player1.field[2].faceDownCard, 'combatModifier'), 'A carta NÃO congelada não recebe o marcador de Crioescudo');
 })();
 
+// FIX (mudança de efeito pedida pelo usuário: "adicione marcador -1 para
+// cartas congeladas do oponente, podendo ser ativado caso há no mínimo 1
+// carta congelada no campo") - o efeito de Combate agora também mira o
+// campo do OPONENTE (-1), na MESMA ativação que o +1 próprio, e a ativação
+// já é permitida com uma congelada só do lado do oponente (antes exigia
+// pelo menos 1 PRÓPRIA).
+(function testGlacialKCombatDebuffsOpponentFrozenFieldCardsToo() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('glacial-k-both', 'K');
+  const ownFrozen = applyStatus(makeCard('glacial-k-both-own', '4'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  const opponentFrozen = applyStatus(makeCard('glacial-k-both-opp', '9'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      hand: [kCard],
+      field: [{ faceDownCard: ownFrozen, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+    player2: {
+      ...state.player2,
+      field: [{ faceDownCard: opponentFrozen, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const ctx = getMagicActivationContext(state, 1);
+  assert(canActivateMagic('combat', 'glacial', 'K', ctx), 'FIX Glacial Crioescudo: ativável no Combate com carta congelada em qualquer um dos dois campos');
+  const result = gameReducer(state, { type: 'EXECUTE_MAGIC', player: 1, cardId: kCard.id, character: 'glacial', magicType: 'K', selection: {} });
+  const ownMarker = getStatus(result.player1.field[0].faceDownCard, 'combatModifier', { source: 'glacial' });
+  const oppMarker = getStatus(result.player2.field[0].faceDownCard, 'combatModifier', { source: 'glacial' });
+  assert(ownMarker?.magnitude === 1, `A carta congelada PRÓPRIA continua recebendo +1 (recebido: ${ownMarker?.magnitude})`);
+  assert(oppMarker?.magnitude === -1, `FIX Glacial Crioescudo: a carta congelada do OPONENTE agora recebe -1 (recebido: ${oppMarker?.magnitude})`);
+})();
+
+(function testGlacialKCombatActivatableWithOnlyOpponentFrozenFieldCard() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('glacial-k-opp-only', 'K');
+  const opponentFrozen = applyStatus(makeCard('glacial-k-opp-only-target', '6'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: { ...state.player1, hand: [kCard] },
+    player2: {
+      ...state.player2,
+      field: [{ faceDownCard: opponentFrozen, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const result = gameReducer(state, { type: 'EXECUTE_MAGIC', player: 1, cardId: kCard.id, character: 'glacial', magicType: 'K', selection: {} });
+  const oppMarker = getStatus(result.player2.field[0].faceDownCard, 'combatModifier', { source: 'glacial' });
+  assert(
+    oppMarker?.magnitude === -1 && !result.player1.hand.some((c) => c.id === kCard.id),
+    `FIX Glacial Crioescudo: ativa e consome a carta mesmo SEM nenhuma congelada própria, só do oponente (recebido marker=${oppMarker?.magnitude})`
+  );
+})();
+
+// FIX (pedido do usuário: "adicione também este efeito para esta magia que
+// só funciona na fase de estratégia: Congele uma carta sua") - NOVO efeito
+// de Estratégia do Rei (Crioescudo): congela uma carta PRÓPRIA, na mão ou no
+// campo.
+(function testGlacialKStrategyFreezesOwnHandCard() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('glacial-k-strat-hand', 'K');
+  const targetCard = makeCard('glacial-k-strat-hand-target', '7');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [kCard, targetCard] } };
+  const ctx = getMagicActivationContext(state, 1);
+  assert(canActivateMagic('strategy', 'glacial', 'K', ctx), 'FIX Glacial Crioescudo: ativável na Estratégia com alguma carta própria não congelada');
+  const result = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: kCard.id,
+    character: 'glacial',
+    magicType: 'K',
+    selection: { selectedCards: [targetCard.id] },
+  });
+  const frozen = result.player1.hand.find((c) => c.id === targetCard.id);
+  assert(Boolean(frozen) && hasStatus(frozen, 'frozen'), 'FIX Glacial Crioescudo (Estratégia): congela a carta própria escolhida na mão');
+  assert(!result.player1.hand.some((c) => c.id === kCard.id), 'O Rei é consumido/descartado normalmente após congelar');
+})();
+
+(function testGlacialKStrategyFreezesOwnFieldCard() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('glacial-k-strat-field', 'K');
+  const targetCard = makeCard('glacial-k-strat-field-target', '8');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [kCard],
+      field: [{ faceDownCard: targetCard, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const result = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: kCard.id,
+    character: 'glacial',
+    magicType: 'K',
+    selection: { selectedSlot: 0 },
+  });
+  assert(hasStatus(result.player1.field[0].faceDownCard, 'frozen'), 'FIX Glacial Crioescudo (Estratégia): congela a carta própria escolhida no campo');
+})();
+
+(function testGlacialKStrategyCannotTargetItself() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('glacial-k-strat-self', 'K');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [kCard] } };
+  const result = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: kCard.id,
+    character: 'glacial',
+    magicType: 'K',
+    selection: { selectedCards: [kCard.id] },
+  });
+  assert(result === state, 'FIX Glacial Crioescudo (Estratégia): não pode se auto-mirar (rejeitado sem mudar o estado)');
+})();
+
 (function testGlacialGimmickFirstActivationOnlyUnfreezes() {
   // Gimmick passiva: ativar uma magia PRÓPRIA congelada roda o efeito
   // normalmente, mas a 1ª ativação só remove o congelamento (carta não é
@@ -5304,6 +5427,48 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(
     decision.type === 'action' && decision.action.type === 'EXECUTE_MAGIC' && decision.action.magicType === 'K',
     `FIX Glacial IA: com uma carta própria congelada em campo, a IA ativa Crioescudo (recebido: ${JSON.stringify(decision)})`
+  );
+})();
+
+// FIX (mudança de efeito pedida pelo usuário: "adicione marcador -1 para
+// cartas congeladas do oponente") - a IA agora também ativa o Crioescudo no
+// Combate quando SÓ o oponente tem carta congelada em campo (antes exigia
+// uma própria).
+(function testGlacialAiActivatesCrioescudoCombatWithOnlyOpponentFrozenFieldCard() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('glacial-ai-k-opp', 'K');
+  const opponentFrozen = applyStatus(makeCard('glacial-ai-k-opp-target', '5'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: { ...state.player1, hand: [kCard] },
+    player2: {
+      ...state.player2,
+      field: [{ faceDownCard: opponentFrozen, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const decision = decideAiAction(state, 1);
+  assert(
+    decision.type === 'action' && decision.action.type === 'EXECUTE_MAGIC' && decision.action.magicType === 'K',
+    `FIX Glacial IA: com uma carta congelada só no campo do OPONENTE, a IA ainda ativa Crioescudo (recebido: ${JSON.stringify(decision)})`
+  );
+})();
+
+// FIX (pedido do usuário: "atualize o pensamento da ia sobre essa magia
+// também") - NOVO efeito de Estratégia: sem nenhuma carta congelada em
+// campo pro efeito de Combate reforçar/enfraquecer este turno, a IA usa o
+// Rei pra congelar uma carta própria em vez de segurá-lo à toa.
+(function testGlacialAiUsesCrioescudoStrategyToFreezeOwnCardWhenNothingFrozenYet() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('glacial-ai-k-strat', 'K');
+  const freezableOwn = makeCard('glacial-ai-k-strat-target', '9');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [kCard, freezableOwn] } };
+  const decision = decideAiAction(state, 1);
+  assert(
+    decision.type === 'action' && decision.action.type === 'EXECUTE_MAGIC' && decision.action.magicType === 'K',
+    `FIX Glacial IA: sem carta congelada em campo, a IA usa o Crioescudo na Estratégia pra congelar carta própria (recebido: ${JSON.stringify(decision)})`
   );
 })();
 

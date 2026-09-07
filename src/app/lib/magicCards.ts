@@ -241,7 +241,8 @@ export const MAGIC_CARDS: Record<Character, Record<MagicCardType, MagicCardInfo>
     K: {
       name: 'Rei - Crioescudo',
       phase: 'combat',
-      description: 'Some +1 de marcador de combate em TODAS as suas cartas já congeladas no campo, de uma vez.',
+      description:
+        'DOIS efeitos, um por fase: no Combate (sem escolher alvo), some +1 de marcador em TODAS as cartas já congeladas do seu campo E -1 em TODAS as já congeladas do campo do oponente, de uma vez (ativável com pelo menos 1 congelada em qualquer dos dois lados). Na Estratégia, congele 1 carta SUA - da mão ou do campo.',
     },
   },
 };
@@ -369,8 +370,27 @@ export interface MagicActivationContext {
   hasFreezableCard?: boolean;
   /** Crioespinho (Rainha do Glacial): existe alguma carta AINDA NÃO congelada no CAMPO (próprio ou do oponente) pra congelar. */
   hasFreezableFieldCard?: boolean;
-  /** Crioescudo (Rei do Glacial): existe pelo menos 1 carta PRÓPRIA já congelada no campo pra reforçar. */
-  hasOwnFrozenFieldCard?: boolean;
+  /**
+   * Crioescudo (Rei do Glacial), efeito de COMBATE: existe pelo menos 1
+   * carta já congelada no campo, própria OU do oponente, pra receber o
+   * marcador (+1 se própria, -1 se do oponente - ver handleExecuteMagic em
+   * gameEngine.ts). FIX (mudança de efeito pedida pelo usuário: "adicione
+   * marcador -1 para cartas congeladas do oponente, podendo ser ativado caso
+   * há no mínimo 1 carta congelada no campo") - antes (`hasOwnFrozenFieldCard`)
+   * exigia uma carta PRÓPRIA congelada; agora que o efeito também mira o
+   * campo do oponente, a ativação só precisa de UMA congelada em QUALQUER
+   * dos dois lados.
+   */
+  hasAnyFrozenFieldCard?: boolean;
+  /**
+   * Crioescudo (Rei do Glacial), NOVO efeito de ESTRATÉGIA (pedido do
+   * usuário: "a carta agora tem 2 efeitos... outro só na fase de estratégia
+   * que permite você congelar uma carta sua na mão ou campo"): existe alguma
+   * carta PRÓPRIA (mão OU campo) ainda não congelada pra congelar. Mesmo
+   * padrão de `hasFreezableCard` (Criogenar), mas restrito ao lado PRÓPRIO -
+   * este efeito nunca mira o oponente.
+   */
+  hasFreezableOwnCard?: boolean;
 }
 
 /**
@@ -409,6 +429,15 @@ export function canActivateMagic(
   // handleExecuteMagic), e o lançamento em si é bloqueado fora do Combate
   // por executeFireballLaunch - `ctx.canLaunchFireball` já embute a fase.
   if (character === 'piromante' && phase === 'combat' && (ctx.canLaunchFireball ?? false)) return true;
+  // Glacial K (Crioescudo) - mudança de efeito pedida pelo usuário: "a carta
+  // agora tem 2 efeitos, um só na fase de combate... e outro só na fase de
+  // estratégia que permite você congelar uma carta sua". Mesmo padrão do
+  // lançamento da Bola de Fogo do Piromante acima: o Rei continua sendo
+  // oficialmente uma carta de COMBATE (`info.phase`, efeito próprio de
+  // reforçar/enfraquecer cartas já congeladas), mas ganha aqui uma janela
+  // extra na Estratégia exclusiva pro NOVO efeito de congelar - handleExecuteMagic
+  // (gameEngine.ts) decide qual dos dois efeitos rodar olhando `state.phase`.
+  if (character === 'glacial' && cardValue === 'K' && phase === 'strategy') return ctx.hasFreezableOwnCard ?? false;
   if (info.phase !== phase) return false;
 
   // Besta J (Recuperação Selvagem): precisa de ao menos 2 cartas NUMERAIS
@@ -604,7 +633,12 @@ export function canActivateMagic(
   // cada uma das 3 magias.
   if (character === 'glacial' && cardValue === 'J') return ctx.hasFreezableCard ?? false;
   if (character === 'glacial' && cardValue === 'Q') return ctx.hasFreezableFieldCard ?? false;
-  if (character === 'glacial' && cardValue === 'K') return ctx.hasOwnFrozenFieldCard ?? false;
+  // K no Combate (efeito próprio, `info.phase`): mudança de efeito pedida
+  // pelo usuário - antes exigia uma carta PRÓPRIA congelada, agora aceita
+  // congelada de QUALQUER lado (própria recebe +1, do oponente recebe -1 -
+  // ver handleExecuteMagic em gameEngine.ts). K na Estratégia (o efeito NOVO
+  // de congelar) já foi resolvido acima, antes de chegar aqui.
+  if (character === 'glacial' && cardValue === 'K') return ctx.hasAnyFrozenFieldCard ?? false;
 
   // Sem condições especiais além da fase (Mago J, Anjo K)
   return true;
