@@ -123,6 +123,15 @@ interface GameBoardProps {
  */
 const DECK_STACK_REFERENCE = 54;
 
+/**
+ * Quantas vezes seguidas a MESMA ação (mesmo conteúdo, JSON.stringify) pode
+ * ser decidida para um jogador de IA antes de desistir dela e forçar
+ * TOGGLE_READY - ver `aiStuckActionRef` e seu uso no efeito de decisão da IA
+ * em GameBoard. 3 dá folga para qualquer repetição legítima transitória
+ * (nenhuma conhecida hoje) sem deixar um softlock real bater 10s+ de espera.
+ */
+const AI_STUCK_ACTION_REPEAT_LIMIT = 3;
+
 const phaseNames = {
   draw: 'Compra',
   strategy: 'Estratégia',
@@ -188,6 +197,23 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   if (initialStateRef.current === null) initialStateRef.current = gameState;
   const recordedActionsRef = useRef<GameAction[]>([]);
   const loadedReplayRef = useRef<{ initialState: GameState; actions: GameAction[] } | null>(null);
+  /**
+   * Rede de segurança GENÉRICA contra a IA decidir a MESMA ação (comparada
+   * por CONTEÚDO, via JSON.stringify - não por referência) repetidas vezes
+   * seguidas sem progresso real - ver uso em decideAiAction mais abaixo.
+   * Softlock real encontrado ao vivo (IA Glacial travava na Estratégia
+   * tentando jogar a mesma carta CONGELADA pra sempre - causa raiz corrigida
+   * na origem em decideFieldPlacement/decideHorizontalPlacement/etc. em
+   * aiPlayer.ts): quando o motor (gameEngine.ts) rejeita uma ação inválida,
+   * ele ainda devolve um `state` NOVO por referência (só o log de aviso
+   * muda) - o efeito de decisão da IA (dependente de `gameState`) reexecuta
+   * a cada rejeição, decideAiAction é pura/determinística sobre o conteúdo
+   * relevante (inalterado), então decide a MESMA ação de novo, pra sempre.
+   * Esta rede não depende de conhecer a causa (protege qualquer bug FUTURO
+   * equivalente): guarda a última ação decidida POR JOGADOR e quantas vezes
+   * seguidas ela se repetiu.
+   */
+  const aiStuckActionRef = useRef<Partial<Record<PlayerNumber, { sig: string; count: number }>>>({});
   const rawDispatch = (action: GameAction) => {
     recordedActionsRef.current.push(action);
     reducerDispatch(action);
@@ -1496,6 +1522,35 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       const decision = decideAiAction(gameState, ai);
       if (decision.type === 'wait') continue;
       if (decision.type === 'ready' && gameState[playerKeyOf(ai)].readyForNextPhase) continue;
+
+      // FIX (rede de segurança genérica - ver comentário de aiStuckActionRef
+      // acima): só `type: 'action'` pode ficar preso num loop de
+      // rejeição->mesma decisão (uma `ready` já é idempotente/segura, e
+      // `wait` nem chega aqui). Compara por CONTEÚDO, não por referência -
+      // decideAiAction é determinística, então a mesma ação de novo (mesmo
+      // cardId/slotIndex/etc.) é o sinal real de "sem progresso", mesmo que
+      // `gameState` tenha mudado de referência (ex.: só um log de aviso
+      // anexado pelo motor ao rejeitar).
+      if (decision.type === 'action') {
+        const sig = JSON.stringify(decision.action);
+        const prevStuck = aiStuckActionRef.current[ai];
+        const count = prevStuck && prevStuck.sig === sig ? prevStuck.count + 1 : 1;
+        aiStuckActionRef.current[ai] = { sig, count };
+        if (count >= AI_STUCK_ACTION_REPEAT_LIMIT) {
+          // Desiste desta ação (provavelmente sendo rejeitada em silêncio
+          // pelo motor de novo e de novo) e força prontidão pra próxima fase
+          // - mesmo efeito seguro de clicar "Pronto" (handleToggleReady em
+          // gameEngine.ts já sabe lidar com isso em qualquer fase). Reseta a
+          // contagem pra não disparar de novo caso a IA volte a decidir a
+          // mesma ação (agora legítima) depois da troca de fase.
+          aiStuckActionRef.current[ai] = undefined;
+          const t = setTimeout(() => dispatch({ type: 'TOGGLE_READY', player: ai }), delay(450 * aiThinkScale));
+          timers.push(t);
+          continue;
+        }
+      } else {
+        aiStuckActionRef.current[ai] = undefined;
+      }
 
       // FIX (item 22 do Grupo F, "velocidade de pensamento da IA
       // configurável"): `aiThinkScale` (settings.ts) reescala TODO atraso de

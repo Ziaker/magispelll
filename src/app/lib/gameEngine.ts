@@ -1923,6 +1923,40 @@ function handleFuseCards(state: GameState, player: PlayerNumber, cardId1: string
 // Posicionar / recolher cartas do campo
 // ---------------------------------------------------------------------------
 
+// FIX (achado ao vivo - softlock real: a IA do Glacial descartava suas
+// PRÓPRIAS cartas congeladas achando que não tinha nada jogável, e outras
+// funções de decisão chegaram a excluir cartas congeladas do Glacial em
+// bloco): esta é a MESMA regra usada pelo guard de handlePlayCard logo
+// abaixo, extraída pra função exportada - qualquer código que precise saber
+// "esta carta pode ir pro campo agora?" (a IA em aiPlayer.ts, em vários
+// pontos) usa ESTA função em vez de reimplementar `hasStatus(card,'frozen')`
+// sozinho, senão qualquer um desses lugares corre o risco de tratar uma
+// carta congelada do próprio Glacial (que ELE PODE jogar normalmente, ver
+// comentário abaixo) como se fosse permanentemente inútil - fazendo a IA
+// nunca tentar jogá-la e, pior, descartá-la achando que não tem escolha.
+export function isFrozenPlayBlocked(character: CharacterId, card: Card): boolean {
+  // Glacial (personagem novo) - uma carta congelada não pode ser jogada,
+  // EXCETO se o dono é o próprio Glacial E foi ele mesmo quem a congelou
+  // (source: 'glacial') - aí joga normalmente, sem nenhum tratamento
+  // especial além de destravar (não há gimmick aqui, só pra magias
+  // ativadas - ver handleExecuteMagic/isFrozenMagicActivationBlocked).
+  return hasStatus(card, 'frozen') && !(character === 'glacial' && hasStatus(card, 'frozen', { source: 'glacial' }));
+}
+
+// FIX (mesmo motivo de isFrozenPlayBlocked acima, achado ao vivo depois -
+// softlock real: a IA repetia pra sempre um EXECUTE_MAGIC numa carta
+// congelada de outro personagem que não podia mesmo ativar): regra irmã da
+// de cima, mas pra ATIVAÇÃO de magia (handleExecuteMagic abaixo), não pra
+// jogar a carta pro campo - por isso NÃO exige `source: 'glacial'` como a
+// outra: a gimmick passiva do Glacial libera a ativação de uma magia
+// PRÓPRIA congelada "por qualquer meio" (mesmo se foi ELE quem congelou a
+// própria carta de propósito, pra reativar 2x - ver
+// resolveGlacialCardConsumption), então aqui o único requisito é o
+// personagem em si ser o Glacial.
+export function isFrozenMagicActivationBlocked(character: CharacterId, card: Card): boolean {
+  return hasStatus(card, 'frozen') && character !== 'glacial';
+}
+
 function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, slotIndex: number, asHorizontal: boolean): GameState {
   if (state.phase !== 'strategy') return state;
   const playerKey = playerKeyOf(player);
@@ -1931,12 +1965,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
   if (!card) return state;
   const character = characterOf(state, player);
 
-  // Glacial (personagem novo) - uma carta congelada não pode ser jogada,
-  // EXCETO se o dono é o próprio Glacial E foi ele mesmo quem a congelou
-  // (source: 'glacial') - aí joga normalmente, sem nenhum tratamento
-  // especial além de destravar (não há gimmick aqui, só pra magias
-  // ativadas - ver handleExecuteMagic).
-  if (hasStatus(card, 'frozen') && !(character === 'glacial' && hasStatus(card, 'frozen', { source: 'glacial' }))) {
+  if (isFrozenPlayBlocked(character, card)) {
     return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta está congelada e não pode ser jogada!`) };
   }
 
@@ -2850,14 +2879,7 @@ function handleExecuteMagic(
     return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta foi revelada pela Visão Celestial e está trancada até o fim do turno!`) };
   }
 
-  // Glacial (personagem novo) - carta congelada trava a ativação, IGUAL a
-  // `magicLocked` acima, EXCETO para o próprio Glacial: a gimmick passiva
-  // dele faz a ativação de uma magia PRÓPRIA congelada (por qualquer meio)
-  // rodar normalmente, só que a primeira vez só remove o congelamento sem
-  // consumir a carta - ver `resolveGlacialCardConsumption` mais abaixo,
-  // usado nos 3 branches de magia do Glacial em vez do `handWithoutMagic`/
-  // `pushToDiscard` padrão.
-  if (hasStatus(card, 'frozen') && character !== 'glacial') {
+  if (isFrozenMagicActivationBlocked(character, card)) {
     return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta está congelada e não pode ser ativada!`) };
   }
 

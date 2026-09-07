@@ -58,6 +58,8 @@ import {
   isTowerSlot,
   isBrotoSlot,
   getFireballCap,
+  isFrozenPlayBlocked,
+  isFrozenMagicActivationBlocked,
   type CharacterId,
   type GameAction,
   type GameState,
@@ -461,8 +463,18 @@ function trueSlotValue(
  * destrancada existir - nesse caso `canActivateMagic` já recusa a ativação
  * de qualquer forma, então não há loop possível.
  */
-function findActivatableMagicCard(hand: Card[], value: 'J' | 'Q' | 'K'): Card | undefined {
-  return hand.find((c) => c.value === value && !hasStatus(c, 'magicLocked')) ?? hand.find((c) => c.value === value);
+// FIX (achado ao vivo - softlock real: a IA repetia pra sempre um
+// EXECUTE_MAGIC numa carta congelada de outro personagem que handleExecuteMagic
+// (gameEngine.ts) sempre rejeitaria - "Essa carta está congelada e não pode
+// ser ativada!" - esta função não filtrava `frozen` de jeito nenhum, só
+// `magicLocked`): agora recebe `character` (o MESMO literal que cada
+// chamadora já passa pra `canActivateMagic` logo depois) e usa
+// `isFrozenMagicActivationBlocked` (gameEngine.ts) - a mesma regra exata do
+// guard de handleExecuteMagic, incluindo a exceção do Glacial poder ativar
+// sua própria magia congelada "por qualquer meio" (a gimmick).
+function findActivatableMagicCard(hand: Card[], value: 'J' | 'Q' | 'K', character: CharacterId): Card | undefined {
+  const eligible = hand.filter((c) => c.value === value && !isFrozenMagicActivationBlocked(character, c));
+  return eligible.find((c) => !hasStatus(c, 'magicLocked')) ?? eligible[0];
 }
 
 function pickHighestBy<T>(items: T[], score: (item: T) => number): T {
@@ -584,7 +596,7 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   //    garante que só ativa quando há espaço na mão e um Ás de verdade
   //    alcançável (baralho ou descarte).
   if (character === 'anjo') {
-    const jCard = findActivatableMagicCard(me.hand, 'J');
+    const jCard = findActivatableMagicCard(me.hand, 'J', 'anjo');
     if (jCard && canActivateMagic('draw', 'anjo', 'J', ctx)) {
       traceStep('anjoJ (Bênção Divina)', true);
       return { type: 'action', action: { type: 'ACTIVATE_SIMPLE_MAGIC', player: ai, cardId: jCard.id } };
@@ -605,7 +617,7 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   //    silêncio (ver isPlainNumeralCard em cardUtils.ts e o ramo Besta J de
   //    handleExecuteMagic em gameEngine.ts).
   if (character === 'besta') {
-    const jCard = findActivatableMagicCard(me.hand, 'J');
+    const jCard = findActivatableMagicCard(me.hand, 'J', 'besta');
     if (jCard && canActivateMagic('draw', 'besta', 'J', ctx)) {
       const eligible = state.discardPile.filter((c) => isPlainNumeralCard(c));
       const ranked = [...eligible].sort((a, b) => cardPriority(b, 'besta', state.spotlight) - cardPriority(a, 'besta', state.spotlight));
@@ -668,7 +680,7 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   //     combustível). Só lança se não houver combustível NENHUM na mão
   //     agora - ver shouldLaunchFireball.
   if (character === 'piromante') {
-    const jCard = findActivatableMagicCard(me.hand, 'J');
+    const jCard = findActivatableMagicCard(me.hand, 'J', 'piromante');
     if (jCard && canActivateMagic('draw', 'piromante', 'J', getMagicActivationContext(state, ai))) {
       // FIX (achado por simulação real: uma mão só de numerais pequenos ficava
       // sem NENHUMA carta pra ocupar um slot vazio no mesmo turno, porque
@@ -751,8 +763,26 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   //    cartas de prioridade alta (exceto Coringa/Ás, que sempre valem manter)
   //    só para girar a mão e ter chance de puxar algo jogável.
   if (me.discardsThisTurn < getEffectiveDiscardLimit(state.gameConfig) && me.hand.length >= me.handLimit) {
+    // FIX (achado ao vivo pelo usuário: "o Glacial IA tá descartando as
+    // próprias cartas" - o Glacial DEVE conseguir jogar/reativar suas
+    // próprias cartas congeladas, isso é a gimmick do personagem, não uma
+    // exceção rara): esta checagem original só olhava o TIPO da carta,
+    // nunca o status `frozen` - então uma carta própria do Glacial que ELE
+    // MESMO congelou (jogável normalmente via PLAY_CARD, ou reativável via
+    // EXECUTE_MAGIC se for J/Q/K - ver isFrozenPlayBlocked em gameEngine.ts
+    // e resolveGlacialCardConsumption) contava como "jogável" do mesmo jeito
+    // que qualquer outra, então isso nunca era o problema. O problema real
+    // era o INVERSO: em nenhum lugar essa função considerava uma magia
+    // própria do Glacial ainda congelada como algo "jogável" (a gimmick
+    // reativa ela via EXECUTE_MAGIC, não PLAY_CARD) - então com a mão cheia
+    // de magias congeladas e nada mais, `hasPlayableCard` dava falso
+    // negativo, o limiar caía pro modo "descarta tudo" (100) e a IA
+    // descartava pra sempre cartas que ela podia simplesmente REATIVAR.
     const hasPlayableCard = me.hand.some(
-      (c) => (c.value === 'A' && c.transformedValue === undefined) || isNumeralCard(c) || (c.isMonster && !c.monsterUsed)
+      (c) =>
+        (((c.value === 'A' && c.transformedValue === undefined) || isNumeralCard(c) || (c.isMonster && !c.monsterUsed)) &&
+          !isFrozenPlayBlocked(character, c)) ||
+        (character === 'glacial' && (c.value === 'J' || c.value === 'Q' || c.value === 'K') && hasStatus(c, 'frozen'))
     );
     const worst = [...me.hand].filter((c) => !c.revealed).sort((a, b) => cardPriority(a, character, state.spotlight) - cardPriority(b, character, state.spotlight))[0];
     const threshold = hasPlayableCard ? 5 : 100; // sem nada jogável em campo, descarta até J/Q/K para não travar
@@ -1325,7 +1355,7 @@ function decideMonsterEffect(state: GameState, ai: PlayerNumber, character: Char
  */
 function decideMagoJ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const jCard = findActivatableMagicCard(me.hand, 'J');
+  const jCard = findActivatableMagicCard(me.hand, 'J', 'mago');
   if (!jCard || !canActivateMagic('strategy', 'mago', 'J', getMagicActivationContext(state, ai))) return null;
 
   const opponentHand = state[opponentKeyOf(ai)].hand;
@@ -1356,7 +1386,7 @@ function decideMagoJ(state: GameState, ai: PlayerNumber): GameAction | null {
 
 function decideMagoQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = findActivatableMagicCard(me.hand, 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q', 'mago');
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'mago', 'Q', getMagicActivationContext(state, ai))) return null;
 
@@ -1451,7 +1481,7 @@ function decideMagoQ(state: GameState, ai: PlayerNumber): GameAction | null {
  */
 function decideBestaQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = findActivatableMagicCard(me.hand, 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q', 'besta');
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'besta', 'Q', getMagicActivationContext(state, ai))) return null;
 
@@ -1528,7 +1558,7 @@ function decideBestaQ(state: GameState, ai: PlayerNumber): GameAction | null {
 
 function decideAnjoQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = findActivatableMagicCard(me.hand, 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q', 'anjo');
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'anjo', 'Q', getMagicActivationContext(state, ai))) return null;
 
@@ -1585,7 +1615,7 @@ function decideAnjoQ(state: GameState, ai: PlayerNumber): GameAction | null {
  */
 function decideAnjoK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = findActivatableMagicCard(me.hand, 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K', 'anjo');
   if (!kCard) return null;
   if (!canActivateMagic('strategy', 'anjo', 'K', getMagicActivationContext(state, ai))) return null;
 
@@ -1654,7 +1684,7 @@ function fieldSafeDiscardCandidates(me: PlayerState, candidates: Card[]): Card[]
 
 function decideMosqueteiroJ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const jCard = findActivatableMagicCard(me.hand, 'J');
+  const jCard = findActivatableMagicCard(me.hand, 'J', 'mosqueteiro');
   if (!jCard) return null;
   if (!canActivateMagic('strategy', 'mosqueteiro', 'J', getMagicActivationContext(state, ai))) return null;
 
@@ -1703,7 +1733,7 @@ function decideMosqueteiroJ(state: GameState, ai: PlayerNumber): GameAction | nu
  */
 function decideMosqueteiroQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = findActivatableMagicCard(me.hand, 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q', 'mosqueteiro');
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'mosqueteiro', 'Q', getMagicActivationContext(state, ai))) return null;
 
@@ -1783,7 +1813,7 @@ function decideStrategyMagic(state: GameState, ai: PlayerNumber, character: Char
  */
 function decidePiromanteQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = findActivatableMagicCard(me.hand, 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q', 'piromante');
   if (!qCard || !canActivateMagic('draw', 'piromante', 'Q', getMagicActivationContext(state, ai))) return null;
 
   const opponentState = state[playerKeyOf(opponentOf(ai))];
@@ -1950,9 +1980,25 @@ function decideHorizontalPlacement(state: GameState, ai: PlayerNumber, character
   // (nem para nenhum dos 3 slots de combate normais) - elas só vão para a
   // zona própria (ver decidePlaceMonsterCard), então `isFieldEligible` já
   // basta aqui sem nenhuma cláusula extra para `isMonster`.
+  // FIX (softlock real - IA travava na Estratégia repetindo o mesmo PLAY_CARD
+  // rejeitado pra sempre): faltava excluir cartas congeladas daqui -
+  // handlePlayCard (gameEngine.ts) rejeita sem mudar mão/campo, então sem
+  // este filtro a IA escolhia a MESMA carta de novo a cada ciclo,
+  // indefinidamente. Usa `isFrozenPlayBlocked` (não `hasStatus(c,'frozen')`
+  // puro) porque o Glacial PODE jogar normalmente uma carta própria que ele
+  // mesmo congelou (ver o comentário completo dessa função em
+  // gameEngine.ts) - excluir toda carta congelada em bloco faria a IA do
+  // Glacial nunca considerar suas próprias cartas congeladas jogáveis (e,
+  // pior, a heurística de "nada jogável -> descarta" em decideDrawPhase
+  // acabaria descartando pra sempre uma carta que ele podia simplesmente
+  // jogar).
   const reserved = reservedNumeralCardIds(me.hand, character, state.spotlight);
   const candidates = me.hand.filter(
-    (c) => !c.revealed && !reserved.has(c.id) && (isFieldEligible(c) || isCoringaTrapFieldEligible(character, c, true))
+    (c) =>
+      !c.revealed &&
+      !reserved.has(c.id) &&
+      !isFrozenPlayBlocked(character, c) &&
+      (isFieldEligible(c) || isCoringaTrapFieldEligible(character, c, true))
   );
   if (candidates.length === 0) return null;
 
@@ -2042,9 +2088,13 @@ function shouldHoldBackField(state: GameState, ai: PlayerNumber): boolean {
  */
 function decideDruidaBroto(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const valete = me.hand.find((c) => c.value === 'J');
-  const rainha = me.hand.find((c) => c.value === 'Q');
-  const rei = me.hand.find((c) => c.value === 'K');
+  // FIX (mesma classe de softlock de decideFieldPlacement acima, ver
+  // comentário lá - o Druida pode ter J/Q/K congelados por uma magia do
+  // Glacial): sem excluir `frozen`, a IA travava tentando plantar a mesma
+  // carta congelada como Broto pra sempre.
+  const valete = me.hand.find((c) => c.value === 'J' && !hasStatus(c, 'frozen'));
+  const rainha = me.hand.find((c) => c.value === 'Q' && !hasStatus(c, 'frozen'));
+  const rei = me.hand.find((c) => c.value === 'K' && !hasStatus(c, 'frozen'));
 
   let brotoCard = valete ?? rainha;
   if (!brotoCard && rei && !wouldUrtigaBeWorthKeeping(state, ai)) brotoCard = rei;
@@ -2103,7 +2153,11 @@ function wouldUrtigaBeWorthKeeping(state: GameState, ai: PlayerNumber): boolean 
 function decideDruidaMonster(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
   if (!me.field.some(isBrotoSlot)) return null;
-  const monster = me.hand.find((c) => c.isMonster);
+  // FIX (mesma classe de softlock de decideFieldPlacement acima, ver
+  // comentário lá - o oponente Druida pode ter o próprio Monstro congelado
+  // por uma magia do Glacial): sem excluir `frozen`, a IA travava tentando
+  // jogar a mesma carta rejeitada pra sempre.
+  const monster = me.hand.find((c) => c.isMonster && !hasStatus(c, 'frozen'));
   if (!monster) return null;
   const emptySlotIndex = me.field.findIndex((slot) => !slot.faceDownCard);
   if (emptySlotIndex === -1) return null;
@@ -2140,7 +2194,7 @@ function decideDruidaMonster(state: GameState, ai: PlayerNumber): GameAction | n
  */
 function decideDruidaQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = findActivatableMagicCard(me.hand, 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q', 'druida');
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'druida', 'Q', getMagicActivationContext(state, ai))) return null;
 
@@ -2197,7 +2251,7 @@ function decideDruidaQ(state: GameState, ai: PlayerNumber): GameAction | null {
  */
 function decideDruidaK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = findActivatableMagicCard(me.hand, 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K', 'druida');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'druida', 'K', getMagicActivationContext(state, ai))) return null;
 
@@ -2276,7 +2330,7 @@ function buildGlacialFreezeSelection(targetPlayer: PlayerNumber, targetState: Pl
 
 function decideGlacialJ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const jCard = findActivatableMagicCard(me.hand, 'J');
+  const jCard = findActivatableMagicCard(me.hand, 'J', 'glacial');
   if (!jCard) return null;
   if (!canActivateMagic('strategy', 'glacial', 'J', getMagicActivationContext(state, ai))) return null;
 
@@ -2314,7 +2368,7 @@ function decideGlacialJ(state: GameState, ai: PlayerNumber): GameAction | null {
 /** Crioespinho (Rainha): prioriza enfraquecer (-2) uma carta desprotegida do oponente; sem alvo bom lá, fortalece (+2) a própria melhor carta em campo. */
 function decideGlacialQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const qCard = findActivatableMagicCard(me.hand, 'Q');
+  const qCard = findActivatableMagicCard(me.hand, 'Q', 'glacial');
   if (!qCard) return null;
   if (!canActivateMagic('strategy', 'glacial', 'Q', getMagicActivationContext(state, ai))) return null;
 
@@ -2357,7 +2411,7 @@ function decideGlacialQ(state: GameState, ai: PlayerNumber): GameAction | null {
 /** Crioescudo (Rei): efeito em massa sem seleção de alvo - ativa sempre que `canActivateMagic` já confirma pelo menos 1 carta própria congelada no campo. */
 function decideGlacialK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = findActivatableMagicCard(me.hand, 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K', 'glacial');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'glacial', 'K', getMagicActivationContext(state, ai))) return null;
   return { type: 'EXECUTE_MAGIC', player: ai, cardId: kCard.id, character: 'glacial', magicType: 'K', selection: {} };
@@ -2366,7 +2420,14 @@ function decideGlacialK(state: GameState, ai: PlayerNumber): GameAction | null {
 /** Criogolem (Monstro): joga assim que possível - diferente do Broto Espelhado do Druida, o valor não cresce sozinho esperando, não há benefício em segurar a carta. */
 function decideGlacialMonster(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const monster = me.hand.find((c) => c.isMonster);
+  // Se o próprio Glacial congelou o Criogolem (source: 'glacial'),
+  // handlePlayCard (gameEngine.ts) deixa jogar normalmente - NÃO excluir em
+  // bloco aqui (`isFrozenPlayBlocked` respeita essa exceção; um
+  // `!hasStatus(c,'frozen')` puro faria a IA achar que não tem Criogolem
+  // jogável e desistir dele à toa). Só uma carta congelada por OUTRO motivo
+  // (não deveria existir pro Monstro do próprio Glacial, mas mantém a
+  // checagem por segurança/defensivamente) fica de fora.
+  const monster = me.hand.find((c) => c.isMonster && !isFrozenPlayBlocked('glacial', c));
   if (!monster) return null;
   const emptySlotIndex = me.field.findIndex((slot) => !slot.faceDownCard);
   if (emptySlotIndex === -1) return null;
@@ -2436,8 +2497,17 @@ function decideFieldPlacement(state: GameState, ai: PlayerNumber, character: Cha
   // combate normal (nem sozinha, nem como "só sobrou ela na mão") - ela só
   // vai para a zona própria, decidida separadamente em decidePlaceMonsterCard
   // (chamada antes desta função em decideStrategyPhase).
+  // FIX (mesmo softlock de decideHorizontalPlacement acima, ver comentário lá
+  // sobre `isFrozenPlayBlocked` - esta é a 2ª metade do fallback genérico
+  // "coloca a carta de maior valor no campo" chamado por decideStrategyPhase
+  // pra qualquer personagem): `isFieldEligible` só checa o TIPO da carta,
+  // nunca status - sem este filtro, com a mão inteira congelada,
+  // `numeralOrAce` continuava cheio de candidatas congeladas e a IA travava
+  // repetindo o mesmo PLAY_CARD rejeitado. `isFrozenPlayBlocked` (não
+  // `hasStatus(c,'frozen')` puro) preserva a exceção do Glacial jogar suas
+  // próprias cartas que ele mesmo congelou.
   const reserved = reservedNumeralCardIds(me.hand, character, state.spotlight);
-  const isMainEligible = (c: Card) => isFieldEligible(c) || isCoringaTrapFieldEligible(character, c, false);
+  const isMainEligible = (c: Card) => !isFrozenPlayBlocked(character, c) && (isFieldEligible(c) || isCoringaTrapFieldEligible(character, c, false));
   const hand = me.hand.filter((c) => !reserved.has(c.id));
   let numeralOrAce = hand.filter(isMainEligible);
 
@@ -2668,8 +2738,13 @@ function decideStrategyPhase(state: GameState, ai: PlayerNumber): AiDecision {
  */
 function decideTowerAction(state: GameState, ai: PlayerNumber, character: CharacterId, me: PlayerState): GameAction | null {
   if (!state.gameConfig.towersMode) return null;
+  // FIX (mesma classe de softlock de decideFieldPlacement acima, ver
+  // comentário lá sobre `isFrozenPlayBlocked`): faltava excluir cartas
+  // congeladas também aqui - este é outro fallback genérico (Modo Towers,
+  // qualquer personagem) que escolhia carta da mão pra jogar sem checar o
+  // status.
   const reserved = reservedNumeralCardIds(me.hand, character, state.spotlight);
-  const eligible = me.hand.filter((c) => !reserved.has(c.id) && towerEligibleValue(c) !== null);
+  const eligible = me.hand.filter((c) => !reserved.has(c.id) && !isFrozenPlayBlocked(character, c) && towerEligibleValue(c) !== null);
   if (eligible.length === 0) return null;
 
   if (me.towerSlotThisTurn !== undefined) {
@@ -2714,7 +2789,7 @@ function decideTowerAction(state: GameState, ai: PlayerNumber, character: Charac
 
 function decideMagoK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = findActivatableMagicCard(me.hand, 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K', 'mago');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'mago', 'K', getMagicActivationContext(state, ai))) return null;
 
@@ -2773,7 +2848,7 @@ function decideMagoK(state: GameState, ai: PlayerNumber): GameAction | null {
 
 function decideBestaK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = findActivatableMagicCard(me.hand, 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K', 'besta');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'besta', 'K', getMagicActivationContext(state, ai))) return null;
 
@@ -2835,7 +2910,7 @@ function decideBestaK(state: GameState, ai: PlayerNumber): GameAction | null {
  */
 function decideMosqueteiroK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = findActivatableMagicCard(me.hand, 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K', 'mosqueteiro');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'mosqueteiro', 'K', getMagicActivationContext(state, ai))) return null;
   if (me.mosqueteiroDiscardsThisTurn + me.mosqueteiroDiscardsTurnMinus1 <= 0) return null;
@@ -2876,7 +2951,7 @@ function decideMosqueteiroK(state: GameState, ai: PlayerNumber): GameAction | nu
  */
 function decidePiromanteK(state: GameState, ai: PlayerNumber): GameAction | null {
   const me = state[playerKeyOf(ai)];
-  const kCard = findActivatableMagicCard(me.hand, 'K');
+  const kCard = findActivatableMagicCard(me.hand, 'K', 'piromante');
   if (!kCard) return null;
   if (!canActivateMagic('combat', 'piromante', 'K', getMagicActivationContext(state, ai))) return null;
 
