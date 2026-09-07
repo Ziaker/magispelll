@@ -123,15 +123,6 @@ interface GameBoardProps {
  */
 const DECK_STACK_REFERENCE = 54;
 
-/**
- * Quantas vezes seguidas a MESMA ação (mesmo conteúdo, JSON.stringify) pode
- * ser decidida para um jogador de IA antes de desistir dela e forçar
- * TOGGLE_READY - ver `aiStuckActionRef` e seu uso no efeito de decisão da IA
- * em GameBoard. 3 dá folga para qualquer repetição legítima transitória
- * (nenhuma conhecida hoje) sem deixar um softlock real bater 10s+ de espera.
- */
-const AI_STUCK_ACTION_REPEAT_LIMIT = 3;
-
 const phaseNames = {
   draw: 'Compra',
   strategy: 'Estratégia',
@@ -198,43 +189,63 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const recordedActionsRef = useRef<GameAction[]>([]);
   const loadedReplayRef = useRef<{ initialState: GameState; actions: GameAction[] } | null>(null);
   /**
-   * Rede de segurança GENÉRICA contra a IA decidir a MESMA ação (comparada
-   * por CONTEÚDO, via JSON.stringify - não por referência) repetidas vezes
-   * seguidas sem progresso real - ver uso em decideAiAction mais abaixo.
-   * Softlock real encontrado ao vivo (IA Glacial travava na Estratégia
-   * tentando jogar a mesma carta CONGELADA pra sempre - causa raiz corrigida
-   * na origem em decideFieldPlacement/decideHorizontalPlacement/etc. em
-   * aiPlayer.ts): quando o motor (gameEngine.ts) rejeita uma ação inválida,
-   * ele ainda devolve um `state` NOVO por referência (só o log de aviso
-   * muda) - o efeito de decisão da IA (dependente de `gameState`) reexecuta
-   * a cada rejeição, decideAiAction é pura/determinística sobre o conteúdo
-   * relevante (inalterado), então decide a MESMA ação de novo, pra sempre.
-   * Esta rede não depende de conhecer a causa (protege qualquer bug FUTURO
-   * equivalente): guarda a última ação decidida POR JOGADOR e quantas vezes
-   * seguidas ela se repetiu.
+   * Rede de segurança GENÉRICA contra a IA propor uma ação que o motor
+   * (gameEngine.ts) REJEITA sem nenhum efeito real (sinal de um bug de
+   * decisão em aiPlayer.ts que escapou das validações - histórico: carta
+   * congelada, torre/Broto sem reforço horizontal, etc., cada um corrigido
+   * na origem quando encontrado, mas esta rede protege qualquer caso FUTURO
+   * equivalente sem precisar conhecer a causa).
    *
-   * FIX (regressão real relatada pelo usuário: "as IAs não tão jogando
-   * cartas no campo mesmo tendo elas nas mãos" - Modo Espectador): a versão
-   * original contava "decidida de novo" como sinônimo de "rejeitada de
-   * novo", mas isso é FALSO no caso comum - no Modo Espectador as DUAS IAs
-   * compartilham este mesmo efeito, dependente de `gameState` inteiro; toda
-   * vez que a OUTRA IA despacha algo, `gameState` muda de referência, este
-   * efeito reexecuta PRA AMBAS, e o `return () => timers.forEach(clearTimeout)`
-   * cancela o timer de "pensando..." desta IA que ainda nem tinha disparado
-   * - ela decide a MESMA ação de novo (ainda válida, só ainda não teve
-   * chance de ser despachada) e um novo timer é agendado do zero. Isso é
-   * NORMAL e esperado sempre que a partida está fluindo rápido - mas a rede
-   * de segurança contava cada uma dessas reagendas como "sem progresso",
-   * atingindo o limite e forçando TOGGLE_READY ANTES da ação sequer ser
-   * tentada uma vez - fazendo a IA "desistir" de jogar cartas perfeitamente
-   * jogáveis. `aiDispatchedActionRef` guarda a assinatura da ÚLTIMA ação que
-   * REALMENTE foi despachada (marcada no ponto real do dispatch, mais
-   * abaixo) - só conta como "repetição sem progresso" quando a mesma
-   * assinatura já dispatchada volta a ser decidida de novo (evidência real
-   * de rejeição), nunca por só ter sido reagendada sem nunca ter disparado.
+   * Detecta isso de forma DETERMINÍSTICA: chama `gameReducer` diretamente
+   * contra o `gameState` ATUAL, ANTES de despachar de verdade - a mesma
+   * função pura já usada em outros lugares deste arquivo pra "e se" sem
+   * efeito colateral (ex.: replay do log, ver mais abaixo). Se o resultado
+   * é idêntico ao estado atual (ignorando só `log`, que toda rejeição
+   * também anexa um aviso nele), a ação NÃO teria nenhum efeito - sabido já
+   * agora, sem precisar despachar e esperar repetir.
+   *
+   * FIX (relatado pelo usuário: "a IA está finalizando sua fase antes de
+   * fazer qualquer ação mínima ou posicionar no mínimo 2 cartas") - a
+   * versão ANTERIOR desta rede (histórico completo: contava quantas vezes
+   * SEGUIDAS a MESMA ação, por conteúdo/JSON.stringify, era DECIDIDA de
+   * novo depois de já ter sido REALMENTE despachada uma vez, forçando
+   * TOGGLE_READY ao bater 3 repetições) tinha um falso positivo real,
+   * encontrado por simulação Coringa vs Anjo: quando o Anjo revela uma
+   * carta-armadilha do Coringa na Estratégia (Visão Celestial), ela volta
+   * pra mão do Coringa OCULTA (`applyCoringaTrapReaction`, gameEngine.ts -
+   * comportamento INTENCIONAL, não um bug, pra impedir o oponente de
+   * rastrear qual carta da mão é aquela). A IA do Coringa então decide
+   * jogar essa MESMA carta (mesmo `cardId`) de novo - um PLAY_CARD
+   * idêntico, em CONTEÚDO, ao que já tinha sido despachado e FUNCIONADO
+   * pouco antes, só desfeito depois pelo Anjo. A rede antiga não distinguia
+   * "ação repetida que só parece igual" de "ação repetida que está sendo
+   * rejeitada de verdade" - contava a primeira como a segunda e desistia da
+   * fase de Estratégia com o campo praticamente vazio, mesmo com uma jogada
+   * perfeitamente válida disponível. Comparar contra o resultado REAL de
+   * `gameReducer` no estado ATUAL elimina essa classe inteira de falso
+   * positivo: não importa quantas vezes uma ação de conteúdo igual já foi
+   * decidida ou despachada antes - só conta como rejeição quando ela
+   * REALMENTE não muda nada AGORA.
+   *
+   * NOTA (custo aceito): quando a ação NÃO é no-op, `gameReducer` roda aqui
+   * (só pra comparar) e roda de novo de verdade no dispatch real logo abaixo
+   * - qualquer `random()` (rng.ts) consumido nesta chamada especulativa é
+   * jogado fora (nunca vira estado de verdade, só compara). Em produção
+   * (`random()` = `Math.random()` cru) isso não importa. Só afeta
+   * reprodutibilidade byte-a-byte quando `window.__debug.setSeed` está
+   * ativo E a ação envolve algo que embaralha (ex.: Rainha/Monstro armadilha
+   * do Coringa revelada, ou o baralho esgotar) - a semente ainda reproduz a
+   * MESMA sequência de decisões da IA (o que importa pra depurar um bug),
+   * só a ordem interna de uma mão embaralhada nesse caso específico pode
+   * variar por execução.
    */
-  const aiStuckActionRef = useRef<Partial<Record<PlayerNumber, { sig: string; count: number }>>>({});
-  const aiDispatchedActionRef = useRef<Partial<Record<PlayerNumber, string>>>({});
+  const isNoOpAiAction = (action: GameAction): boolean => {
+    const next = gameReducer(gameState, action);
+    if (next === gameState) return true;
+    const { log: _prevLog, ...prevRest } = gameState;
+    const { log: _nextLog, ...nextRest } = next;
+    return JSON.stringify(nextRest) === JSON.stringify(prevRest);
+  };
   const rawDispatch = (action: GameAction) => {
     recordedActionsRef.current.push(action);
     reducerDispatch(action);
@@ -1544,44 +1555,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       if (decision.type === 'wait') continue;
       if (decision.type === 'ready' && gameState[playerKeyOf(ai)].readyForNextPhase) continue;
 
-      // FIX (rede de segurança genérica - ver comentário de aiStuckActionRef
-      // acima): só `type: 'action'` pode ficar preso num loop de
-      // rejeição->mesma decisão (uma `ready` já é idempotente/segura, e
-      // `wait` nem chega aqui). Compara por CONTEÚDO, não por referência -
-      // decideAiAction é determinística, então a mesma ação de novo (mesmo
-      // cardId/slotIndex/etc.) é o sinal real de "sem progresso", mesmo que
-      // `gameState` tenha mudado de referência (ex.: só um log de aviso
-      // anexado pelo motor ao rejeitar).
-      if (decision.type === 'action') {
-        const sig = JSON.stringify(decision.action);
-        // FIX (ver comentário completo de aiDispatchedActionRef acima): só
-        // conta como "sem progresso" quando esta MESMA ação já tinha sido
-        // de fato despachada antes (evidência real de rejeição) - decidir a
-        // mesma coisa de novo sem NUNCA ter sido despachada (só reagendada
-        // porque `gameState` mudou por causa da OUTRA IA) não conta.
-        if (aiDispatchedActionRef.current[ai] === sig) {
-          const prevStuck = aiStuckActionRef.current[ai];
-          const count = prevStuck && prevStuck.sig === sig ? prevStuck.count + 1 : 1;
-          aiStuckActionRef.current[ai] = { sig, count };
-          if (count >= AI_STUCK_ACTION_REPEAT_LIMIT) {
-            // Desiste desta ação (provavelmente sendo rejeitada em silêncio
-            // pelo motor de novo e de novo) e força prontidão pra próxima fase
-            // - mesmo efeito seguro de clicar "Pronto" (handleToggleReady em
-            // gameEngine.ts já sabe lidar com isso em qualquer fase). Reseta a
-            // contagem pra não disparar de novo caso a IA volte a decidir a
-            // mesma ação (agora legítima) depois da troca de fase.
-            aiStuckActionRef.current[ai] = undefined;
-            aiDispatchedActionRef.current[ai] = undefined;
-            const t = setTimeout(() => dispatch({ type: 'TOGGLE_READY', player: ai }), delay(450 * aiThinkScale));
-            timers.push(t);
-            continue;
-          }
-        } else {
-          aiStuckActionRef.current[ai] = undefined;
-        }
-      } else {
-        aiStuckActionRef.current[ai] = undefined;
-        aiDispatchedActionRef.current[ai] = undefined;
+      // FIX (rede de segurança genérica - ver comentário de isNoOpAiAction
+      // acima): só `type: 'action'` pode propor algo que o motor rejeite
+      // (uma `ready` já é idempotente/segura, e `wait` nem chega aqui).
+      // Comprovado AGORA contra o `gameState` atual - nenhuma repetição
+      // precisa ser observada primeiro.
+      if (decision.type === 'action' && isNoOpAiAction(decision.action)) {
+        // Ação comprovadamente sem efeito contra o estado atual (rejeição
+        // real do motor) - desiste dela e força prontidão pra próxima fase,
+        // mesmo efeito seguro de clicar "Pronto" (handleToggleReady em
+        // gameEngine.ts já sabe lidar com isso em qualquer fase).
+        const t = setTimeout(() => dispatch({ type: 'TOGGLE_READY', player: ai }), delay(450 * aiThinkScale));
+        timers.push(t);
+        continue;
       }
 
       // FIX (item 22 do Grupo F, "velocidade de pensamento da IA
@@ -1608,13 +1594,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           const isAnnouncement =
             (decision.action.type === 'EXECUTE_MAGIC' || decision.action.type === 'ACTIVATE_SIMPLE_MAGIC') &&
             canMagicTriggerReactionAnnouncement(gameState, decision.action.player, decision.action.cardId);
-          // FIX (ver comentário completo de aiDispatchedActionRef acima): só
-          // AQUI, no momento real do dispatch (não no momento em que foi só
-          // decidida), marca esta assinatura como "já despachada" - é o que
-          // permite a rede de segurança acima distinguir "reagendada sem
-          // nunca ter disparado" (normal, ignorar) de "disparou e o motor
-          // não mudou nada de verdade" (rejeição real).
-          aiDispatchedActionRef.current[ai] = JSON.stringify(decision.action);
           if (!isAnnouncement) {
             triggerAiActionEffects(decision.action);
             dispatchWithMagicPause(decision.action, () => dispatchMagicAction(decision.action));
