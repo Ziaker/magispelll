@@ -133,17 +133,6 @@ interface BattleFieldProps {
    */
   player1DoubledCardId?: string;
   player2DoubledCardId?: string;
-  /**
-   * Mosqueteiro (personagem novo) - id da carta (principal OU horizontal)
-   * reforçada pelo Tiro Certeiro (Rei), de CADA jogador - mesmo padrão de
-   * player1/2DoubledCardId acima, com o valor extra (`mosqueteiroBoostAmount`)
-   * junto pra desenhar o selo "+N" certo (ver mosqueteiroBoostedCardId em
-   * gameEngine.ts).
-   */
-  player1BoostedCardId?: string;
-  player1BoostAmount?: number;
-  player2BoostedCardId?: string;
-  player2BoostAmount?: number;
   /** Modo Spotlight (pedido do usuário) - repassado pra FieldSlotView.tsx (selo de palavra-chave, total de Torre) - ver spotlight.ts. */
   spotlight?: SpotlightState | null;
   /**
@@ -215,10 +204,6 @@ export function BattleField({
   burningSlots,
   player1DoubledCardId,
   player2DoubledCardId,
-  player1BoostedCardId,
-  player1BoostAmount,
-  player2BoostedCardId,
-  player2BoostAmount,
   combatValueSpec,
   spotlight,
   towersMode = false,
@@ -250,8 +235,6 @@ export function BattleField({
     // "meu campo" e "campo do oponente/IA".
     const isAiField = playerNumber === 2 ? player2IsAi : player1IsAi;
     const doubledCardId = playerNumber === 1 ? player1DoubledCardId : player2DoubledCardId;
-    const boostedCardId = playerNumber === 1 ? player1BoostedCardId : player2BoostedCardId;
-    const boostAmount = playerNumber === 1 ? player1BoostAmount : player2BoostAmount;
 
     return (
       // FIX (item 4 da 6ª rodada; item 1 da 8ª rodada): era grid-cols-4 (3
@@ -287,8 +270,6 @@ export function BattleField({
             isSmoking={Boolean(smokingSlot && smokingSlot.player === playerNumber && smokingSlot.slotIndex === i)}
             isBurning={Boolean(burningSlots?.some((s) => s.player === playerNumber && s.slotIndex === i))}
             doubledCardId={doubledCardId}
-            boostedCardId={boostedCardId}
-            boostAmount={boostAmount}
             spotlight={spotlight}
           />
         ))}

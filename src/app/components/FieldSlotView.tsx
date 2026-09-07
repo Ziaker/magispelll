@@ -18,8 +18,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/t
 import { CARD_ITEM_TYPE, type CardDragItem } from '../lib/dnd';
 import { registerDropTarget, unregisterDropTarget } from '../lib/dropTargetRegistry';
 import { soundManager } from '../lib/soundManager';
-import type { CharacterTheme } from '../lib/characterThemes';
+import { getCharacterTheme, type CharacterTheme } from '../lib/characterThemes';
 import { getSpotlightAdjustedValue, getSpotlightEntry, type SpotlightState } from '../lib/spotlight';
+import { getCombatModifierStatuses } from '../lib/statusEffects';
 
 /**
  * FIX (pedido do usuário: "adicione este som quando a carta aterrisa no
@@ -149,9 +150,6 @@ const STATUS_COLORS = {
   doubled: { ring: '#D45D4A', soft: 'rgba(212, 93, 74, 0.45)', strong: 'rgba(212, 93, 74, 0.9)' },
   reinforced: { ring: '#4A90E2', soft: 'rgba(74, 144, 226, 0.45)', strong: 'rgba(74, 144, 226, 0.9)' },
   protected: { ring: '#E2B84A', soft: 'rgba(226, 184, 74, 0.45)', strong: 'rgba(226, 184, 74, 0.9)' },
-  // Mosqueteiro - Tiro Certeiro (pedido do usuário): mesmo cinza-aço do tema
-  // do personagem (ver characterThemes.ts).
-  boosted: { ring: '#8C9199', soft: 'rgba(140, 145, 153, 0.45)', strong: 'rgba(140, 145, 153, 0.9)' },
   // FIX (pedido do usuário, Modo Spotlight: "adicione um efeito de spotlight
   // nessas cartas, um verde para spotlights positivos e vermelho para
   // negativos") - verde (vale 3x mais) e vermelho (valor fixo em 1), mesmo
@@ -163,6 +161,51 @@ const STATUS_COLORS = {
   // broto") - mesmo verde do tema do personagem (characterThemes.ts).
   broto: { ring: '#0F8A19', soft: 'rgba(15, 138, 25, 0.45)', strong: 'rgba(15, 138, 25, 0.9)' },
 } as const;
+
+/**
+ * Cor de aura/selo de um StatusEffect `combatModifier` (`mode: 'add'`) -
+ * usada por Tiro Certeiro (Mosqueteiro), Urtiga/Simbiose (Druida) e
+ * Crioescudo/Crioespinho (Glacial), entre outros. Antes havia uma única
+ * entrada FIXA em STATUS_COLORS (`boosted`, cinza-aço do Mosqueteiro) -
+ * mas essa cor é sempre `theme.primary` do personagem-fonte (mesmo padrão
+ * já usado por TODAS as outras entradas de STATUS_COLORS acima, só que
+ * hardcoded pra um personagem só). Calculada aqui na hora porque este
+ * modificador pode vir de QUALQUER personagem que o use, não um fixo -
+ * sem isso, o marcador do Glacial (Crioescudo/Crioespinho) aparecia com a
+ * cor cinza do Mosqueteiro (ou não aparecia nem um pouco, ver FIX abaixo).
+ *
+ * FIX (relatado pelo usuário: "contadores do glacial não estão presentes
+ * em campo visualmente como os do mosqueteiro") - a causa raiz real não
+ * era só a cor: `isMainBoosted`/`boostedHorizontal` (mais abaixo) vinham de
+ * `boostedCardId`/`boostAmount`, dois props calculados em GameBoard.tsx via
+ * `findFieldCardWithStatus(field, 'combatModifier', { source: 'mosqueteiro' })`
+ * - hardcoded pro Mosqueteiro (nunca incluía Glacial/Druida) E, mesmo pro
+ * Mosqueteiro, essa função só acha a PRIMEIRA carta com o modificador no
+ * campo inteiro (um único id rastreado por jogador) - com o Rei do
+ * Mosqueteiro podendo marcar várias cartas DIFERENTES no mesmo turno (ver
+ * comentário completo em handleExecuteMagic, gameEngine.ts: "permitindo
+ * vários Tiro Certeiro simultâneos"), só a primeira carta marcada mostrava
+ * o selo; quando ela saía do campo (perdendo uma disputa), o selo parecia
+ * "pular" pra outra carta que na verdade já estava marcada o tempo todo,
+ * só nunca tinha sido exibida - o relato do usuário: "o marcador é
+ * reposicionado ao invés de haver mais que um". Agora `isMainBoosted` etc.
+ * são derivados DIRETO do `statusEffects` de CADA carta (getCombatModifierStatuses),
+ * a mesma fonte de verdade que o motor usa - qualquer carta com um
+ * modificador ativo mostra o próprio selo, não importa quantas outras
+ * cartas também tenham o seu.
+ */
+function combatModifierColors(source: CharacterId): { ring: string; soft: string; strong: string } {
+  const hex = getCharacterTheme(source).primary.replace('#', '');
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return { ring: getCharacterTheme(source).primary, soft: `rgba(${r}, ${g}, ${b}, 0.45)`, strong: `rgba(${r}, ${g}, ${b}, 0.9)` };
+}
+
+/** `getCombatModifierStatuses(card)` filtrado só pros de `mode: 'add'` (exclui Fúria Selvagem da Besta, `mode: 'multiply'`, tratada à parte via `doubledCardId`) e com magnitude != 0 (um marcador que somou a 0 não tem nada útil pra mostrar). */
+function getAddModeCombatModifiers(card: Card | undefined) {
+  return getCombatModifierStatuses(card).filter((s) => s.mode === 'add' && (s.magnitude ?? 0) !== 0);
+}
 
 const STATUS_PARTICLES_2 = [
   { left: '30%', delay: '0.3s' },
@@ -212,9 +255,6 @@ interface FieldSlotViewProps {
   isBurning?: boolean;
   /** Efeitos de status contínuos (pedido do usuário): id da carta (principal OU horizontal, deste MESMO jogador) atualmente sob a Fúria Selvagem da Besta - ver BattleField.tsx/GameBoard.tsx (`monsterTargetCardId`). */
   doubledCardId?: string;
-  /** Mosqueteiro - id da carta (principal OU horizontal, deste MESMO jogador) enfraquecida pelo Tiro Certeiro (Rei) DE UM OPONENTE (mudança de planos: o marcador é negativo e mira o campo alvo, não mais o próprio) - `boostAmount` já vem negativo. Ver GameBoard.tsx/BattleField.tsx. */
-  boostedCardId?: string;
-  boostAmount?: number;
   /**
    * Modo Spotlight (pedido do usuário) - números em destaque neste turno,
    * `undefined`/`null` quando o modo está desligado. Repassado pra
@@ -272,8 +312,6 @@ export function FieldSlotView({
   isBurning,
   effectFlashCardIds,
   doubledCardId,
-  boostedCardId,
-  boostAmount,
   spotlight,
 }: FieldSlotViewProps) {
   const canClick = phase === 'strategy' || phase === 'combat';
@@ -302,10 +340,16 @@ export function FieldSlotView({
   const isMainDoubled = Boolean(doubledCardId && slot.faceDownCard?.id === doubledCardId);
   const doubledHorizontal = doubledCardId ? slot.horizontalCards.find((c) => c.id === doubledCardId) : undefined;
 
-  // Mosqueteiro - Tiro Certeiro (pedido do usuário: mesmo tratamento visual
-  // do "x2" da Fúria Selvagem acima, com um selo "+N" em vez de multiplicar).
-  const isMainBoosted = Boolean(boostedCardId && slot.faceDownCard?.id === boostedCardId);
-  const boostedHorizontal = boostedCardId ? slot.horizontalCards.find((c) => c.id === boostedCardId) : undefined;
+  // Marcador de combate `mode: 'add'` (Tiro Certeiro do Mosqueteiro, Urtiga/
+  // Simbiose do Druida, Crioescudo/Crioespinho do Glacial, ...) - mesmo
+  // tratamento visual do "x2" da Fúria Selvagem acima, com um selo "±N" em
+  // vez de multiplicar. FIX (ver comentário completo de combatModifierColors
+  // acima): derivado DIRETO do statusEffects de CADA carta, não mais de um
+  // único id rastreado por jogador - suporta várias cartas marcadas ao mesmo
+  // tempo (ex.: Tiro Certeiro ativado 2x no mesmo turno, em cartas
+  // diferentes) sem "perder" o selo de nenhuma delas.
+  const mainAddModifiers = getAddModeCombatModifiers(slot.faceDownCard);
+  const isMainBoosted = mainAddModifiers.length > 0;
 
   // Ilusão Arcana do Mago: reforça o valor da carta PRINCIPAL copiando o de
   // outra já revelada (handleExecuteMagoMonsterEffect em gameEngine.ts,
@@ -752,16 +796,20 @@ export function FieldSlotView({
                   ))}
                 </div>
               )}
-              {/* Mosqueteiro - Tiro Certeiro (personagem novo): elemento
-                  PRÓPRIO (mesmo motivo do comentário acima) pra nunca
-                  disputar `animation` com os outros status. */}
+              {/* Marcador de combate `mode: 'add'` (Tiro Certeiro/Urtiga/
+                  Simbiose/Crioescudo/Crioespinho, ...): elemento PRÓPRIO
+                  (mesmo motivo do comentário acima) pra nunca disputar
+                  `animation` com os outros status. Com 2+ modificadores de
+                  fontes diferentes na MESMA carta (raro), a aura usa a cor do
+                  primeiro - cada um ainda ganha seu PRÓPRIO selo "±N" na
+                  lista de badges abaixo. */}
               {isMainBoosted && (
                 <div
                   className="absolute inset-0 rounded-lg animate-status-aura pointer-events-none"
                   style={
                     {
-                      '--status-color-soft': STATUS_COLORS.boosted.soft,
-                      '--status-color-strong': STATUS_COLORS.boosted.strong,
+                      '--status-color-soft': combatModifierColors(mainAddModifiers[0].source).soft,
+                      '--status-color-strong': combatModifierColors(mainAddModifiers[0].source).strong,
                       zIndex: 6,
                     } as CSSProperties
                   }
@@ -774,7 +822,7 @@ export function FieldSlotView({
                         {
                           left: p.left,
                           animationDelay: p.delay,
-                          '--status-color-strong': STATUS_COLORS.boosted.strong,
+                          '--status-color-strong': combatModifierColors(mainAddModifiers[0].source).strong,
                         } as CSSProperties
                       }
                     />
@@ -1001,19 +1049,24 @@ export function FieldSlotView({
                       ),
                     });
                   }
-                  if (isMainBoosted) {
-                    // FIX (mudança de planos do Tiro Certeiro, "marcadores
-                    // negativos"): `boostAmount` agora é sempre negativo (ou o
-                    // selo nem aparece) - o próprio número já carrega o sinal
-                    // de menos, sem precisar de um "+" hardcoded que ficaria
-                    // errado ("+-3").
+                  // Um selo POR modificador `mode: 'add'` ativo nesta carta
+                  // (normalmente só 1, mas 2+ fontes diferentes - ex.: o
+                  // Mosqueteiro marcando uma carta que o Glacial já tinha
+                  // marcado - mostram cada um o seu, em vez de um sumir).
+                  // FIX (relatado pelo usuário: ver combatModifierColors
+                  // acima) - antes só existia UM card rastreado por jogador
+                  // (`boostedCardId`), então um 2º "Tiro Certeiro" na mesma
+                  // partida nunca aparecia até o 1º sair do campo.
+                  mainAddModifiers.forEach((status) => {
+                    const magnitude = status.magnitude ?? 0;
+                    const signed = magnitude > 0 ? `+${magnitude}` : `${magnitude}`;
                     statusBadges.push({
-                      key: 'boosted',
-                      colors: STATUS_COLORS.boosted,
-                      title: `Tiro Certeiro: esta carta perde ${boostAmount ?? 0} de valor`,
-                      content: <span className="text-[12px] font-black">{boostAmount ?? 0}</span>,
+                      key: `boosted-${status.source}`,
+                      colors: combatModifierColors(status.source),
+                      title: `${status.label}: ${signed} de valor no combate`,
+                      content: <span className="text-[12px] font-black">{signed}</span>,
                     });
-                  }
+                  });
                   // Druida (personagem novo, pedido do usuário: "só ser um J
                   // não é perceptível o bastante") - o Broto precisa de um
                   // selo próprio, sempre visível enquanto ativo (não só
@@ -1083,7 +1136,8 @@ export function FieldSlotView({
               const cardFaceUp = hCard.revealed === true;
               const offset = hIndex * 10;
               const isThisHorizontalDoubled = doubledHorizontal?.id === hCard.id;
-              const isThisHorizontalBoosted = boostedHorizontal?.id === hCard.id;
+              const hCardAddModifiers = getAddModeCombatModifiers(hCard);
+              const isThisHorizontalBoosted = hCardAddModifiers.length > 0;
               // Modo Spotlight (pedido do usuário) - mesma ideia da carta
               // principal acima (mesmo FIX de não vazar informação: só depois
               // de `revealed === true`).
@@ -1106,7 +1160,10 @@ export function FieldSlotView({
                       ...(isThisHorizontalDoubled
                         ? { '--status-color-soft': STATUS_COLORS.doubled.soft, '--status-color-strong': STATUS_COLORS.doubled.strong }
                         : isThisHorizontalBoosted
-                        ? { '--status-color-soft': STATUS_COLORS.boosted.soft, '--status-color-strong': STATUS_COLORS.boosted.strong }
+                        ? {
+                            '--status-color-soft': combatModifierColors(hCardAddModifiers[0].source).soft,
+                            '--status-color-strong': combatModifierColors(hCardAddModifiers[0].source).strong,
+                          }
                         : horizontalSpotlightEntry
                         ? {
                             '--status-color-soft':
@@ -1184,18 +1241,30 @@ export function FieldSlotView({
                       </span>
                     </div>
                   )}
-                  {/* Mosqueteiro - Tiro Certeiro mirando uma horizontal específica do OPONENTE (mudança de planos - ver comentário na variante "principal" acima). */}
-                  {isThisHorizontalBoosted && (
-                    <div
-                      className="absolute -top-3 -left-3 z-20 rounded-full px-1.5 py-0.5 flex items-center justify-center"
-                      style={{ backgroundColor: STATUS_COLORS.boosted.ring, border: '1.5px solid #0F1113' }}
-                      title={`Tiro Certeiro: esta carta perde ${boostAmount ?? 0} de valor`}
-                    >
-                      <span className="text-[8px] font-black" style={{ color: '#0F1113' }}>
-                        {boostAmount ?? 0}
-                      </span>
-                    </div>
-                  )}
+                  {/* Marcador de combate `mode: 'add'` mirando uma horizontal
+                      específica (Tiro Certeiro do Mosqueteiro, Urtiga/
+                      Simbiose do Druida, Crioescudo/Crioespinho do Glacial,
+                      ...) - um selo POR modificador ativo nesta carta
+                      (normalmente só 1), empilhados verticalmente quando há
+                      mais de um (mesmo espírito da coluna de badges da carta
+                      principal, ver comentário completo de
+                      combatModifierColors no topo do arquivo). */}
+                  {hCardAddModifiers.map((status, statusIdx) => {
+                    const magnitude = status.magnitude ?? 0;
+                    const signed = magnitude > 0 ? `+${magnitude}` : `${magnitude}`;
+                    return (
+                      <div
+                        key={status.source}
+                        className="absolute z-20 rounded-full px-1.5 py-0.5 flex items-center justify-center"
+                        style={{ top: `-${12 + statusIdx * 18}px`, left: '-12px', backgroundColor: combatModifierColors(status.source).ring, border: '1.5px solid #0F1113' }}
+                        title={`${status.label}: ${signed} de valor no combate`}
+                      >
+                        <span className="text-[8px] font-black" style={{ color: '#0F1113' }}>
+                          {signed}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </motion.div>
               );
             })}

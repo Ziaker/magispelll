@@ -3419,17 +3419,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   visível - ver SpotlightSidebar.tsx. */}
               <div className="flex gap-3 items-stretch">
                 <div className="flex-1 min-w-0">
-                  {/* FIX (mudança de planos do Tiro Certeiro, "marcadores
-                      negativos nas cartas do campo do oponente"): as props
-                      `player{1,2}BoostedCardId`/`BoostAmount` abaixo antes só
-                      filtravam por `kind === 'add'`, o que bastava porque só
-                      o Tiro Certeiro (sempre positivo, sempre no PRÓPRIO
-                      array) usava esse kind num array próprio - agora Urtiga
-                      do Druida TAMBÉM deixa um marcador negativo `kind: 'add'`
-                      no array do alvo (a vítima), exatamente onde este lookup
-                      procura. Sem o filtro extra por `source === 'mosqueteiro'`,
-                      um debuff de Urtiga recebido seria mostrado com o selo
-                      cinza-aço do Mosqueteiro por engano. */}
                   <BattleField
                     player1Character={player1Character}
                     player2Character={player2Character}
@@ -3459,10 +3448,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     burningSlots={burningSlots}
                     player1DoubledCardId={findFieldCardWithStatus(gameState.player1.field, 'combatModifier', { mode: 'multiply' })?.card.id}
                     player2DoubledCardId={findFieldCardWithStatus(gameState.player2.field, 'combatModifier', { mode: 'multiply' })?.card.id}
-                    player1BoostedCardId={findFieldCardWithStatus(gameState.player1.field, 'combatModifier', { source: 'mosqueteiro' })?.card.id}
-                    player1BoostAmount={findFieldCardWithStatus(gameState.player1.field, 'combatModifier', { source: 'mosqueteiro' })?.status.magnitude ?? 0}
-                    player2BoostedCardId={findFieldCardWithStatus(gameState.player2.field, 'combatModifier', { source: 'mosqueteiro' })?.card.id}
-                    player2BoostAmount={findFieldCardWithStatus(gameState.player2.field, 'combatModifier', { source: 'mosqueteiro' })?.status.magnitude ?? 0}
                     combatValueSpec={combatValueReveal}
                     spotlight={gameState.spotlight}
                     towersMode={gameConfig.towersMode}
