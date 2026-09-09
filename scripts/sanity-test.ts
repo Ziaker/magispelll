@@ -5212,6 +5212,68 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 })();
 
 // ---------------------------------------------------------------------------
+// FIX (pedido do usuário: "as correntes do anjo também devem proibir a
+// utilização/posicionamento da carta monstro do oponente") - Visão Celestial
+// já trancava (magicLocked) uma carta J/Q/K revelada; agora também tranca a
+// carta Monstro (isMonster) do oponente quando é ELA a revelada, e o motor
+// rejeita posicioná-la/jogá-la enquanto trancada (handlePlaceMonsterCard pros
+// 5 personagens com Zona Monstro; handlePlayCard pro Coringa/Druida/Glacial,
+// que jogam o Monstro como substituto de numeral direto no campo).
+// ---------------------------------------------------------------------------
+(function testAnjoQLocksOpponentMonsterCardRevealedInHand() {
+  let state = createInitialState('anjo', 'mago', DEFAULT_GAME_CONFIG);
+  const anjoQ = makeCard('anjo-lock-monster-q-1', 'Q');
+  const monster = { ...makeCard('mago-monster-locked-1', 'JOKER'), isMonster: true };
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [anjoQ] },
+    player2: { ...state.player2, hand: [monster] },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: anjoQ.id,
+    character: 'anjo',
+    magicType: 'Q',
+    selection: { selectedCards: [monster.id] },
+  });
+  const revealed = state.player2.hand.find((c) => c.id === monster.id);
+  assert(Boolean(revealed?.revealed), 'Pré-condição: a carta Monstro do oponente foi revelada pela Visão Celestial');
+  assert(hasStatus(revealed, 'magicLocked'), 'FIX: a carta Monstro revelada fica trancada (magicLocked) igual a uma J/Q/K revelada');
+
+  const afterPlace = gameReducer(state, { type: 'PLACE_MONSTER_CARD', player: 2, cardId: monster.id });
+  assert(!afterPlace.player2.monsterCard, 'FIX: a carta Monstro trancada NÃO pode ser posicionada na Zona Monstro');
+  assert(afterPlace.player2.hand.some((c) => c.id === monster.id), 'A carta Monstro trancada continua na mão após a tentativa rejeitada');
+})();
+
+(function testAnjoQLocksOpponentGlacialMonsterCardRevealedInHand() {
+  // Glacial (e Coringa/Druida) jogam o próprio Monstro direto no campo via
+  // PLAY_CARD (nunca PLACE_MONSTER_CARD, ver handlePlayCard) - o guard
+  // precisa cobrir os dois caminhos.
+  let state = createInitialState('anjo', 'glacial', DEFAULT_GAME_CONFIG);
+  const anjoQ = makeCard('anjo-lock-monster-q-2', 'Q');
+  const golem = { ...makeCard('glacial-monster-locked-1', 'JOKER'), isMonster: true };
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [anjoQ] },
+    player2: { ...state.player2, hand: [golem] },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: anjoQ.id,
+    character: 'anjo',
+    magicType: 'Q',
+    selection: { selectedCards: [golem.id] },
+  });
+  const afterPlay = gameReducer(state, { type: 'PLAY_CARD', player: 2, cardId: golem.id, slotIndex: 0, asHorizontal: false });
+  assert(!afterPlay.player2.field[0].faceDownCard, 'FIX: o Criogolem trancado pela Visão Celestial NÃO pode ser jogado como substituto de numeral');
+  assert(afterPlay.player2.hand.some((c) => c.id === golem.id), 'O Criogolem trancado continua na mão após a tentativa rejeitada');
+})();
+
+// ---------------------------------------------------------------------------
 // GLACIAL (personagem novo) - Fase 2 do overhaul de Status Effects aplicado
 // na prática: congelamento básico (StatusEffect kind 'frozen').
 // ---------------------------------------------------------------------------
@@ -5635,10 +5697,14 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(state.discardPile.some((c) => c.id === paymentCard.id), 'A carta de pagamento foi pro descarte');
 })();
 
-(function testPayToUnfreezeOpponentFieldTarget() {
-  // Qualquer alvo possível: a carta congelada pode estar no CAMPO do
-  // OPONENTE, e quem paga é sempre quem ativa (não precisa ser o dono da
-  // carta-alvo).
+(function testPayToUnfreezeRejectsOpponentFieldTarget() {
+  // FIX (pedido do usuário: "a opção de descongelar aparece e é funcional
+  // quando você congela uma carta do oponente, remova isso") - antes disto,
+  // uma carta congelada no campo do OPONENTE era um alvo válido (comportamento
+  // testado - e esperado - pela versão antiga deste teste). A intenção sempre
+  // foi deixar um jogador descongelar a PRÓPRIA carta (ver comentário em
+  // aiPlayer.ts logo acima de decidePayToUnfreeze), nunca ajudar o oponente
+  // desfazendo um status que ELE aplicou nele - agora é rejeitado como no-op.
   let state = createInitialState('mago', 'glacial', DEFAULT_GAME_CONFIG);
   const paymentCard = makeCard('unfreeze-payment-2', '4');
   const frozenTarget = applyStatus(makeCard('unfreeze-target-2', '8'), {
@@ -5650,10 +5716,10 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     player1: { ...state.player1, hand: [paymentCard] },
     player2: { ...state.player2, field: [{ faceDownCard: frozenTarget, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] },
   };
-  state = gameReducer(state, { type: 'PAY_TO_UNFREEZE', player: 1, paymentCardId: paymentCard.id, targetCardId: frozenTarget.id });
-  assert(!hasStatus(state.player2.field[0].faceDownCard, 'frozen'), 'FIX PAY_TO_UNFREEZE: descongela uma carta no campo do OPONENTE');
-  assert(state.player2.field[0].faceDownCard?.id === frozenTarget.id, 'A carta-alvo continua no campo do oponente, não foi movida nem descartada');
-  assert(state.discardPile.some((c) => c.id === paymentCard.id), 'A carta de pagamento (de quem ativou) foi pro descarte');
+  const after = gameReducer(state, { type: 'PAY_TO_UNFREEZE', player: 1, paymentCardId: paymentCard.id, targetCardId: frozenTarget.id });
+  assert(hasStatus(after.player2.field[0].faceDownCard, 'frozen'), 'FIX PAY_TO_UNFREEZE: NÃO descongela uma carta no campo do OPONENTE');
+  assert(after.player1.hand.some((c) => c.id === paymentCard.id), 'A carta de pagamento (de quem ativou) não é gasta - ação rejeitada como no-op');
+  assert(!after.discardPile.some((c) => c.id === paymentCard.id), 'A carta de pagamento não vai pro descarte');
 })();
 
 (function testPayToUnfreezeRejectsNonFrozenTarget() {

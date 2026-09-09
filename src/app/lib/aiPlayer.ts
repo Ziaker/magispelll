@@ -1148,7 +1148,13 @@ function decidePlaceMonsterCard(state: GameState, ai: PlayerNumber): GameAction 
   // correções) mas TODA ativação seguinte era sempre rejeitada, um Coringa
   // morto ocupando a zona pra sempre. Agora simplesmente ignora um Coringa
   // esgotado como candidato, como se a mão não tivesse nenhum.
-  const joker = me.hand.find((c) => c.isMonster && (c.monsterUseCount ?? 0) < MAX_MONSTER_USES);
+  // FIX (pedido do usuário: "as correntes do anjo também devem proibir a
+  // utilização/posicionamento da carta monstro do oponente") - handlePlaceMonsterCard
+  // (gameEngine.ts) agora rejeita um Monstro trancado por 'magicLocked' (Visão
+  // Celestial do Anjo) - mesma classe de filtro já aplicada acima pra
+  // monsterUseCount esgotado, pra nunca propor uma colocação que o motor vai
+  // recusar em silêncio.
+  const joker = me.hand.find((c) => c.isMonster && (c.monsterUseCount ?? 0) < MAX_MONSTER_USES && !hasStatus(c, 'magicLocked'));
   if (!joker) return null;
   return { type: 'PLACE_MONSTER_CARD', player: ai, cardId: joker.id };
 }
@@ -2220,7 +2226,11 @@ function decideDruidaMonster(state: GameState, ai: PlayerNumber): GameAction | n
   // comentário lá - o oponente Druida pode ter o próprio Monstro congelado
   // por uma magia do Glacial): sem excluir `frozen`, a IA travava tentando
   // jogar a mesma carta rejeitada pra sempre.
-  const monster = me.hand.find((c) => c.isMonster && !hasStatus(c, 'frozen'));
+  // FIX (pedido do usuário: "as correntes do anjo também devem proibir a
+  // utilização/posicionamento da carta monstro do oponente") - mesma classe
+  // de filtro, agora pra 'magicLocked' (Visão Celestial do Anjo) - ver o
+  // guard novo em handlePlayCard (gameEngine.ts).
+  const monster = me.hand.find((c) => c.isMonster && !hasStatus(c, 'frozen') && !hasStatus(c, 'magicLocked'));
   if (!monster) return null;
   const emptySlotIndex = me.field.findIndex((slot) => !slot.faceDownCard);
   if (emptySlotIndex === -1) return null;
@@ -2580,7 +2590,11 @@ function decideGlacialMonster(state: GameState, ai: PlayerNumber): GameAction | 
   // jogável e desistir dele à toa). Só uma carta congelada por OUTRO motivo
   // (não deveria existir pro Monstro do próprio Glacial, mas mantém a
   // checagem por segurança/defensivamente) fica de fora.
-  const monster = me.hand.find((c) => c.isMonster && !isFrozenPlayBlocked('glacial', c));
+  // FIX (pedido do usuário: "as correntes do anjo também devem proibir a
+  // utilização/posicionamento da carta monstro do oponente") - mesma classe
+  // de filtro, agora pra 'magicLocked' (Visão Celestial do Anjo) - ver o
+  // guard novo em handlePlayCard (gameEngine.ts).
+  const monster = me.hand.find((c) => c.isMonster && !isFrozenPlayBlocked('glacial', c) && !hasStatus(c, 'magicLocked'));
   if (!monster) return null;
   const emptySlotIndex = me.field.findIndex((slot) => !slot.faceDownCard);
   if (emptySlotIndex === -1) return null;
@@ -2631,7 +2645,13 @@ function decideFieldPlacement(state: GameState, ai: PlayerNumber, character: Cha
   // `hasStatus(c,'frozen')` puro) preserva a exceção do Glacial jogar suas
   // próprias cartas que ele mesmo congelou.
   const reserved = reservedNumeralCardIds(me.hand, character, state.spotlight);
-  const isMainEligible = (c: Card) => !isFrozenPlayBlocked(character, c) && (isFieldEligible(c) || isCoringaTrapFieldEligible(character, c, false));
+  // FIX (pedido do usuário: "as correntes do anjo também devem proibir a
+  // utilização/posicionamento da carta monstro do oponente") - mesma classe
+  // de filtro que `isFrozenPlayBlocked` acima, agora pra 'magicLocked'
+  // (Visão Celestial do Anjo) - só afeta a carta Monstro do Coringa aqui
+  // (isFieldEligible sempre exclui J/Q/K, que nunca chegam a este ramo).
+  const isMainEligible = (c: Card) =>
+    !isFrozenPlayBlocked(character, c) && !hasStatus(c, 'magicLocked') && (isFieldEligible(c) || isCoringaTrapFieldEligible(character, c, false));
   const hand = me.hand.filter((c) => !reserved.has(c.id));
   let numeralOrAce = hand.filter(isMainEligible);
 

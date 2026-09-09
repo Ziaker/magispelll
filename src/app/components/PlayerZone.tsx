@@ -161,6 +161,18 @@ interface PlayerZoneProps {
   /** Abre o diálogo de 2 passos (pendingUnfreeze) - o diálogo em si vive em GameBoard.tsx, não aqui. */
   onOpenPayToUnfreeze: () => void;
   /**
+   * FIX (pedido do usuário: "a opção de descongelar existe mesmo não tendo
+   * o glacial em jogo, remova isso da interface") - `applyStatus(..., {kind:
+   * 'frozen', ...})` só é chamado com `source: 'glacial'` em TODO o motor
+   * (gameEngine.ts) - sem o Glacial na partida, nenhuma carta pode ficar
+   * congelada, então `canPayToUnfreeze` acima já é sempre `false` o jogo
+   * inteiro, mas o botão continuava aparecendo (só desabilitado/cinza) pra
+   * sempre - poluição visual garantida, nunca útil. `true` só quando
+   * ALGUM dos dois personagens da partida é Glacial - calculado em
+   * GameBoard.tsx (único lugar que conhece os dois `Character`).
+   */
+  unfreezeRelevant: boolean;
+  /**
    * FIX (pedido do usuário: "permitindo que o jogador arraste sua magia até
    * o campo do alvo... para ativar ela") - `PlayerZone.tsx` só enxerga a
    * própria mão/fase, não o campo do oponente (onde a maioria dos alvos de
@@ -301,6 +313,7 @@ export function PlayerZone({
   hasActiveNumeralSpell,
   canPayToUnfreeze,
   onOpenPayToUnfreeze,
+  unfreezeRelevant,
   isMagicCardDraggable,
   isAiControlled = false,
   hotseatPrivacyActive = false,
@@ -1115,7 +1128,7 @@ export function PlayerZone({
             não filtra por character), não só Glacial - descarta 1 carta qualquer
             da própria mão pra remover 'frozen' de uma carta congelada em qualquer
             mão/campo dos dois jogadores. */}
-        {!isAiControlled && phase === 'strategy' && (
+        {!isAiControlled && phase === 'strategy' && unfreezeRelevant && (
           <button
             onClick={canPayToUnfreeze ? onOpenPayToUnfreeze : undefined}
             disabled={!canPayToUnfreeze}

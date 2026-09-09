@@ -2080,6 +2080,20 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta está congelada e não pode ser jogada!`) };
   }
 
+  // FIX (pedido do usuário: "as correntes do anjo também devem proibir a
+  // utilização/posicionamento da carta monstro do oponente") - Visão
+  // Celestial agora também tranca (StatusEffect 'magicLocked') a carta
+  // Monstro do oponente quando é ELA a revelada (ver o branch 'anjo'+'Q'
+  // mais abaixo, mesmo padrão já usado pra J/Q/K). Coringa/Druida/Glacial
+  // jogam a própria carta Monstro como substituto de numeral direto por
+  // PLAY_CARD (nunca por PLACE_MONSTER_CARD - ver isCoringaTrapCard/
+  // isDruidaMonsterCard/isGlacialMonsterCard mais abaixo), então o guard
+  // certo pra eles é aqui; os outros 5 personagens usam a Zona Monstro
+  // (handlePlaceMonsterCard, guard irmão deste logo abaixo no arquivo).
+  if (card.isMonster && hasStatus(card, 'magicLocked')) {
+    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta Monstro está trancada pela Visão Celestial e não pode ser jogada!`) };
+  }
+
   // Coringa (redesenho completo, pedido do usuário): diferente de todos os
   // outros personagens, suas cartas de magia (J/Q/K) e Monstro NÃO ativam
   // efeito nenhum "na mão" - elas são POSICIONADAS no campo como armadilhas,
@@ -2479,23 +2493,21 @@ function handlePayToUnfreeze(state: GameState, player: PlayerNumber, paymentCard
   const paymentCard = playerState.hand.find((c) => c.id === paymentCardId);
   if (!paymentCard || paymentCardId === targetCardId || hasStatus(paymentCard, 'frozen')) return state;
 
-  let newPlayer1 = state.player1;
-  let newPlayer2 = state.player2;
-  const applyToKey = (key: PlayerKey, patch: Partial<PlayerState>) => {
-    if (key === 'player1') newPlayer1 = { ...newPlayer1, ...patch };
-    else newPlayer2 = { ...newPlayer2, ...patch };
-  };
-
-  // Acha a carta-alvo CONGELADA em mão ou campo de QUALQUER jogador.
+  // Acha a carta-alvo CONGELADA na PRÓPRIA mão ou campo de quem está pagando
+  // - nunca na do oponente (FIX: pedido do usuário, "a opção de descongelar
+  // aparece e é funcional quando você congela uma carta do oponente, remova
+  // isso" - a intenção sempre foi deixar um jogador NÃO-Glacial descongelar
+  // a PRÓPRIA carta congelada pelo Glacial adversário, ver comentário em
+  // aiPlayer.ts logo acima de decidePayToUnfreeze - nunca ajudar o oponente
+  // removendo um status que ELE aplicou nele).
   let found = false;
-  for (const key of ['player1', 'player2'] as const) {
-    const ps = state[key];
-    const handCard = ps.hand.find((c) => c.id === targetCardId);
-    if (handCard && hasStatus(handCard, 'frozen')) {
-      found = true;
-      applyToKey(key, { hand: ps.hand.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) });
-      break;
-    }
+  let newHand = playerState.hand;
+  let newField = playerState.field;
+  const handCard = playerState.hand.find((c) => c.id === targetCardId);
+  if (handCard && hasStatus(handCard, 'frozen')) {
+    found = true;
+    newHand = playerState.hand.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c));
+  } else {
     // FIX (bug real achado por auditoria de cobertura - a expansão da matriz
     // de matchups IA-vs-IA pra incluir Glacial, em testAiVsAiFullGames*,
     // achou uma partida real em Modo Towers onde a IA propunha um
@@ -2508,31 +2520,30 @@ function handlePayToUnfreeze(state: GameState, player: PlayerNumber, paymentCard
     // então os dois ACHAVAM um alvo válido que o motor não sabia procurar,
     // rejeitando uma ação que deveria ter funcionado.
     const cardsInSlot = (s: FieldSlot): Card[] => [...(s.faceDownCard ? [s.faceDownCard] : []), ...s.horizontalCards, ...(s.towerReserve ?? []), ...(s.brotoReserve ?? [])];
-    const slotIndex = ps.field.findIndex((s) => cardsInSlot(s).some((c) => c.id === targetCardId && hasStatus(c, 'frozen')));
+    const slotIndex = playerState.field.findIndex((s) => cardsInSlot(s).some((c) => c.id === targetCardId && hasStatus(c, 'frozen')));
     if (slotIndex !== -1) {
       found = true;
-      applyToKey(key, {
-        field: updateFieldSlot(ps.field, slotIndex, (s) => {
-          if (s.faceDownCard?.id === targetCardId) return { faceDownCard: removeStatus(s.faceDownCard, 'frozen') };
-          if (s.horizontalCards.some((c) => c.id === targetCardId)) {
-            return { horizontalCards: s.horizontalCards.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) };
-          }
-          if (s.towerReserve?.some((c) => c.id === targetCardId)) {
-            return { towerReserve: s.towerReserve!.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) };
-          }
-          return { brotoReserve: s.brotoReserve!.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) };
-        }),
+      newField = updateFieldSlot(playerState.field, slotIndex, (s) => {
+        if (s.faceDownCard?.id === targetCardId) return { faceDownCard: removeStatus(s.faceDownCard, 'frozen') };
+        if (s.horizontalCards.some((c) => c.id === targetCardId)) {
+          return { horizontalCards: s.horizontalCards.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) };
+        }
+        if (s.towerReserve?.some((c) => c.id === targetCardId)) {
+          return { towerReserve: s.towerReserve!.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) };
+        }
+        return { brotoReserve: s.brotoReserve!.map((c) => (c.id === targetCardId ? removeStatus(c, 'frozen') : c)) };
       });
-      break;
     }
   }
   if (!found) return state;
 
-  // Remove a carta de pagamento da mão de quem ativou - lida a partir do
-  // estado JÁ ACUMULADO (newPlayer1/newPlayer2), essencial quando o alvo
-  // congelado estava na PRÓPRIA mão/campo de quem está pagando.
-  const currentHand = playerKey === 'player1' ? newPlayer1.hand : newPlayer2.hand;
-  applyToKey(playerKey, { hand: currentHand.filter((c) => c.id !== paymentCardId) });
+  // Remove a carta de pagamento da mão de quem ativou - a partir do estado
+  // JÁ ACUMULADO (newHand), essencial quando o alvo congelado estava na
+  // mesma mão da carta de pagamento.
+  newHand = newHand.filter((c) => c.id !== paymentCardId);
+  const newPlayerState: PlayerState = { ...playerState, hand: newHand, field: newField };
+  const newPlayer1 = playerKey === 'player1' ? newPlayerState : state.player1;
+  const newPlayer2 = playerKey === 'player2' ? newPlayerState : state.player2;
 
   const { deck, discardPile } = pushToDiscard(state, [paymentCard]);
   const log = appendLog(
@@ -3394,11 +3405,15 @@ function handleExecuteMagic(
       // fim do turno") - aplica o StatusEffect 'magicLocked' quando a carta
       // revelada é J/Q/K (ver guarda de topo em handleExecuteMagic e o tick
       // em resetForNewTurn).
-      const isMagicValue = targetHandCard.value === 'J' || targetHandCard.value === 'Q' || targetHandCard.value === 'K';
+      // FIX (pedido do usuário: "as correntes do anjo também devem proibir a
+      // utilização/posicionamento da carta monstro do oponente") - a carta
+      // Monstro (isMonster) entra na mesma trava - ver os guards de
+      // 'magicLocked' em handlePlayCard/handlePlaceMonsterCard.
+      const isLockableValue = targetHandCard.value === 'J' || targetHandCard.value === 'Q' || targetHandCard.value === 'K' || Boolean(targetHandCard.isMonster);
       const newOpponentHand = opponentState.hand.map((c) => {
         if (c.id !== selectedCards[0]) return c;
         const revealedCard = { ...c, revealed: true };
-        return isMagicValue
+        return isLockableValue
           ? applyStatus(revealedCard, { kind: 'magicLocked', source: 'anjo', label: 'Visão Celestial', duration: { type: 'untilPhase', phase: 'draw' } })
           : revealedCard;
       });
@@ -3407,7 +3422,7 @@ function handleExecuteMagic(
         state,
         state.log,
         'magic',
-        `Jogador ${player} revelou uma carta da mão de Jogador ${opponent}${isMagicValue ? ' (trancada até o fim do turno)' : ''}`,
+        `Jogador ${player} revelou uma carta da mão de Jogador ${opponent}${isLockableValue ? ' (trancada até o fim do turno)' : ''}`,
         { player, cardValue: card.value, cardSuit: card.suit }
       );
       return {
@@ -3436,13 +3451,17 @@ function handleExecuteMagic(
       const jShieldResult = tryCoringaJShieldBlock(state, opponent, targetSlot.faceDownCard.id);
       if (jShieldResult) return jShieldResult;
 
-      const isMagicValue = targetSlot.faceDownCard.value === 'J' || targetSlot.faceDownCard.value === 'Q' || targetSlot.faceDownCard.value === 'K';
+      // FIX (pedido do usuário: "as correntes do anjo também devem proibir a
+      // utilização/posicionamento da carta monstro do oponente") - ver
+      // comentário completo no branch 'selectedCards' logo acima.
+      const isLockableValue =
+        targetSlot.faceDownCard.value === 'J' || targetSlot.faceDownCard.value === 'Q' || targetSlot.faceDownCard.value === 'K' || Boolean(targetSlot.faceDownCard.isMonster);
       const revealedFieldCard = { ...targetSlot.faceDownCard, revealed: true };
       const newField = [...opponentState.field] as [FieldSlot, FieldSlot, FieldSlot];
       newField[selectedSlot] = {
         ...newField[selectedSlot],
         revealed: true,
-        faceDownCard: isMagicValue
+        faceDownCard: isLockableValue
           ? applyStatus(revealedFieldCard, { kind: 'magicLocked', source: 'anjo', label: 'Visão Celestial', duration: { type: 'untilPhase', phase: 'draw' } })
           : revealedFieldCard,
       };
@@ -3452,7 +3471,7 @@ function handleExecuteMagic(
         state,
         state.log,
         'magic',
-        `Jogador ${player} revelou carta do campo de Jogador ${opponent}${isMagicValue ? ' (trancada até o fim do turno)' : ''}`,
+        `Jogador ${player} revelou carta do campo de Jogador ${opponent}${isLockableValue ? ' (trancada até o fim do turno)' : ''}`,
         { player, cardValue: card.value, cardSuit: card.suit }
       );
       const resultState: GameState = {
@@ -4715,6 +4734,13 @@ function handlePlaceMonsterCard(state: GameState, player: PlayerNumber, cardId: 
   const card = playerState.hand.find((c) => c.id === cardId);
   if (!card || !card.isMonster) return state;
   if ((card.monsterUseCount ?? 0) >= MAX_MONSTER_USES) return state;
+  // FIX (pedido do usuário: "as correntes do anjo também devem proibir a
+  // utilização/posicionamento da carta monstro do oponente") - mesmo guard
+  // de handlePlayCard acima, pro caminho da Zona Monstro (os 5 personagens
+  // que não jogam o Monstro como substituto de numeral).
+  if (hasStatus(card, 'magicLocked')) {
+    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta Monstro está trancada pela Visão Celestial e não pode ser posicionada!`) };
+  }
 
   const newHand = playerState.hand.filter((c) => c.id !== cardId);
   const log = appendLog(state, state.log, 'monster', `Jogador ${player} posicionou uma carta Monstro em sua zona própria`, { player, cardValue: '🃏' });

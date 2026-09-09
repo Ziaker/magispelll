@@ -1420,6 +1420,27 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     for (const player of [1, 2] as PlayerNumber[]) {
       if (isAi(player)) continue;
       const key = playerKeyOf(player);
+
+      // FIX (pedido do usuário: "a fase não está acabando automaticamente
+      // quando não há nenhuma carta presente no campo durante a fase de
+      // combate") - quando NENHUM dos dois lados tem mais carta real em
+      // campo, decideCombatSlotSelection (aiPlayer.ts) já pula direto pra
+      // "pronto" (TOGGLE_READY) em vez de participar da seleção de slot -
+      // um combate vazio contra vazio nunca fecha disputa nenhuma (ver
+      // TIE em handleResolveCombat). Sem o mesmo atalho aqui do lado
+      // humano, o humano ficava selecionando slots vazios
+      // (SELECT_COMBAT_SLOT, mais abaixo) que a IA nunca respondia - ela
+      // já tinha desistido dessa rodada via TOGGLE_READY -, travando a
+      // fase pra sempre (nenhum dos dois protocolos completava). Mesma
+      // checagem aqui, tornando o humano "pronto" também.
+      const opponentKey = playerKeyOf(opponentOf(player));
+      const nobodyHasRealCards =
+        getFilledFieldSlots(gameState[key].field).length === 0 && getFilledFieldSlots(gameState[opponentKey].field).length === 0;
+      if (nobodyHasRealCards) {
+        if (!gameState[key].readyForNextPhase) dispatch({ type: 'TOGGLE_READY', player });
+        continue;
+      }
+
       // FIX (checagem extensa por bugs - consolidação de regra duplicada):
       // usa `canSelectCombatSlot` (gameEngine.ts), a MESMA função que
       // handleSelectCombatSlot e decideCombatSlotSelection (aiPlayer.ts)
@@ -2767,11 +2788,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   }
 
   /**
-   * Enumera toda carta congelada em qualquer mão/campo dos dois jogadores -
+   * Enumera toda carta congelada na PRÓPRIA mão/campo de `playerNumber` -
    * mesma varredura que handlePayToUnfreeze faz no motor (gameEngine.ts,
-   * dentro do for (const key of ['player1', 'player2'])), reimplementada
-   * aqui só para EXIBIÇÃO no diálogo (o motor continua sendo a única fonte
-   * de verdade sobre o que é de fato válido - ver reduceGameAction).
+   * restrita a `state[playerKeyOf(player)]`), reimplementada aqui só para
+   * EXIBIÇÃO no diálogo (o motor continua sendo a única fonte de verdade
+   * sobre o que é de fato válido - ver reduceGameAction).
+   *
+   * FIX (pedido do usuário: "a opção de descongelar aparece e é funcional
+   * quando você congela uma carta do oponente, remova isso"): antes
+   * varria os dois jogadores e deixava escolher a carta congelada do
+   * OPONENTE como alvo - ajudando quem congelou a carta do adversário a
+   * desfazer o próprio efeito às custas do adversário. Agora só enumera
+   * cartas do próprio `playerNumber`, espelhando a mesma restrição já
+   * aplicada no motor.
    *
    * FIX (bug real achado por auditoria de cobertura): faltava `towerReserve`/
    * `brotoReserve` aqui - a MESMA lacuna que existia no motor (corrigida em
@@ -2780,30 +2809,41 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    * cartas por cima) - sem isso, o diálogo simplesmente nunca oferecia essa
    * carta como alvo, mesmo o motor já sabendo descongelá-la corretamente.
    */
-  const findFrozenTargets = (state: GameState): FrozenTarget[] => {
+  const findFrozenTargets = (state: GameState, playerNumber: 1 | 2): FrozenTarget[] => {
     const results: FrozenTarget[] = [];
-    ([1, 2] as const).forEach((pNum) => {
-      const ps = state[playerKeyOf(pNum)];
-      ps.hand.forEach((c, idx) => {
-        if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: pNum, location: 'hand', handIndex: idx, card: c });
+    const ps = state[playerKeyOf(playerNumber)];
+    ps.hand.forEach((c, idx) => {
+      if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: playerNumber, location: 'hand', handIndex: idx, card: c });
+    });
+    ps.field.forEach((slot, slotIdx) => {
+      if (isCardFrozen(slot.faceDownCard)) {
+        results.push({ id: slot.faceDownCard!.id, ownerPlayer: playerNumber, location: 'field', slotIndex: slotIdx, isHorizontal: false, card: slot.faceDownCard! });
+      }
+      slot.horizontalCards.forEach((c) => {
+        if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: playerNumber, location: 'field', slotIndex: slotIdx, isHorizontal: true, card: c });
       });
-      ps.field.forEach((slot, slotIdx) => {
-        if (isCardFrozen(slot.faceDownCard)) {
-          results.push({ id: slot.faceDownCard!.id, ownerPlayer: pNum, location: 'field', slotIndex: slotIdx, isHorizontal: false, card: slot.faceDownCard! });
-        }
-        slot.horizontalCards.forEach((c) => {
-          if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: pNum, location: 'field', slotIndex: slotIdx, isHorizontal: true, card: c });
-        });
-        (slot.towerReserve ?? []).forEach((c) => {
-          if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: pNum, location: 'field', slotIndex: slotIdx, isReserve: true, card: c });
-        });
-        (slot.brotoReserve ?? []).forEach((c) => {
-          if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: pNum, location: 'field', slotIndex: slotIdx, isReserve: true, card: c });
-        });
+      (slot.towerReserve ?? []).forEach((c) => {
+        if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: playerNumber, location: 'field', slotIndex: slotIdx, isReserve: true, card: c });
+      });
+      (slot.brotoReserve ?? []).forEach((c) => {
+        if (isCardFrozen(c)) results.push({ id: c.id, ownerPlayer: playerNumber, location: 'field', slotIndex: slotIdx, isReserve: true, card: c });
       });
     });
     return results;
   };
+
+  /**
+   * FIX (pedido do usuário: "a opção de descongelar existe mesmo não tendo o
+   * glacial em jogo, remova isso da interface") - `applyStatus(..., {kind:
+   * 'frozen', source: 'glacial', ...})` é a ÚNICA forma de uma carta virar
+   * congelada em todo o motor (gameEngine.ts) - sem o Glacial na partida
+   * (nenhum dos dois `Character`), nenhuma carta pode ficar congelada NUNCA,
+   * então o botão de Descongelar em PlayerZone.tsx (dos dois jogadores) é
+   * pura poluição visual permanentemente desabilitada. Calculado uma vez
+   * aqui (único lugar que conhece os dois personagens da partida) e passado
+   * como `unfreezeRelevant` pras duas PlayerZone.tsx mais abaixo.
+   */
+  const glacialInMatch = player1Character === 'glacial' || player2Character === 'glacial';
 
   /**
    * Espelha o guard de fase + "existe carta de pagamento legal" de
@@ -2827,7 +2867,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const canPayToUnfreeze = (playerNumber: 1 | 2): boolean =>
     gameState.phase === 'strategy' &&
     gameState[playerKeyOf(playerNumber)].hand.some((c) => !hasStatus(c, 'frozen')) &&
-    findFrozenTargets(gameState).length > 0;
+    findFrozenTargets(gameState, playerNumber).length > 0;
 
   // FIX (item 8 da 6ª rodada): "os efeitos de magia mal são perceptíveis...
   // as que não possuem, adicione" - as 3 Magias Numerais (Mago/Besta/Anjo)
@@ -3449,6 +3489,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onActivateNumeralSpell={() => handleActivateNumeralSpell(2)}
                 canPayToUnfreeze={canPayToUnfreeze(2)}
                 onOpenPayToUnfreeze={() => setPendingUnfreeze({ playerNumber: 2 })}
+                unfreezeRelevant={glacialInMatch}
                 // FIX (item 8 da 2ª rodada): ver gameEngine.ts (handleActivateNumeralSpell)
                 // - o bloqueio de "já tem uma ativa" precisa ser por jogador, não global,
                 // senão a Magia Numeral do Mago (a única que fica "pendurada" durante o
@@ -3561,6 +3602,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onActivateNumeralSpell={() => handleActivateNumeralSpell(1)}
                 canPayToUnfreeze={canPayToUnfreeze(1)}
                 onOpenPayToUnfreeze={() => setPendingUnfreeze({ playerNumber: 1 })}
+                unfreezeRelevant={glacialInMatch}
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[1] !== undefined}
                 isAiControlled={isAi(1)}
                 hotseatPrivacyActive={hotseatPrivacyActive}
@@ -5190,12 +5232,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           <DialogHeader>
             <DialogTitle className="text-[#EFE7D6] font-display text-[20px]">Descongelar</DialogTitle>
             <DialogDescription className="text-[#BFB6A6]">
-              Descarte 1 carta qualquer da sua mão para remover o status Congelado de uma carta congelada (sua ou do oponente, na mão ou no campo).
+              Descarte 1 carta qualquer da sua mão para remover o status Congelado de uma carta SUA congelada (na mão ou no campo).
             </DialogDescription>
           </DialogHeader>
 
           {pendingUnfreeze && (() => {
-            const targets = findFrozenTargets(gameState);
+            const targets = findFrozenTargets(gameState, pendingUnfreeze.playerNumber);
             return (
               <div className="space-y-4">
                 <div>
@@ -5228,7 +5270,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
 
                 <div>
                   <p className="text-[#BFB6A6] text-[12px] mb-2">
-                    2. Alvo - escolha 1 carta congelada em qualquer mão/campo:
+                    2. Alvo - escolha 1 carta SUA congelada (na mão ou no campo):
                   </p>
                   {targets.length === 0 ? (
                     <p className="text-[11px] text-[#BFB6A6] opacity-60">Nenhuma carta congelada no momento.</p>
@@ -5236,38 +5278,18 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     <ScrollArea className="h-48 border border-[#0ADEFF]/30 rounded p-2">
                       <div className="space-y-1.5">
                         {targets.map((t) => {
-                          const isOwn = t.ownerPlayer === pendingUnfreeze.playerNumber;
                           const isSelected = pendingUnfreeze.targetCardId === t.id;
-                          const slot = t.location === 'field' ? gameState[playerKeyOf(t.ownerPlayer)].field[t.slotIndex!] : undefined;
-                          // FIX (achado real pela revisão adversarial deste
-                          // recurso): uma horizontal tem seu PRÓPRIO
-                          // `revealed`, independente do `slot.revealed` (que
-                          // só descreve a carta PRINCIPAL) - mesma regra já
-                          // usada em FieldSlotView.tsx (`mainFaceUp` soma os
-                          // dois pra principal; `cardFaceUp` de uma
-                          // horizontal olha só `hCard.revealed`). Usar
-                          // `slot.revealed` pra uma horizontal vazava o
-                          // valor de um reforço ainda oculto (quando a
-                          // principal do mesmo slot já tinha sido revelada
-                          // antes) ou escondia um reforço já revelado (quando
-                          // a principal nunca foi).
-                          // FIX (achado real por auditoria): uma carta
-                          // soterrada em towerReserve/brotoReserve segue a
-                          // MESMA regra de uma horizontal - `revealed`
-                          // próprio da carta, nunca o do slot (ver
-                          // FIX acima sobre `t.isHorizontal`).
-                          const canSeeValue = isOwn || (t.isHorizontal || t.isReserve ? t.card.revealed === true : (slot?.revealed || t.card.revealed) === true);
+                          // Todo alvo aqui já é uma carta do PRÓPRIO
+                          // `pendingUnfreeze.playerNumber` (findFrozenTargets
+                          // só varre a própria mão/campo, ver comentário lá) -
+                          // sempre visível pra quem está descongelando, sem
+                          // checagem de `revealed`.
                           let label: string;
                           if (t.location === 'hand') {
-                            label = isOwn
-                              ? `${getDisplayValue(t.card)}${t.card.suit} (sua mão)`
-                              : `Carta ${t.handIndex! + 1} da mão do oponente (congelada)`;
+                            label = `${getDisplayValue(t.card)}${t.card.suit} (sua mão)`;
                           } else {
-                            const where = isOwn ? 'seu campo' : 'campo do oponente';
                             const tag = t.isReserve ? ' - empilhada (Torre/Broto)' : t.isHorizontal ? ' - reforço' : '';
-                            label = canSeeValue
-                              ? `${getDisplayValue(t.card)}${t.card.suit} - Slot ${t.slotIndex! + 1}${tag} (${where})`
-                              : `Slot ${t.slotIndex! + 1}${tag} do ${where} (congelada)`;
+                            label = `${getDisplayValue(t.card)}${t.card.suit} - Slot ${t.slotIndex! + 1}${tag} (seu campo)`;
                           }
                           return (
                             <button
