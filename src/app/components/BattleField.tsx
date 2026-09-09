@@ -296,7 +296,7 @@ export function BattleField({
           style={{ backgroundColor: '#7AA7C4', borderColor: '#7AA7C4', color: '#0F1113' }}
         >
           <div className="flex items-center justify-center gap-1">
-            <span className="text-[14px]">🗼</span>
+            <span className="text-[14px]">🏰</span>
             <span className="text-[10px]">Empilhar {selectedForTower.size} carta(s) - Slot {selectedSlot.slot + 1}</span>
           </div>
         </button>

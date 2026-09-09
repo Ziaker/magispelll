@@ -433,7 +433,7 @@ function trueSlotValue(
   // faltava somar a reserva da torre (Modo Towers) aqui. Diferente de uma
   // horizontal comum (só pública depois de `revealed`, por isso o filtro
   // `opts.opponentView` acima), o valor de uma torre é público por REGRA,
-  // sempre - o selo "🗼 NxTotal" (FieldSlotView.tsx, `hasTower` badge) é
+  // sempre - o selo "🏰 NxTotal" (FieldSlotView.tsx, `hasTower` badge) é
   // mostrado incondicionalmente, nunca atrás de `slot.revealed`, mesmo no
   // campo do oponente. Sem contar a reserva, esta função (usada tanto pra
   // avaliar o PRÓPRIO campo quanto, via `knownSelectedSlotValue`, o slot já
@@ -2131,10 +2131,18 @@ function wouldUrtigaBeWorthKeeping(state: GameState, ai: PlayerNumber): boolean 
 
   const opponent = opponentOf(ai);
   const opponentField = state[opponentKeyOf(ai)].field;
+  // FIX (auditoria "personagem por personagem", pedido do usuário: "corrija
+  // tudo" - o motor passou a rejeitar Urtiga numa carta congelada, ver
+  // handleExecuteMagic): normalmente uma carta congelada nunca fica
+  // `revealed` (revealCard no-opa nela), mas no Modo Towers uma carta já
+  // revelada ANTES de ser congelada continua contando como alvo "revelado"
+  // aqui - sem excluir `frozen`, a IA achava Urtiga viável e o motor
+  // rejeitava em silêncio (achado real pelo fuzz, matchup glacial vs druida,
+  // config towers+fusion).
   return opponentField.some(
     (slot, i) =>
       !isSlotProtected(state, opponent, i) &&
-      ((slot.faceDownCard?.revealed ?? false) || slot.horizontalCards.some((c) => c.revealed))
+      ((slot.faceDownCard?.revealed && !hasStatus(slot.faceDownCard, 'frozen')) || slot.horizontalCards.some((c) => c.revealed && !hasStatus(c, 'frozen')))
   );
 }
 
@@ -2209,9 +2217,13 @@ function decideDruidaQ(state: GameState, ai: PlayerNumber): GameAction | null {
   const delta = livesDelta(state, ai);
   const markerThreshold = delta < 0 ? 2 : delta >= 2 ? 4 : 3;
 
-  const ownTargets = me.field.flatMap((slot) =>
-    [...(slot.faceDownCard && slot.faceDownCard.id !== brotoSlot?.faceDownCard?.id ? [slot.faceDownCard] : []), ...slot.horizontalCards]
-  );
+  // FIX (auditoria "personagem por personagem", pedido do usuário: "corrija
+  // tudo" - o motor passou a rejeitar Simbiose numa carta congelada, ver
+  // handleExecuteMagic): sem excluir `frozen`, a IA podia escolher uma carta
+  // própria congelada pelo Glacial como alvo, sempre rejeitada em silêncio.
+  const ownTargets = me.field
+    .flatMap((slot) => [...(slot.faceDownCard && slot.faceDownCard.id !== brotoSlot?.faceDownCard?.id ? [slot.faceDownCard] : []), ...slot.horizontalCards])
+    .filter((c) => !hasStatus(c, 'frozen'));
   const bestTarget = ownTargets.length > 0 ? pickHighestBy(ownTargets, (c) => getEffectiveCardValue(c)) : null;
 
   if (halved >= markerThreshold && bestTarget) {
@@ -2270,12 +2282,15 @@ function decideDruidaK(state: GameState, ai: PlayerNumber): GameAction | null {
   const opponentKey = opponentKeyOf(ai);
   const opponentField = state[opponentKey].field;
   const opponentSelectedSlot = state.combatSelection[opponentKey];
+  // FIX (mesmo motivo de wouldUrtigaBeWorthKeeping acima - Modo Towers pode
+  // ter uma carta revelada E congelada ao mesmo tempo, agora rejeitada pelo
+  // motor): exclui `frozen` dos dois tipos de alvo (principal e horizontal).
   const opponentTargets = opponentField.flatMap((slot, slotIdx) =>
     isSlotProtected(state, opponent, slotIdx)
       ? []
       : [
-          ...(slot.faceDownCard?.revealed ? [{ card: slot.faceDownCard, slotIdx }] : []),
-          ...slot.horizontalCards.filter((c) => c.revealed).map((card) => ({ card, slotIdx })),
+          ...(slot.faceDownCard?.revealed && !hasStatus(slot.faceDownCard, 'frozen') ? [{ card: slot.faceDownCard, slotIdx }] : []),
+          ...slot.horizontalCards.filter((c) => c.revealed && !hasStatus(c, 'frozen')).map((card) => ({ card, slotIdx })),
         ]
   );
   const confirmedTargets = opponentSelectedSlot !== undefined ? opponentTargets.filter((t) => t.slotIdx === opponentSelectedSlot) : [];
@@ -2303,8 +2318,17 @@ function decideDruidaK(state: GameState, ai: PlayerNumber): GameAction | null {
 // revelada (foco em 7-10 e magias; sem boa informação, aleatório, mas
 // sempre age); auto-congelar a própria mão é majoritariamente aleatório com
 // viés maior a magias (pra reativar 2x via a gimmick - ver
-// resolveGlacialCardConsumption, gameEngine.ts); descongelar (PAY_TO_UNFREEZE)
-// só quando realmente precisa.
+// resolveGlacialCardConsumption, gameEngine.ts).
+//
+// FIX (pedido do usuário: "a IA do glacial ainda descarta as próprias
+// cartas para descongelar elas, isso nunca deveria ocorrer"): a IA do
+// Glacial NUNCA precisa de PAY_TO_UNFREEZE nas próprias cartas - a gimmick
+// (isFrozenPlayBlocked, gameEngine.ts) já deixa QUALQUER carta congelada do
+// próprio Glacial jogável/ativável diretamente, então pagar (descartando
+// outra carta) pra descongelá-la só desperdiçava uma carta à toa. A função
+// decidePayToUnfreeze existia pra isso e foi removida - PAY_TO_UNFREEZE
+// continua existindo como ação (um jogador NÃO-Glacial que foi congelado
+// pelo Glacial adversário ainda pode usá-la manualmente).
 // ---------------------------------------------------------------------------
 
 /** Prioridade simples de alvo pro Glacial: magia > Monstro > Ás > valor numeral (foco em 7-10 e magias, sem depender do Spotlight nem de qual personagem é o alvo). */
@@ -2476,35 +2500,6 @@ function decideGlacialMonster(state: GameState, ai: PlayerNumber): GameAction | 
   const emptySlotIndex = me.field.findIndex((slot) => !slot.faceDownCard);
   if (emptySlotIndex === -1) return null;
   return { type: 'PLAY_CARD', player: ai, cardId: monster.id, slotIndex: emptySlotIndex, asHorizontal: false };
-}
-
-/**
- * PAY_TO_UNFREEZE: só descongela a PRÓPRIA carta quando realmente precisa -
- * é uma magia parada (sempre "muito útil") OU a ÚNICA carta de alto valor
- * disponível pra jogar - nunca gasta uma carta de pagamento à toa.
- */
-const GLACIAL_UNFREEZE_HIGH_VALUE_THRESHOLD = 8;
-function decidePayToUnfreeze(state: GameState, ai: PlayerNumber): GameAction | null {
-  if (state.phase !== 'strategy') return null;
-  const me = state[playerKeyOf(ai)];
-  const frozenOwnCards = [...me.hand.filter((c) => hasStatus(c, 'frozen')), ...fieldCards(me.field).filter((c) => hasStatus(c, 'frozen'))];
-  if (frozenOwnCards.length === 0) return null;
-
-  const nonFrozenHand = me.hand.filter((c) => !hasStatus(c, 'frozen'));
-  if (nonFrozenHand.length === 0) return null;
-
-  const availableHighValueCards = nonFrozenHand.filter((c) => isNumeralCard(c) && getEffectiveCardValue(c) >= GLACIAL_UNFREEZE_HIGH_VALUE_THRESHOLD);
-  const worthUnfreezing = (card: Card): boolean => {
-    if (card.value === 'J' || card.value === 'Q' || card.value === 'K') return true;
-    return isNumeralCard(card) && getEffectiveCardValue(card) >= GLACIAL_UNFREEZE_HIGH_VALUE_THRESHOLD && availableHighValueCards.length === 0;
-  };
-  const target = frozenOwnCards.find(worthUnfreezing);
-  if (!target) return null;
-
-  const payment = nonFrozenHand.reduce((worst, c) => (getEffectiveCardValue(c) < getEffectiveCardValue(worst) ? c : worst));
-  if (payment.id === target.id) return null;
-
-  return { type: 'PAY_TO_UNFREEZE', player: ai, paymentCardId: payment.id, targetCardId: target.id };
 }
 
 function decideFieldPlacement(state: GameState, ai: PlayerNumber, character: CharacterId): GameAction | null {
@@ -2755,8 +2750,6 @@ function decideStrategyPhase(state: GameState, ai: PlayerNumber): AiDecision {
   if (character === 'glacial') {
     const glacialMonsterAction = traced('decideGlacialMonster', decideGlacialMonster(state, ai));
     if (glacialMonsterAction) return { type: 'action', action: glacialMonsterAction };
-    const payToUnfreezeAction = traced('decidePayToUnfreeze', decidePayToUnfreeze(state, ai));
-    if (payToUnfreezeAction) return { type: 'action', action: payToUnfreezeAction };
   }
 
   const placeAction = traced('decideFieldPlacement', decideFieldPlacement(state, ai, character));
@@ -2897,8 +2890,16 @@ function decideBestaK(state: GameState, ai: PlayerNumber): GameAction | null {
   if (!canActivateMagic('combat', 'besta', 'K', getMagicActivationContext(state, ai))) return null;
 
   const opponent = opponentOf(ai);
-  const myUnrevealed = getUnrevealedFieldSlots(me.field);
-  const opponentUnrevealed = getUnrevealedFieldSlots(state[opponentKeyOf(ai)].field).filter((i) => !isSlotProtected(state, opponent, i));
+  // FIX (auditoria "personagem por personagem", pedido do usuário: "corrija
+  // tudo" - o motor passou a rejeitar Roubo Brutal numa carta congelada, ver
+  // handleExecuteMagic) - sem este filtro a IA continuava propondo trocar
+  // uma carta congelada (própria ou do oponente), agora sempre rejeitada em
+  // silêncio pelo motor.
+  const myUnrevealed = getUnrevealedFieldSlots(me.field).filter((i) => !hasStatus(me.field[i].faceDownCard, 'frozen'));
+  const opponentField = state[opponentKeyOf(ai)].field;
+  const opponentUnrevealed = getUnrevealedFieldSlots(opponentField).filter(
+    (i) => !isSlotProtected(state, opponent, i) && !hasStatus(opponentField[i].faceDownCard, 'frozen')
+  );
   if (myUnrevealed.length === 0 || opponentUnrevealed.length === 0) return null;
 
   // A IA conhece o valor das PRÓPRIAS cartas (como qualquer jogador

@@ -36,6 +36,7 @@ import {
   isValidAceTransformTarget,
   revealCard,
   reshuffleDiscardIntoDeck,
+  resetCardForDiscard,
   resetCardsForDiscard,
   shuffle,
   type Card,
@@ -881,6 +882,22 @@ export function isTowerSlot(slot: FieldSlot): boolean {
 }
 
 /**
+ * Glacial - valor atual do Criogolem (8 + 1 por carta congelada em jogo,
+ * mão e campo dos DOIS jogadores) - usado tanto para travar o valor no
+ * instante em que o Criogolem é posicionado (handlePlaceMonsterCard) quanto
+ * pelo contador ao vivo da Zona Monstro (MonsterZone.tsx, pedido do
+ * usuário: "um floco de neve com 8 + X").
+ */
+export function getGlacialGolemValue(state: GameState): number {
+  const frozenCount =
+    state.player1.hand.filter((c) => hasStatus(c, 'frozen')).length +
+    state.player2.hand.filter((c) => hasStatus(c, 'frozen')).length +
+    fieldCards(state.player1.field).filter((c) => hasStatus(c, 'frozen')).length +
+    fieldCards(state.player2.field).filter((c) => hasStatus(c, 'frozen')).length;
+  return 8 + frozenCount;
+}
+
+/**
  * Verdadeiro quando este slot tem um Broto do Druida ativo - ao contrário de
  * `isTowerSlot`, testa PRESENÇA (`!== undefined`), nunca o comprimento: um
  * Broto plantado sozinho (sem nenhum Valete extra empilhado) já é um Broto
@@ -1116,6 +1133,13 @@ function applyCoringaTrapReaction(
       ? { ...slot, faceDownCard: undefined, revealed: false, horizontalCards: [] }
       : { ...slot, horizontalCards: slot.horizontalCards.filter((c) => c.id !== card.id) };
 
+  // FIX (pedido do usuário, sistema de alvo genérico - ver comentário
+  // completo em resolveCoringaTrapTargeting): a reação agora também dispara
+  // sem a carta nunca ter sido revelada (só alvejada) - "foi revelado(a)"
+  // ficaria errado nesse caso, então o texto do log agora reflete qual dos
+  // dois de verdade aconteceu.
+  const triggerVerb = card.revealed ? 'foi revelado' : 'foi alvejado';
+
   if (card.value === 'J') {
     newField[slotIndex] = removeFromField();
     const { deck, discardPile } = pushToDiscard(state, [card]);
@@ -1123,7 +1147,7 @@ function applyCoringaTrapReaction(
       state,
       state.log,
       'magic',
-      `O Valete armadilha de Jogador ${owner} foi revelado e se dissipou em fumaça!`,
+      `O Valete armadilha de Jogador ${owner} ${triggerVerb} e se dissipou em fumaça!`,
       { player: owner, slotIndex }
     );
     const { deck: ensuredDeck, discardPile: ensuredDiscard, reshuffled } = ensureDeckHasCards({ ...state, deck, discardPile });
@@ -1145,13 +1169,25 @@ function applyCoringaTrapReaction(
 
   if (card.value === 'Q' || card.isMonster) {
     newField[slotIndex] = removeFromField();
-    const newHand = shuffle([...ownerState.hand, hideCard(card), ...orphanedHorizontal]);
+    // FIX (bug real exposto pelo novo gatilho "alvejada, não só revelada" -
+    // ver resolveCoringaTrapTargeting): `hideCard` só limpa `revealed`, mas
+    // agora esta reação também pode disparar em cima de uma carta que outro
+    // efeito já tinha marcado com algum StatusEffect ANTES de reagir (ex.:
+    // Criogenar do Glacial congela sem revelar; Visão Celestial do Anjo já
+    // aplicava `magicLocked` ao revelar - bug pré-existente, só nunca
+    // exposto porque a reação só disparava em cima de revelação mesmo).
+    // `resetCardForDiscard` (mesma convenção documentada em cardUtils.ts:
+    // "nenhum status effect ligado a uma carta específica deveria sobreviver
+    // a ela sair de campo/mão") já limpa `statusEffects` e `revealed` juntos
+    // - sem isso, a carta podia voltar pra mão do Coringa permanentemente
+    // congelada ou trancada, sem nenhum Glacial/Anjo envolvido na mão dele.
+    const newHand = shuffle([...ownerState.hand, resetCardForDiscard(card), ...orphanedHorizontal]);
     const label = card.value === 'Q' ? 'A Rainha armadilha' : 'O Monstro';
     const log = appendLog(
       state,
       state.log,
       'magic',
-      `${label} de Jogador ${owner} foi revelado(a) e voltou oculto(a) pra mão - a mão foi embaralhada`,
+      `${label} de Jogador ${owner} ${card.revealed ? 'foi revelado(a)' : 'foi alvejado(a)'} e voltou oculto(a) pra mão - a mão foi embaralhada`,
       { player: owner }
     );
     return {
@@ -1168,7 +1204,7 @@ function applyCoringaTrapReaction(
       state,
       state.log,
       'magic',
-      `O Rei armadilha de Jogador ${owner} foi revelado e explodiu em fumaça e nuvens!`,
+      `O Rei armadilha de Jogador ${owner} ${triggerVerb} e explodiu em fumaça e nuvens!`,
       { player: owner, slotIndex }
     );
 
@@ -1244,36 +1280,43 @@ function applyCoringaTrapCombatValue(
 }
 
 /**
- * Chamado depois de QUALQUER efeito que revele um slot do campo de um
- * jogador durante a fase de Estratégia (hoje: Visão Celestial do Anjo,
- * Rajada Reveladora do Mosqueteiro) - compara `oldState` (antes do efeito)
- * com `newState` (já com a revelação aplicada) pra achar exatamente quais
- * cartas passaram de oculta pra revelada NESTA ação, e processa só essas
- * (nunca re-dispara numa carta que já estava revelada de antes). Um no-op
- * completo (devolve `newState` sem tocar em nada) quando `targetPlayer` não
- * é Coringa, ou fora da fase de Estratégia.
+ * Coringa - dispara a reação de armadilhas de campo (J/Q/K/Monstro) do
+ * ALVO quando uma delas é ALVEJADA por um efeito de Estratégia.
+ *
+ * FIX (pedido do usuário, sistema de alvo genérico - Coringa é o 1º a
+ * usar): antes, a reação só disparava quando a carta era REVELADA (diff
+ * `revealed: false → true` entre o estado antes/depois do efeito - ver
+ * antiga resolveCoringaFieldTraps). Isso deixava passando batido qualquer
+ * efeito mais novo que MIRA uma carta oculta sem nunca revelar ela de
+ * verdade (Criogenar/Crioespinho do Glacial, que congelam/marcam uma carta
+ * oculta do oponente e a mantêm oculta) - uma armadilha do Coringa podia ser
+ * congelada ou marcada silenciosamente, sem reagir nem uma vez, porque
+ * nunca passava pelo diff de revelação. Agora QUALQUER efeito que mire
+ * especificamente a carta (revelando ou não) já é "cutucar" a armadilha o
+ * bastante pra ela reagir - o chamador passa os ids exatos que alvejou
+ * (não varre o campo inteiro comparando estados), então cobre os dois casos
+ * (revela ou não) com a mesma função. Cartas na MÃO nunca contam aqui (só
+ * viram "armadilha" de verdade quando POSICIONADAS no campo - mirar uma
+ * carta ainda na mão, como a Revelação Forçada do Mago faz, nunca foi nem
+ * deveria ser um gatilho).
  */
-function resolveCoringaFieldTraps(oldState: GameState, newState: GameState, targetPlayer: PlayerNumber): GameState {
-  if (newState.phase !== 'strategy') return newState;
-  if (characterOf(newState, targetPlayer) !== 'coringa') return newState;
-  const targetKey = playerKeyOf(targetPlayer);
-  const oldField = oldState[targetKey].field;
-
-  let result = newState;
-  for (let i = 0; i < 3; i++) {
-    const oldSlot = oldField[i];
-    const currentSlot = result[targetKey].field[i];
-    const mainCard = currentSlot.faceDownCard;
-    if (mainCard && mainCard.revealed && !(oldSlot.faceDownCard && oldSlot.faceDownCard.revealed) && isCoringaRawTrapCard(result, targetPlayer, mainCard)) {
-      result = applyCoringaTrapReaction(result, targetPlayer, i, 'main', mainCard);
-      continue;
-    }
-    const horizontalTrap = currentSlot.horizontalCards.find((hCard, hIdx) => {
-      const wasRevealed = oldSlot.horizontalCards[hIdx]?.revealed;
-      return hCard.revealed && !wasRevealed && isCoringaRawTrapCard(result, targetPlayer, hCard);
-    });
-    if (horizontalTrap) {
-      result = applyCoringaTrapReaction(result, targetPlayer, i, 'horizontal', horizontalTrap);
+function resolveCoringaTrapTargeting(state: GameState, targetPlayer: PlayerNumber, targetCardIds: readonly string[]): GameState {
+  if (state.phase !== 'strategy') return state;
+  if (characterOf(state, targetPlayer) !== 'coringa') return state;
+  let result = state;
+  for (const targetCardId of targetCardIds) {
+    const targetField = result[playerKeyOf(targetPlayer)].field;
+    for (let i = 0; i < 3; i++) {
+      const slot = targetField[i];
+      if (slot.faceDownCard?.id === targetCardId && isCoringaRawTrapCard(result, targetPlayer, slot.faceDownCard)) {
+        result = applyCoringaTrapReaction(result, targetPlayer, i, 'main', slot.faceDownCard);
+        break;
+      }
+      const horizontalTrap = slot.horizontalCards.find((c) => c.id === targetCardId);
+      if (horizontalTrap && isCoringaRawTrapCard(result, targetPlayer, horizontalTrap)) {
+        result = applyCoringaTrapReaction(result, targetPlayer, i, 'horizontal', horizontalTrap);
+        break;
+      }
     }
   }
   return result;
@@ -2186,13 +2229,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     // congelada em jogo NESTE instante (mão e campo dos DOIS jogadores) -
     // não recalcula depois se mais cartas forem congeladas/descongeladas.
     if (newField[slotIndex].faceDownCard) return state;
-    const opponentState = state[opponentKeyOf(player)];
-    const frozenCount =
-      playerState.hand.filter((c) => hasStatus(c, 'frozen')).length +
-      opponentState.hand.filter((c) => hasStatus(c, 'frozen')).length +
-      fieldCards(playerState.field).filter((c) => hasStatus(c, 'frozen')).length +
-      fieldCards(opponentState.field).filter((c) => hasStatus(c, 'frozen')).length;
-    const golemValue = 8 + frozenCount;
+    const golemValue = getGlacialGolemValue(state);
     newField[slotIndex] = {
       ...newField[slotIndex],
       faceDownCard: { ...card, revealed: true, transformedValue: golemValue },
@@ -3350,9 +3387,9 @@ function handleExecuteMagic(
         [opponentKey]: { ...opponentState, field: newField },
       };
       // Coringa (redesenho completo) - armadilhas de campo (J/Q/K/Monstro)
-      // reagem quando um efeito do OPONENTE as revela na Estratégia - ver
-      // comentário completo em resolveCoringaFieldTraps.
-      return resolveCoringaFieldTraps(state, resultState, opponent);
+      // reagem quando alvejadas por um efeito do OPONENTE na Estratégia -
+      // ver comentário completo em resolveCoringaTrapTargeting.
+      return resolveCoringaTrapTargeting(resultState, opponent, [targetSlot.faceDownCard.id]);
     }
 
     return state;
@@ -3433,6 +3470,11 @@ function handleExecuteMagic(
     // FIX: a troca só vale "antes de virar" - ambas as cartas precisam estar não-reveladas.
     if (!playerCard || !opponentCard) return state;
     if (newPlayerField[selectedSlot].revealed || newOpponentField[selectedTargetSlot].revealed) return state;
+    // FIX (auditoria "personagem por personagem", pedido do usuário): faltava
+    // a mesma checagem de congelado que toda outra magia com alvo já tem -
+    // sem isso, o Roubo Brutal trocava uma carta congelada do Glacial pro
+    // campo do oponente livremente, "escapando" do congelamento.
+    if (hasStatus(playerCard, 'frozen') || hasStatus(opponentCard, 'frozen')) return state;
     if (isSlotProtected(state, opponent, selectedTargetSlot)) {
       return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
     }
@@ -3584,9 +3626,15 @@ function handleExecuteMagic(
       ),
       [opponentKey]: { ...opponentState, hand: newOpponentHand, field: newOpponentField },
     };
-    // Coringa (redesenho completo) - armadilhas de campo reagem quando um
-    // efeito do OPONENTE as revela na Estratégia - ver resolveCoringaFieldTraps.
-    return resolveCoringaFieldTraps(state, resultState, opponent);
+    // Coringa (redesenho completo) - armadilhas de campo reagem quando
+    // alvejadas por um efeito do OPONENTE na Estratégia - ver comentário
+    // completo em resolveCoringaTrapTargeting. `revealIds` mira mão E campo
+    // às cegas, mas só o subconjunto que era mesmo carta de CAMPO conta
+    // (mão nunca é "armadilha" de verdade - ver comentário da função).
+    const fieldRevealIds = fieldCards(opponentState.field)
+      .map((c) => c.id)
+      .filter((id) => revealIds.has(id));
+    return resolveCoringaTrapTargeting(resultState, opponent, fieldRevealIds);
   }
 
   // ----- Mosqueteiro K: Tiro Certeiro -----
@@ -3647,11 +3695,16 @@ function handleExecuteMagic(
         : { ...targetSlot, horizontalCards: targetSlot.horizontalCards.map((c) => (c.id === targetId ? markedCard : c)) };
 
     const { deck, discardPile } = pushToDiscard(state, [card]);
+    // FIX (mesma classe de bug do Glacial: "o jogo esta notificando qual
+    // carta o glacial esta congelando mesmo ela estando oculta" - auditoria
+    // encontrou o mesmo vazamento aqui, Tiro Certeiro nunca revela o alvo):
+    // só mostra valor/naipe se a carta já estiver revelada.
+    const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
     const log = appendLog(
       state,
       state.log,
       'magic',
-      `Jogador ${player} ativou Tiro Certeiro e enfraqueceu ${targetCard.value}${targetCard.suit} de Jogador ${opponent} em -${boostAmount} de valor no combate (total: ${newAmount})`,
+      `Jogador ${player} ativou Tiro Certeiro e enfraqueceu ${targetDescription} de Jogador ${opponent} em -${boostAmount} de valor no combate (total: ${newAmount})`,
       { player, cardValue: card.value, cardSuit: card.suit }
     );
 
@@ -3836,7 +3889,11 @@ function handleExecuteMagic(
     // O próprio Broto nunca pode ser o alvo do marcador (ele já É a fonte do
     // efeito) - sem esta exclusão, `combatModifiers` somaria um marcador em
     // cima do `transformedValue` que a própria redução acabou de definir.
-    if (!targetCard || targetCard.id === brotoTop.id) return state;
+    // FIX (auditoria "personagem por personagem", pedido do usuário): faltava
+    // a mesma checagem de congelado que toda outra magia de Estratégia com
+    // alvo já tem (Mago Q, Anjo Q, Besta Q, Glacial J/Q) - sem isso, Simbiose
+    // marcava uma carta própria congelada pelo Glacial normalmente.
+    if (!targetCard || targetCard.id === brotoTop.id || hasStatus(targetCard, 'frozen')) return state;
 
     const halved = Math.floor(brotoValue / 2);
     if (halved <= 0) return state; // Broto vale 1 (ou 0) - nada pra reduzir
@@ -3864,11 +3921,15 @@ function handleExecuteMagic(
         : { ...withBrotoReduced, horizontalCards: slot.horizontalCards.map((c) => (c.id === targetId ? markedCard : c)) };
     }) as [FieldSlot, FieldSlot, FieldSlot];
     const { deck, discardPile } = pushToDiscard(state, [card]);
+    // FIX (mesma classe de bug do Glacial - auditoria encontrou o mesmo
+    // vazamento aqui, Simbiose nunca revela o alvo): só mostra valor/naipe
+    // se a carta já estiver revelada.
+    const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
     const log = appendLog(
       state,
       state.log,
       'magic',
-      `Jogador ${player} reduziu o Broto para ${halved} e marcou ${targetCard.value}${targetCard.suit} com +${markerAmount}`,
+      `Jogador ${player} reduziu o Broto para ${halved} e marcou ${targetDescription} com +${markerAmount}`,
       { player, cardValue: card.value, cardSuit: card.suit }
     );
     return {
@@ -3904,7 +3965,10 @@ function handleExecuteMagic(
     }
     const targetSlot = opponentState.field[targetSlotIndex];
     const targetCard = targetSlot.faceDownCard?.id === targetId ? targetSlot.faceDownCard : targetSlot.horizontalCards.find((c) => c.id === targetId);
-    if (!targetCard) return state;
+    // FIX (auditoria "personagem por personagem", pedido do usuário): faltava
+    // a mesma checagem de congelado que toda outra magia com alvo já tem -
+    // sem isso, a Urtiga marcava uma carta congelada do Glacial normalmente.
+    if (!targetCard || hasStatus(targetCard, 'frozen')) return state;
 
     const halved = Math.floor(brotoValue / 2);
     if (halved <= 0) return state;
@@ -3925,11 +3989,15 @@ function handleExecuteMagic(
         ? { ...targetSlot, faceDownCard: markedCard }
         : { ...targetSlot, horizontalCards: targetSlot.horizontalCards.map((c) => (c.id === targetId ? markedCard : c)) };
     const { deck, discardPile } = pushToDiscard(state, [card]);
+    // FIX (mesma classe de bug do Glacial - auditoria encontrou o mesmo
+    // vazamento aqui, Urtiga nunca revela o alvo): só mostra valor/naipe se
+    // a carta já estiver revelada.
+    const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
     const log = appendLog(
       state,
       state.log,
       'magic',
-      `Jogador ${player} reduziu o Broto para ${halved} e enfraqueceu ${targetCard.value}${targetCard.suit} de Jogador ${opponent} em -${debuffAmount}`,
+      `Jogador ${player} reduziu o Broto para ${halved} e enfraqueceu ${targetDescription} de Jogador ${opponent} em -${debuffAmount}`,
       { player, cardValue: card.value, cardSuit: card.suit }
     );
     return {
@@ -3970,8 +4038,15 @@ function handleExecuteMagic(
     };
 
     let targetCard: Card | undefined;
+    let targetedOnField = false;
     if (selectedCards?.[0]) {
       const targetId = selectedCards[0];
+      // FIX (pedido do usuário: "não permita que o glacial consiga congelar
+      // a própria carta sendo utilizada, isso faz apenas que a carta se
+      // descarte") - só é possível quando `targetKey === playerKey` (mirando
+      // a própria mão) e o alvo escolhido é o próprio J que está ativando
+      // agora; mesmo guard que Crioescudo (K, Estratégia) já usa abaixo.
+      if (targetId === cardId) return state;
       targetCard = handOf(targetKey).find((c) => c.id === targetId);
       if (!targetCard || hasStatus(targetCard, 'frozen')) return state;
       const frozenCard = applyStatus(targetCard, { kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' } });
@@ -3985,6 +4060,7 @@ function handleExecuteMagic(
       }
       const frozenCard = applyStatus(targetCard, { kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' } });
       setField(targetKey, updateFieldSlot(fieldOf(targetKey), selectedSlot, { faceDownCard: frozenCard }));
+      targetedOnField = true;
     } else {
       return state;
     }
@@ -3992,14 +4068,24 @@ function handleExecuteMagic(
     const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption({ ...playerState, hand: handOf(playerKey) }, card, cardId);
     setHand(playerKey, consumedHand);
     const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+    // FIX (pedido do usuário: "o jogo esta notificando qual carta o glacial
+    // esta congelando mesmo ela estando oculta") - só mostra valor/naipe no
+    // log quando a carta já está revelada (pra qualquer um ver); oculta
+    // continua oculta mesmo no log do Criogenar.
+    const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
     const log = appendLog(
       state,
       state.log,
       'magic',
-      `Jogador ${player} congelou ${targetCard.value}${targetCard.suit} de Jogador ${targetPlayer}`,
+      `Jogador ${player} congelou ${targetDescription} de Jogador ${targetPlayer}`,
       { player, cardValue: card.value, cardSuit: card.suit }
     );
-    return { ...state, deck, discardPile, log, player1: newPlayer1, player2: newPlayer2 };
+    const resultState: GameState = { ...state, deck, discardPile, log, player1: newPlayer1, player2: newPlayer2 };
+    // Coringa (redesenho completo) - armadilhas de campo reagem quando
+    // alvejadas por um efeito na Estratégia, mesmo sem revelar (ver
+    // comentário completo em resolveCoringaTrapTargeting) - Criogenar pode
+    // mirar uma carta de campo sem nunca revelá-la.
+    return targetedOnField ? resolveCoringaTrapTargeting(resultState, targetPlayer, [targetCard.id]) : resultState;
   }
 
   // ----- Glacial Q: Crioespinho -----
@@ -4039,14 +4125,21 @@ function handleExecuteMagic(
     applyToKey(playerKey, { hand: consumedHand });
     applyToKey(targetKey, { field: newTargetField });
     const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+    // FIX (mesmo pedido do usuário do Criogenar acima): só mostra valor/naipe
+    // quando a carta já está revelada.
+    const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
     const log = appendLog(
       state,
       state.log,
       'magic',
-      `Jogador ${player} congelou ${targetCard.value}${targetCard.suit} de Jogador ${targetPlayer} e aplicou ${isOwn ? '+2' : '-2'} de marcador`,
+      `Jogador ${player} congelou ${targetDescription} de Jogador ${targetPlayer} e aplicou ${isOwn ? '+2' : '-2'} de marcador`,
       { player, cardValue: card.value, cardSuit: card.suit }
     );
-    return { ...state, deck, discardPile, log, player1: newPlayer1, player2: newPlayer2 };
+    const resultState: GameState = { ...state, deck, discardPile, log, player1: newPlayer1, player2: newPlayer2 };
+    // Coringa (redesenho completo) - armadilhas de campo reagem quando
+    // alvejadas na Estratégia, mesmo sem revelar (ver resolveCoringaTrapTargeting)
+    // - Crioespinho sempre mira o campo, nunca revela.
+    return resolveCoringaTrapTargeting(resultState, targetPlayer, [targetCard.id]);
   }
 
   // ----- Glacial K: Crioescudo -----
@@ -4145,11 +4238,15 @@ function handleExecuteMagic(
 
       const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption({ ...playerState, hand: newHand }, card, cardId);
       const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+      // FIX (mesmo pedido do usuário do Criogenar/Crioespinho acima): mesmo
+      // sendo a PRÓPRIA carta do Glacial, o log é visível pro oponente
+      // também - só mostra valor/naipe se já estiver revelada.
+      const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
       const log = appendLog(
         state,
         state.log,
         'magic',
-        `Jogador ${player} congelou a própria ${targetCard.value}${targetCard.suit} com o Crioescudo`,
+        `Jogador ${player} congelou a própria ${targetDescription} com o Crioescudo`,
         { player, cardValue: card.value, cardSuit: card.suit }
       );
       return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: consumedHand, field: newField } };
@@ -4763,11 +4860,18 @@ function handleTransformCoringaMagicCard(state: GameState, player: PlayerNumber,
   const newHand = playerState.hand.map((c) =>
     c.id === cardId ? { ...c, transformedValue: targetValue, coringaTransformedToNumeral: true } : c
   );
+  // FIX (mesma classe de bug do Glacial - auditoria encontrou o mesmo
+  // vazamento aqui): a carta continua oculta na mão depois do disfarce, só
+  // muda de J/Q/K pra numeral por baixo - o texto do log não pode entregar
+  // nem a identidade original nem o número disfarçado enquanto ela não
+  // estiver revelada.
   const log = appendLog(
     state,
     state.log,
     'magic',
-    `Jogador ${player} transformou ${card.value}${card.suit} em uma carta de número ${targetValue}`,
+    card.revealed
+      ? `Jogador ${player} transformou ${card.value}${card.suit} em uma carta de número ${targetValue}`
+      : `Jogador ${player} disfarçou uma carta oculta como uma carta de número`,
     { player, cardValue: card.value, cardSuit: card.suit }
   );
 

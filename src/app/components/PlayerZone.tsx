@@ -107,7 +107,7 @@ interface PlayerZoneProps {
   /**
    * FIX (overhaul completo do Modo Towers, pedido do usuário: "a atual é
    * completamente anti-intuitiva... capaz de ser realizada também no
-   * mobile") - toca o selo "🗼" dedicado que aparece em cada carta elegível
+   * mobile") - toca o selo "🏰" dedicado que aparece em cada carta elegível
    * pra torre (Modo Towers ligado, fase de Estratégia) - ÚNICA forma de
    * entrar/sair do grupo de torre agora; tocar o CORPO da carta (
    * `onSelectCardForField` acima) nunca mais agrupa implicitamente, sempre
@@ -1383,7 +1383,7 @@ export function PlayerZone({
               className="text-[10px] rounded px-2 py-1 mb-2 animate-pulse"
               style={{ backgroundColor: '#7AA7C420', color: '#7AA7C4', border: '1px solid #7AA7C450' }}
             >
-              🗼 Torre disponível - você tem cartas suficientes pra formar uma
+              🏰 Torre disponível - você tem cartas suficientes pra formar uma
             </div>
           )}
           <div className="relative" style={{ zoom: isCompactHand ? 0.82 : 1 } as CSSProperties}>
@@ -1667,7 +1667,7 @@ export function PlayerZone({
                               : 'bg-[#1E1A16] border-[#7AA7C4]/50 text-[#7AA7C4]/70 hover:border-[#7AA7C4]'
                           }`}
                         >
-                          <span className="text-[11px] leading-none">🗼</span>
+                          <span className="text-[11px] leading-none">🏰</span>
                         </button>
                       )}
                       <HandCardView

@@ -32,6 +32,11 @@ interface CombatResultProps {
   // da disputa tira). Agora o popup distingue claramente os dois casos.
   disputeWinner?: 1 | 2 | null;
   winnerCombatWins?: number;
+  // Rei armadilha do Coringa revelado em Combate força este 'tie', mas não é
+  // um empate de verdade (nenhum valor foi comparado) - o popup usa um texto
+  // próprio ("Retorno Triunfal") em vez de "EMPATE!" pra não confundir com um
+  // empate real de valores (ver coringaKForcedTie em gameEngine.ts).
+  isCoringaKForcedTie?: boolean;
 }
 
 export function CombatResult({
@@ -43,6 +48,7 @@ export function CombatResult({
   player2Value,
   disputeWinner,
   winnerCombatWins,
+  isCoringaKForcedTie,
 }: CombatResultProps) {
   const { settings } = useSettings();
   const p1Theme = getCharacterTheme(player1Character);
@@ -115,7 +121,7 @@ export function CombatResult({
             <div className="relative z-10 flex flex-col items-center gap-4">
               <Swords className="w-16 h-16 text-[#BFB6A6]" />
               <h2 className="font-display text-[56px] text-[#BFB6A6]">
-                EMPATE!
+                {isCoringaKForcedTie ? 'Retorno Triunfal!' : 'EMPATE!'}
               </h2>
               <div className="flex items-center gap-3 text-[24px]">
                 <span style={{ color: p1Theme.primary }}>{player1Value}</span>

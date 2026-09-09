@@ -16,7 +16,7 @@
  *   - Tocar o CORPO da carta sempre faz seleção normal de carta única
  *     (`decideHandCardSelection` abaixo) - o mesmo comportamento simples e
  *     previsível de sempre, sem nenhuma exceção pra Towers.
- *   - Tocar o selo "🗼" (só aparece em cartas elegíveis pra torre, com o
+ *   - Tocar o selo "🏰" (só aparece em cartas elegíveis pra torre, com o
  *     Modo Towers ligado) alterna essa carta dentro/fora do grupo de torre
  *     (`toggleTowerCardSelection` abaixo) - uma ação explícita e sempre
  *     visível (o próprio selo acende quando marcado), nunca inferida.
@@ -46,7 +46,7 @@ export function decideHandCardSelection(current: HandSelectionState, clickedCard
 }
 
 /**
- * Toque no selo "🗼" de uma carta elegível pra torre - alterna essa carta
+ * Toque no selo "🏰" de uma carta elegível pra torre - alterna essa carta
  * dentro/fora do grupo (`selectedForTower`), sempre explícito (nunca
  * inferido a partir do conteúdo da mão).
  *

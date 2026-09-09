@@ -991,7 +991,7 @@ export function FieldSlotView({
                     }}
                     title={`Torre: ${towerCardCount} cartas, valor total ${towerTotalValue}`}
                   >
-                    <span className="text-[13px]">🗼</span>
+                    <span className="text-[13px]">🏰</span>
                     <span className="text-[11px] font-bold">{towerCardCount}x</span>
                     <span className="text-[15px] font-black">{towerTotalValue}</span>
                   </div>
@@ -1318,7 +1318,7 @@ export function FieldSlotView({
               className={`text-center text-[11px] mt-2 ${hasTower ? 'font-bold' : 'font-medium'}`}
               style={{ color: hasTower ? towerGlow.ring : theme.primary }}
             >
-              {hasTower ? `🗼 Slot ${i + 1}` : `Slot ${i + 1}`}
+              {hasTower ? `🏰 Slot ${i + 1}` : `Slot ${i + 1}`}
             </p>
           </div>
         </TooltipTrigger>

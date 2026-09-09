@@ -89,6 +89,7 @@ import {
   getFireballCap,
   canMagicTriggerReactionAnnouncement,
   isBrotoSlot,
+  getGlacialGolemValue,
   type CharacterId,
   type GameAction,
   type GameState,
@@ -1738,7 +1739,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
 
   // FIX (overhaul completo do Modo Towers, pedido do usuário: "a atual é
   // completamente anti-intuitiva... procure uma solução que seja também
-  // capaz de ser realizada para o mobile") - handler do selo "🗼" dedicado
+  // capaz de ser realizada para o mobile") - handler do selo "🏰" dedicado
   // que aparece em cada carta elegível pra torre (ver PlayerZone.tsx) -
   // tocá-lo é a ÚNICA forma de entrar/sair do grupo de torre agora (nunca
   // mais um efeito colateral implícito de tocar o corpo da carta). A decisão
@@ -3106,6 +3107,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         player1Value={gameState.combatResolution?.p1Value}
         player2Value={gameState.combatResolution?.p2Value}
         disputeWinner={gameState.combatResolution?.disputeWinner ?? null}
+        isCoringaKForcedTie={Boolean(gameState.combatResolution?.coringaKForcedTie)}
         winnerCombatWins={
           gameState.combatResolution?.winner === 1
             ? gameState.player1.combatWins
@@ -3574,6 +3576,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   onMonsterCardDrop={handleMonsterCardDrop}
                   field={gameState.player2.field}
                   photosynthesisLevel={gameState.player2.druidaPhotosynthesisLevel}
+                  glacialGolemValue={getGlacialGolemValue(gameState)}
                 />
                 <CharacterMagicReference character={player2Character} gameState={gameState} playerNumber={2} />
               </div>
@@ -3803,6 +3806,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   onMonsterCardDrop={handleMonsterCardDrop}
                   field={gameState.player1.field}
                   photosynthesisLevel={gameState.player1.druidaPhotosynthesisLevel}
+                  glacialGolemValue={getGlacialGolemValue(gameState)}
                 />
               </div>
             </div>
@@ -4352,7 +4356,9 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     <div>
                       <p className="text-[#BFB6A6] text-[12px] mb-2">Ou Mão (sua ou do oponente, qualquer carta não congelada):</p>
                       <div className="flex gap-2 flex-wrap">
-                        {gameState[ownKey].hand.map((handCard) => {
+                        {gameState[ownKey].hand
+                          .filter((handCard) => handCard.id !== pendingMagic.cardId)
+                          .map((handCard) => {
                           const canSelect = !hasStatus(handCard, 'frozen');
                           const isSelected = (pendingMagic.selectedCards || [])[0] === handCard.id && pendingMagic.selectedTargetPlayer === pendingMagic.playerNumber;
                           return (

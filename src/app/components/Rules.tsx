@@ -640,7 +640,7 @@ FONTES DE REVELAÇÃO:
 • Limite de fusões por turno configurável (1 a 4, padrão 1)
 
 ═══════════════════════════════════════
-🗼 TOWERS
+🏰 TOWERS
 ═══════════════════════════════════════
 • Na Fase de Estratégia, selecione 2 ou mais cartas de mesmo número na mão e empilhe num único slot do campo - o valor do slot vira a SOMA de todas
 • Só 1 slot pode virar torre por turno (mas pode ser reforçado à vontade dentro do mesmo turno)

@@ -33,6 +33,16 @@ interface MonsterZoneProps {
    */
   field?: [FieldSlot, FieldSlot, FieldSlot];
   photosynthesisLevel?: number;
+  /**
+   * Glacial (pedido do usuário: "troque a região da zona monstro do glacial
+   * por um contador grande... um floco de neve com 8 + X"): mesma ideia do
+   * HUD do Broto do Druida acima - a caixa da carta Monstro nunca é usada de
+   * verdade por este personagem enquanto o Criogolem ainda não foi
+   * posicionado (e mesmo depois, o valor trava no instante do snapshot),
+   * então esta zona vira um contador AO VIVO do valor atual do Criogolem
+   * (getGlacialGolemValue, gameEngine.ts) em vez de ficar "vazia" à toa.
+   */
+  glacialGolemValue?: number;
 }
 
 /**
@@ -67,6 +77,7 @@ export function MonsterZone({
   onMonsterCardDrop,
   field,
   photosynthesisLevel = 0,
+  glacialGolemValue,
 }: MonsterZoneProps) {
   const theme = getCharacterTheme(character);
   const monsterEffect = getMonsterEffect(character);
@@ -161,6 +172,41 @@ export function MonsterZone({
             {brotoValue !== null ? `Broto (valor ${brotoValue})` : 'Sem Broto ativo'}
           </p>
           {brotoValue !== null && <p className="text-[10px] text-[#BFB6A6]">+{brotoGrowthRate}/fase{photosynthesisLevel > 0 ? ` · Fotossíntese ${photosynthesisLevel}` : ''}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  // Glacial - contador ao vivo do valor do Criogolem em vez do slot de carta
+  // (ver comentário de `glacialGolemValue` na interface acima).
+  if (character === 'glacial') {
+    const golemValue = glacialGolemValue ?? 8;
+    return (
+      <div className="bg-[#1E1A16]/50 rounded-lg p-3 flex items-center gap-3" style={{ border: `1px solid ${theme.primary}33` }}>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className="w-14 h-14 rounded-lg border flex items-center justify-center cursor-help"
+                style={{ borderColor: theme.primary, color: theme.primary, boxShadow: `0 0 12px ${theme.primary}55` }}
+              >
+                <span className="text-[13px]">❄️</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[240px]">
+              <p className="text-[10px] font-semibold mb-1 uppercase tracking-wide" style={{ color: theme.primary }}>
+                ❄️ Criogolem
+              </p>
+              <p className="text-[#EFE7D6] text-[11px]">Valor atual: 8 + {golemValue - 8}</p>
+              <p className="text-[#EFE7D6] text-[11px]">+1 por carta congelada em jogo (mão e campo dos dois jogadores)</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <div>
+          <p className="text-[11px] font-medium" style={{ color: theme.primary }}>
+            ❄️ 8 + {golemValue - 8}
+          </p>
+          <p className="text-[10px] text-[#BFB6A6]">Valor do Criogolem</p>
         </div>
       </div>
     );

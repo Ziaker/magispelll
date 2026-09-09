@@ -3044,7 +3044,84 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(!state.player2.field[0].faceDownCard, 'O slot da Rainha armadilha fica vazio depois da reação');
   const returned = state.player2.hand.find((c) => c.id === qTrap.id);
   assert(Boolean(returned), 'FIX: a Rainha armadilha revelada pelo oponente na Estratégia volta pra mão do dono');
-  assert(returned?.revealed === false, 'A Rainha volta OCULTA pra mão (não revelada pro oponente)');
+  assert(returned?.revealed !== true, 'A Rainha volta OCULTA pra mão (não revelada pro oponente)');
+})();
+
+// FIX (pedido do usuário, sistema de alvo genérico - Coringa é o 1º a usar):
+// a reação da armadilha agora dispara quando ela é ALVEJADA, mesmo sem
+// nunca ser revelada - Criogenar do Glacial congela uma carta de campo sem
+// revelar, então antes deste fix a armadilha do Coringa era congelada
+// silenciosamente sem reagir nem uma vez.
+(function testCoringaKTrapReactsWhenTargetedWithoutBeingRevealed() {
+  let state = createInitialState('glacial', 'coringa', DEFAULT_GAME_CONFIG);
+  const jCard = makeCard('glacial-vs-coringa-j', 'J');
+  const kTrap = makeCard('coringa-k-targeted-not-revealed', 'K');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [jCard] },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: kTrap, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: jCard.id,
+    character: 'glacial',
+    magicType: 'J',
+    selection: { selectedTargetPlayer: 2, selectedSlot: 0 },
+  });
+  assert(
+    state.discardPile.some((c) => c.id === kTrap.id),
+    'FIX: o Rei armadilha do Coringa reage (explode) quando alvejado pelo Criogenar, mesmo sem ser revelado'
+  );
+  assert(!state.player2.field[0].faceDownCard, 'O slot do Rei armadilha fica vazio depois da reação');
+  const lastLog = state.log[state.log.length - 1];
+  assert(
+    state.log.some((l) => l.text.includes('foi alvejado')),
+    `FIX: o log usa "foi alvejado" (não "foi revelado") quando a armadilha reage sem nunca ser revelada (recebido: "${lastLog.text}")`
+  );
+})();
+
+(function testCoringaQTrapKeepsHiddenAndUnfrozenWhenTargetedByCriogenar() {
+  let state = createInitialState('glacial', 'coringa', DEFAULT_GAME_CONFIG);
+  const jCard = makeCard('glacial-vs-coringa-q-j', 'J');
+  const qTrap = makeCard('coringa-q-targeted-not-revealed', 'Q');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [jCard] },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: qTrap, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: jCard.id,
+    character: 'glacial',
+    magicType: 'J',
+    selection: { selectedTargetPlayer: 2, selectedSlot: 0 },
+  });
+  assert(!state.player2.field[0].faceDownCard, 'O slot da Rainha armadilha fica vazio depois da reação');
+  const returned = state.player2.hand.find((c) => c.id === qTrap.id);
+  assert(Boolean(returned), 'FIX: a Rainha armadilha alvejada (sem revelar) pelo Criogenar volta pra mão do dono');
+  assert(returned?.revealed !== true, 'A Rainha volta OCULTA pra mão');
+  assert(
+    !hasStatus(returned as Card, 'frozen'),
+    'FIX: a Rainha não carrega o congelamento do Criogenar pra mão (resetCardForDiscard limpa statusEffects ao sair do campo)'
+  );
 })();
 
 // --- Valor de combate especial das armadilhas cruas ---
@@ -4211,6 +4288,122 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(!state.player1.hand.some((c) => c.id === qCard.id), 'A Rainha foi consumida (descartada)');
 })();
 
+// FIX (auditoria "personagem por personagem", pedido do usuário): Simbiose
+// não checava carta congelada no alvo, diferente de toda outra magia de
+// Estratégia com alvo (Mago Q, Anjo Q, Besta Q, Glacial J/Q).
+(function testDruidaSimbioseRejectsFrozenTarget() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const qCard = makeCard('druida-simbiose-frozen-q', 'Q');
+  const brotoTop = makeCard('druida-simbiose-frozen-broto', 'J');
+  const frozenTarget = applyStatus(makeCard('druida-simbiose-frozen-target', '5'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [qCard],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 8, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { faceDownCard: frozenTarget, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  const next = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: qCard.id,
+    character: 'druida',
+    magicType: 'Q',
+    selection: { selectedCards: [frozenTarget.id] },
+  });
+  assert(next === state, 'FIX Druida Simbiose: mirar uma carta própria congelada é rejeitado (estado inalterado)');
+})();
+
+// FIX (auditoria "personagem por personagem", pedido do usuário: "corrija
+// tudo") - Urtiga (Druida K, fase de Combate) também não checava congelado.
+(function testDruidaUrtigaRejectsFrozenTarget() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('druida-urtiga-frozen-k', 'K');
+  const brotoTop = makeCard('druida-urtiga-frozen-broto', 'J');
+  const frozenTarget = applyStatus({ ...makeCard('druida-urtiga-frozen-target', '9'), revealed: true }, {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      hand: [kCard],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 8, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: frozenTarget, revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  const next = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: kCard.id,
+    character: 'druida',
+    magicType: 'K',
+    selection: { selectedCards: [frozenTarget.id] },
+  });
+  assert(next === state, 'FIX Druida Urtiga: mirar uma carta congelada do oponente é rejeitado (estado inalterado, mesmo já revelada via Torres)');
+})();
+
+// FIX (mesma auditoria): Roubo Brutal (Besta K) trocava uma carta congelada
+// livremente - agora rejeita se qualquer um dos dois lados estiver congelado.
+(function testBestaKRejectsFrozenCards() {
+  let state = createInitialState('besta', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('besta-roubo-frozen-k', 'K');
+  const frozenOwnCard = applyStatus(makeCard('besta-roubo-frozen-own', '7'), {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  const opponentCard = makeCard('besta-roubo-frozen-opp', '4');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      hand: [kCard],
+      field: [
+        { faceDownCard: frozenOwnCard, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: opponentCard, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  const next = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: kCard.id,
+    character: 'besta',
+    magicType: 'K',
+    selection: { selectedSlot: 0, selectedTargetSlot: 0 },
+  });
+  assert(next === state, 'FIX Besta Roubo Brutal: trocar a PRÓPRIA carta congelada é rejeitado (estado inalterado)');
+})();
+
 // FIX (pedido do usuário: "remova o segundo efeito de aumentar em 2 - plantar
 // a própria carta como Broto é que deve ser o segundo efeito") - Simbiose não
 // tem mais opção de "aumentar o Broto"; sem nenhum alvo além do próprio Broto
@@ -4915,6 +5108,11 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   const frozen = state.player2.hand.find((c) => c.id === targetCard.id);
   assert(hasStatus(frozen, 'frozen'), 'FIX Glacial Criogenar: a carta escolhida na mão do oponente fica congelada');
   assert(!state.player1.hand.some((c) => c.id === jCard.id), 'O Valete foi consumido normalmente (não estava congelado)');
+  const logEntry = state.log[state.log.length - 1];
+  assert(
+    !logEntry.text.includes(targetCard.value) && !logEntry.text.includes(targetCard.suit),
+    `FIX Glacial Criogenar: o log NÃO revela valor/naipe de uma carta oculta sendo congelada (recebido: "${logEntry.text}")`
+  );
 })();
 
 (function testGlacialJFreezesOwnFieldCard() {
@@ -4941,6 +5139,27 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     selection: { selectedTargetPlayer: 1, selectedSlot: 0 },
   });
   assert(hasStatus(state.player1.field[0].faceDownCard, 'frozen'), 'FIX Glacial Criogenar: também pode mirar a própria carta do campo');
+})();
+
+// FIX (pedido do usuário: "não permita que o glacial consiga congelar a
+// própria carta sendo utilizada, isso faz apenas que a carta se descarte")
+(function testGlacialJCannotFreezeItself() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const jCard = makeCard('glacial-j-self-target', 'J');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [jCard] },
+  };
+  const next = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: jCard.id,
+    character: 'glacial',
+    magicType: 'J',
+    selection: { selectedTargetPlayer: 1, selectedCards: [jCard.id] },
+  });
+  assert(next === state, 'FIX Glacial Criogenar: mirar o próprio Valete sendo ativado é rejeitado (estado inalterado)');
 })();
 
 (function testGlacialQFreezesAndMarksOwnFieldCard() {
@@ -5382,7 +5601,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 })();
 
 // ---------------------------------------------------------------------------
-// GLACIAL - Fase 8: IA (decideGlacialJ/Q/K, decideGlacialMonster, decidePayToUnfreeze).
+// GLACIAL - Fase 8: IA (decideGlacialJ/Q/K, decideGlacialMonster).
 // ---------------------------------------------------------------------------
 (function testGlacialAiFreezesHighestRevealedOpponentCard() {
   let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
@@ -5491,7 +5710,15 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   );
 })();
 
-(function testGlacialAiPaysToUnfreezeStuckOwnMagic() {
+// FIX (pedido do usuário: "a IA do glacial ainda descarta as próprias
+// cartas para descongelar elas, isso nunca deveria ocorrer") - substituiu
+// testGlacialAiPaysToUnfreezeStuckOwnMagic (removido): aquele teste esperava
+// que a IA gastasse uma carta de pagamento pra descongelar sua PRÓPRIA magia
+// congelada, mas isFrozenMagicActivationBlocked já ignora o congelamento
+// pra ativação de magia do próprio Glacial (qualquer fonte, ver
+// gameEngine.ts) - descongelar nunca muda se a magia pode ser ativada,
+// então a IA NUNCA deve gastar PAY_TO_UNFREEZE nas próprias cartas.
+(function testGlacialAiNeverPaysToUnfreezeOwnMagic() {
   let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
   const frozenMagic = applyStatus(makeCard('glacial-ai-unfreeze-magic', 'Q'), {
     kind: 'frozen', source: 'mago', label: 'Efeito hipotético', duration: { type: 'permanent' },
@@ -5508,8 +5735,8 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   };
   const decision = decideAiAction(state, 1);
   assert(
-    decision.type === 'action' && decision.action.type === 'PAY_TO_UNFREEZE' && decision.action.targetCardId === frozenMagic.id,
-    `FIX Glacial IA: uma magia própria parada e congelada é sempre "muito útil" - vale pagar pra descongelar (recebido: ${JSON.stringify(decision)})`
+    !(decision.type === 'action' && decision.action.type === 'PAY_TO_UNFREEZE'),
+    `FIX Glacial IA: nunca propõe PAY_TO_UNFREEZE na própria carta (recebido: ${JSON.stringify(decision)})`
   );
 })();
 
