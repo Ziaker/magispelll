@@ -14,7 +14,11 @@ export function Splash({ onStart, onRules }: SplashProps) {
       
       <div className="relative z-10 text-center space-y-8 px-4">
         <div className="space-y-4">
-          <GameTitle className="font-display text-[80px] md:text-[120px] tracking-wider animate-float drop-shadow-[0_0_30px_rgba(197,158,79,0.5)]" />
+          {/* FIX (mesmo achado do Home.tsx - "MAGISPELLLLLLL cortado" em
+              viewport mobile): mesmo problema aqui, só que pior (80px de
+              base, sem nenhum degrau menor abaixo de `md`) - mesma correção,
+              tamanhos menores + tracking largo só a partir de `sm`. */}
+          <GameTitle className="font-display text-[32px] sm:text-[48px] md:text-[80px] lg:text-[120px] tracking-normal sm:tracking-wider animate-float drop-shadow-[0_0_30px_rgba(197,158,79,0.5)]" />
         </div>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center pt-8">

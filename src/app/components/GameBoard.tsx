@@ -3328,10 +3328,28 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               inteira (grid de 2 colunas em vez de 3) e a coluna central
               (mão + campo) ganha esse espaço de volta, em vez de sobrar um
               vão vazio. */}
-          <div className={`grid gap-6 h-full ${settings.showActionLog ? 'grid-cols-[300px_minmax(0,1fr)_300px]' : 'grid-cols-[minmax(0,1fr)_300px]'}`}>
+          {/* FIX (pesquisa de desempenho, achado ao vivo em viewport mobile:
+              "os painéis de Log/Pontuação não colapsam... cobrem o
+              tabuleiro, cortando mão/campo/botões de magia") - as 2 colunas
+              laterais tinham largura FIXA em px (300px cada) sem nenhum
+              breakpoint, então numa tela estreita (375px) as duas colunas
+              sozinhas já não cabiam, espremendo a coluna central do
+              tabuleiro (minmax(0,1fr)) a quase nada. Abaixo de `lg` (1024px)
+              o grid empilha em 1 coluna só - as 3 áreas continuam
+              inteiras e legíveis (nada mais é cortado), só uma embaixo da
+              outra. `order-*` reordena visualmente pra o TABULEIRO vir
+              primeiro nessa pilha (é o conteúdo principal), com Log/
+              Informações abaixo dele - a ordem original (Log/Centro/Direita)
+              só volta a valer a partir de `lg`, onde as 3 colunas cabem lado
+              a lado de novo. */}
+          <div
+            className={`grid gap-6 h-full grid-cols-1 ${
+              settings.showActionLog ? 'lg:grid-cols-[300px_minmax(0,1fr)_300px]' : 'lg:grid-cols-[minmax(0,1fr)_300px]'
+            }`}
+          >
             {/* Esquerda - Log de Ações */}
             {settings.showActionLog && (
-              <div className="space-y-6">
+              <div className="space-y-6 order-2 lg:order-none">
                 <LogPanel
                   log={gameState.log}
                   player1Character={player1Character}
@@ -3342,7 +3360,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
             )}
 
             {/* Centro - Área de Jogo */}
-            <div className="space-y-6">
+            <div className="space-y-6 order-1 lg:order-none">
               <PlayerZone
                 playerNumber={2}
                 character={player2Character}
@@ -3563,7 +3581,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 morava antes de virar flutuante, ver mais abaixo). `gap-4`
                 simples empilha os 3 blocos com um respiro fixo entre eles,
                 sem inventar espaço vazio pra preencher a coluna. */}
-            <div className="h-full flex flex-col gap-4">
+            <div className="h-full flex flex-col gap-4 order-3 lg:order-none">
               <div className="space-y-3">
                 <MonsterZone
                   playerNumber={2}
