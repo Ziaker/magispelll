@@ -3124,6 +3124,162 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   );
 })();
 
+// --- NOVA FEATURE (pedido do usuário): Valete-armadilha (sempre horizontal)
+// funciona como ESCUDO pra carta que está montado em cima - bloqueia por
+// completo o efeito que tentar mirar a carta protegida, e deixa um marcador
+// +5 de combate nela. Acontece sempre junto do efeito normal do Valete
+// (descarta-se + compra 1 carta), não substitui.
+(function testCoringaJShieldBlocksMagoQAndMarksHostCard() {
+  let state = createInitialState('mago', 'coringa', DEFAULT_GAME_CONFIG);
+  const magoQ = makeCard('mago-q-vs-shield', 'Q');
+  const numeralSource = makeCard('mago-q-numeral-source', '9');
+  const hostCard = makeCard('coringa-shield-host-1', '3');
+  const jGuard = makeCard('coringa-shield-j-1', 'J');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [magoQ, numeralSource] },
+    player2: {
+      ...state.player2,
+      hand: [makeCard('coringa-shield-owner-hand-1', '6')],
+      field: [
+        { faceDownCard: { ...hostCard, revealed: true }, revealed: true, horizontalCards: [jGuard] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  const handBefore = state.player1.hand.length;
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: magoQ.id,
+    character: 'mago',
+    magicType: 'Q',
+    selection: { selectedTargetPlayer: 2, selectedSlot: 0, selectedCards: [numeralSource.id] },
+  });
+  const hostAfter = state.player2.field[0].faceDownCard;
+  assert(hostAfter?.id === hostCard.id, 'FIX: a Substituição Arcana NUNCA troca a carta protegida - a carta original continua lá');
+  const marker = getStatus(hostAfter, 'combatModifier', { source: 'coringa' });
+  assert(marker?.magnitude === 5, `FIX: a carta protegida recebe +5 de marcador do escudo do Valete (recebido: ${marker?.magnitude})`);
+  assert(state.discardPile.some((c) => c.id === jGuard.id), 'FIX: o Valete-escudo se descarta normalmente ao reagir (mesmo efeito de sempre, além do marcador)');
+  assert(
+    state.player1.hand.length === handBefore,
+    'FIX: a magia do Mago é BLOQUEADA por completo pelo escudo - a Rainha usada pra ativar não é gasta, nada muda no lado do Mago'
+  );
+})();
+
+(function testCoringaJShieldBlocksGlacialJFreeze() {
+  let state = createInitialState('glacial', 'coringa', DEFAULT_GAME_CONFIG);
+  const glacialJ = makeCard('glacial-j-vs-shield', 'J');
+  const hostCard = makeCard('coringa-shield-host-2', '4');
+  const jGuard = makeCard('coringa-shield-j-2', 'J');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [glacialJ] },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: hostCard, revealed: false, horizontalCards: [jGuard] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: glacialJ.id,
+    character: 'glacial',
+    magicType: 'J',
+    selection: { selectedTargetPlayer: 2, selectedSlot: 0 },
+  });
+  const hostAfter = state.player2.field[0].faceDownCard;
+  assert(hostAfter?.id === hostCard.id, 'A carta protegida continua no slot');
+  assert(!hasStatus(hostAfter, 'frozen'), 'FIX: o escudo bloqueia o Criogenar por completo - a carta protegida NUNCA congela');
+  const marker = getStatus(hostAfter, 'combatModifier', { source: 'coringa' });
+  assert(marker?.magnitude === 5, 'A carta protegida recebe +5 de marcador do escudo mesmo bloqueando o Criogenar');
+  assert(state.player1.hand.some((c) => c.id === glacialJ.id), 'FIX: o Criogenar do Glacial não é gasto - o efeito nem chegou a acontecer, bloqueado pelo escudo');
+})();
+
+(function testCoringaJDirectTargetAlsoMarksHostCardWithShield() {
+  // Alvejar o próprio Valete diretamente (não o host) continua reagindo
+  // normalmente (descarta+compra) E TAMBÉM marca a carta host com +5 -
+  // "acontece junto", não é exclusivo do caminho de bloqueio do escudo.
+  let state = createInitialState('glacial', 'coringa', DEFAULT_GAME_CONFIG);
+  const glacialQ = makeCard('glacial-q-vs-j-direct', 'Q');
+  const hostCard = makeCard('coringa-shield-host-3', '7');
+  const jGuard = makeCard('coringa-shield-j-3', 'J');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [glacialQ] },
+    player2: {
+      ...state.player2,
+      hand: [makeCard('coringa-shield-owner-hand-3', '6')],
+      field: [
+        { faceDownCard: hostCard, revealed: false, horizontalCards: [jGuard] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: glacialQ.id,
+    character: 'glacial',
+    magicType: 'Q',
+    selection: { selectedTargetPlayer: 2, selectedSlot: 0, selectedCards: [jGuard.id] },
+  });
+  const hostAfter = state.player2.field[0].faceDownCard;
+  assert(state.discardPile.some((c) => c.id === jGuard.id), 'O Valete (alvejado diretamente pelo Crioespinho) se descarta normalmente');
+  const marker = getStatus(hostAfter, 'combatModifier', { source: 'coringa' });
+  assert(marker?.magnitude === 5, `FIX: mesmo alvejado diretamente (não via escudo), o Valete ainda marca +5 na carta que protegia (recebido: ${marker?.magnitude})`);
+})();
+
+(function testCoringaJShieldInMosqueteiroBatchReveal() {
+  // Rajada Reveladora mira 2 cartas de uma vez: uma protegida por escudo,
+  // outra não - a protegida NUNCA revela (escudo bloqueia), a outra revela normalmente.
+  let state = createInitialState('mosqueteiro', 'coringa', DEFAULT_GAME_CONFIG);
+  const mosqueteiroQ = makeCard('mosqueteiro-q-vs-shield', 'Q');
+  const discardFodder1 = makeCard('mosqueteiro-q-discard-fodder-1', '2');
+  const discardFodder2 = makeCard('mosqueteiro-q-discard-fodder-2', '3');
+  const shieldedHost = makeCard('coringa-shield-host-4', '5');
+  const jGuard = makeCard('coringa-shield-j-4', 'J');
+  const unshieldedTarget = makeCard('coringa-unshielded-target', '8');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [mosqueteiroQ, discardFodder1, discardFodder2] },
+    player2: {
+      ...state.player2,
+      hand: [],
+      field: [
+        { faceDownCard: shieldedHost, revealed: false, horizontalCards: [jGuard] },
+        { faceDownCard: unshieldedTarget, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: mosqueteiroQ.id,
+    character: 'mosqueteiro',
+    magicType: 'Q',
+    selection: { selectedCards: [discardFodder1.id, discardFodder2.id], selectedRevealCardIds: [shieldedHost.id, unshieldedTarget.id] },
+  });
+  const shieldedAfter = state.player2.field[0].faceDownCard;
+  assert(shieldedAfter?.revealed !== true, 'FIX: a carta protegida por escudo NUNCA é revelada pela Rajada Reveladora, mesmo escolhida como alvo');
+  const marker = getStatus(shieldedAfter, 'combatModifier', { source: 'coringa' });
+  assert(marker?.magnitude === 5, 'A carta protegida recebe o marcador +5 do escudo mesmo bloqueada em lote');
+  assert(state.discardPile.some((c) => c.id === jGuard.id), 'O Valete-escudo se descarta ao bloquear dentro do lote');
+  const unshieldedAfter = state.player2.field[1].faceDownCard;
+  assert(unshieldedAfter?.revealed === true, 'FIX: a OUTRA carta do mesmo lote (sem escudo) continua sendo revelada normalmente');
+})();
+
 // --- Valor de combate especial das armadilhas cruas ---
 (function testCoringaJCombatValueIsOne() {
   let state = createInitialState('coringa', 'mago', DEFAULT_GAME_CONFIG);
@@ -4860,6 +5016,48 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   );
 })();
 
+// FIX (overhaul de IA pedido pelo usuário): antes, Urtiga (Rei) só mirava
+// carta JÁ REVELADA do oponente - sem nenhuma revelada em jogo, o Rei nunca
+// era ativado, mesmo quando o oponente já travou (combatSelection) qual
+// slot vai lutar AGORA. Reduzir qualquer valor nunca é ruim, revelado ou
+// não - a IA deve mirar esse slot garantido às cegas em vez de desistir.
+(function testDruidaAiUsesUrtigaBlindOnConfirmedSlotWithNoRevealedTarget() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const kCard = makeCard('druida-urtiga-blind-k', 'K');
+  const brotoTop = makeCard('druida-urtiga-blind-broto', 'J');
+  const hiddenOpponentCard = makeCard('druida-urtiga-blind-target', '9');
+  state = {
+    ...state,
+    phase: 'combat',
+    combatSelection: { player2: 1 },
+    player1: {
+      ...state.player1,
+      hand: [kCard],
+      field: [
+        { faceDownCard: { ...brotoTop, transformedValue: 8, revealed: true }, revealed: true, horizontalCards: [], brotoReserve: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { revealed: false, horizontalCards: [] },
+        { faceDownCard: hiddenOpponentCard, revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  const decision = decideAiAction(state, 1);
+  assert(
+    decision.type === 'action' &&
+      decision.action.type === 'EXECUTE_MAGIC' &&
+      decision.action.magicType === 'K' &&
+      decision.action.selection.selectedCards?.[0] === hiddenOpponentCard.id,
+    `FIX Druida IA: Urtiga mira o slot que o oponente já travou pro combate mesmo sem estar revelado (recebido: ${JSON.stringify(decision)})`
+  );
+})();
+
 (function testDruidaTowerCannotAbsorbBroto() {
   // FIX (bug real achado numa auditoria, mesma classe do teste acima): sem
   // excluir `isBrotoSlot`, um Broto cujo valor atual coincidisse com o valor
@@ -5601,6 +5799,44 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 })();
 
 // ---------------------------------------------------------------------------
+// CORINGA - IA da Mão de Ferro pro Valete (pedido do usuário: "deixe
+// aleatório" - com o campo tendo slot vazio disponível, a IA agora sorteia
+// entre transformar o Valete de graça ou plantá-lo como armadilha/escudo,
+// em vez de sempre preferir plantar como antes).
+// ---------------------------------------------------------------------------
+(function testCoringaAiRandomlyTransformsJEvenWithEmptySlotAvailable() {
+  // FIX (correção do próprio teste): a colocação da armadilha (PLAY_CARD)
+  // só acontece na fase de ESTRATÉGIA, não na de Compra onde a Mão de Ferro
+  // é avaliada - quando o sorteio NÃO transforma agora, a decisão desta
+  // MESMA rodada de Compra é outra coisa (comprar carta, ficar pronto...),
+  // nunca PLAY_CARD. O que importa verificar aqui é só que o sorteio
+  // realmente acontece (nem sempre transforma, nem nunca transforma).
+  const jCard = makeCard('coringa-transform-j-random', 'J');
+  let transformedCount = 0;
+  let notTransformedCount = 0;
+  const TRIALS = 300;
+  for (let i = 0; i < TRIALS; i++) {
+    let state = createInitialState('coringa', 'mago', DEFAULT_GAME_CONFIG);
+    state = {
+      ...state,
+      phase: 'draw',
+      player1: {
+        ...applyStatus(state.player1, { kind: 'transformWindow', source: 'coringa', label: 'Mão de Ferro', duration: { type: 'untilTurn', turn: state.turn } }),
+        hand: [jCard],
+        field: [{ revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+      },
+    };
+    const decision = decideAiAction(state, 1);
+    if (decision.type === 'action' && decision.action.type === 'TRANSFORM_CORINGA_MAGIC_CARD') transformedCount++;
+    else notTransformedCount++;
+  }
+  assert(
+    transformedCount > TRIALS * 0.25 && transformedCount < TRIALS * 0.75,
+    `FIX Coringa IA: com slot vazio disponível, o Valete transforma numa fração real das vezes (nem sempre, nem nunca) - esperado ~50%, recebido ${transformedCount}/${TRIALS} transformado, ${notTransformedCount}/${TRIALS} não transformado (guardado pra plantar como armadilha/escudo na Estratégia)`
+  );
+})();
+
+// ---------------------------------------------------------------------------
 // GLACIAL - Fase 8: IA (decideGlacialJ/Q/K, decideGlacialMonster).
 // ---------------------------------------------------------------------------
 (function testGlacialAiFreezesHighestRevealedOpponentCard() {
@@ -5624,6 +5860,41 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(
     decision.type === 'action' && decision.action.type === 'EXECUTE_MAGIC' && decision.action.magicType === 'J',
     `FIX Glacial IA: com a maioria (100%) das cartas do oponente reveladas, a IA ativa Criogenar (recebido: ${JSON.stringify(decision)})`
+  );
+})();
+
+// FIX (overhaul de IA pedido pelo usuário, achado real pela tierlist): antes,
+// com a MAIORIA do oponente ainda oculta, a IA sorteava às cegas entre TODOS
+// os candidatos, mesmo quando um deles já estava revelado (ignorando
+// informação de graça). Agora qualquer revelada sempre vence o sorteio,
+// mesmo com só 1 revelada entre várias ocultas.
+(function testGlacialAiPrefersRevealedTargetEvenWhenMostlyHidden() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const jCard = makeCard('glacial-ai-j-mostly-hidden', 'J');
+  const revealedHigh = { ...makeCard('glacial-ai-revealed-high', 'K'), revealed: true };
+  const hidden1 = makeCard('glacial-ai-hidden-1', '5');
+  const hidden2 = makeCard('glacial-ai-hidden-2', '6');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [jCard] },
+    player2: {
+      ...state.player2,
+      hand: [],
+      field: [
+        { faceDownCard: revealedHigh, revealed: true, horizontalCards: [] },
+        { faceDownCard: hidden1, revealed: false, horizontalCards: [] },
+        { faceDownCard: hidden2, revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  const decision = decideAiAction(state, 1);
+  assert(
+    decision.type === 'action' &&
+      decision.action.type === 'EXECUTE_MAGIC' &&
+      decision.action.magicType === 'J' &&
+      decision.action.selection.selectedSlot === 0,
+    `FIX Glacial IA: mira a carta já revelada (slot 0) mesmo com só 1/3 do oponente revelado, nunca sorteia entre as 3 (recebido: ${JSON.stringify(decision)})`
   );
 })();
 

@@ -1142,12 +1142,39 @@ function applyCoringaTrapReaction(
 
   if (card.value === 'J') {
     newField[slotIndex] = removeFromField();
+    // FIX (pedido do usuário, nova feature: "o valete agora também funciona
+    // como um escudo... deixa um marcador +5 em cima da carta que ele
+    // estava como horizontal"): `kind` é SEMPRE 'horizontal' pro Valete
+    // (isCoringaTrapFieldEligible só permite ele como horizontal, nunca
+    // principal - ver comentário lá; `kind === 'main'` só existe em cenários
+    // sintéticos de teste, sem host nenhum pra marcar). Só quando
+    // `kind === 'horizontal'` existe uma carta HOST de verdade
+    // (`newField[slotIndex].faceDownCard`, intacta - `removeFromField` só
+    // tira o Valete das horizontais, nunca mexe no principal) - ela recebe
+    // +5 de marcador de combate. Acontece SEMPRE que o Valete reage nesse
+    // caso, não importa o gatilho - alvejado/revelado direto (esta função,
+    // chamada normalmente) OU o escudo bloqueando um efeito mirado na carta
+    // protegida (ver tryCoringaJShieldBlock mais abaixo, que também chama
+    // esta mesma função).
+    const hostCard = kind === 'horizontal' ? newField[slotIndex].faceDownCard : undefined;
+    if (hostCard) {
+      newField[slotIndex] = {
+        ...newField[slotIndex],
+        faceDownCard: applyStatus(
+          hostCard,
+          { kind: 'combatModifier', source: 'coringa', label: 'Valete - Escudo', mode: 'add', magnitude: 5, duration: { type: 'untilPhase', phase: 'draw' } },
+          (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+        ),
+      };
+    }
     const { deck, discardPile } = pushToDiscard(state, [card]);
     let log = appendLog(
       state,
       state.log,
       'magic',
-      `O Valete armadilha de Jogador ${owner} ${triggerVerb} e se dissipou em fumaça!`,
+      hostCard
+        ? `O Valete armadilha de Jogador ${owner} ${triggerVerb} e se dissipou em fumaça - deixou um escudo de +5 na carta que protegia!`
+        : `O Valete armadilha de Jogador ${owner} ${triggerVerb} e se dissipou em fumaça!`,
       { player: owner, slotIndex }
     );
     const { deck: ensuredDeck, discardPile: ensuredDiscard, reshuffled } = ensureDeckHasCards({ ...state, deck, discardPile });
@@ -1320,6 +1347,41 @@ function resolveCoringaTrapTargeting(state: GameState, targetPlayer: PlayerNumbe
     }
   }
   return result;
+}
+
+/**
+ * Coringa - o Valete-armadilha (sempre horizontal, nunca principal - ver
+ * isCoringaTrapFieldEligible em aiPlayer.ts) agora também funciona como
+ * ESCUDO pra carta que ele está montado em cima (pedido do usuário): se
+ * `targetCardId` for a `faceDownCard` PRINCIPAL de um slot com um Valete
+ * ainda cru entre as horizontais dele, o efeito que tentou mirar essa carta
+ * é BLOQUEADO POR COMPLETO (nunca chega a aplicar) - só o Valete reage no
+ * lugar (mesma `applyCoringaTrapReaction`, branch 'J', que já deixa o
+ * marcador +5 na carta protegida por baixo dele, não importa o gatilho -
+ * ver comentário completo lá). Diferente de `resolveCoringaTrapTargeting`
+ * acima (que reage DEPOIS do efeito original já ter sido aplicado), esta
+ * função precisa ser chamada ANTES - cada handler que mira uma carta
+ * principal de campo na Estratégia consulta isto primeiro; um resultado
+ * não-nulo significa "pare aqui, devolva isto" (o efeito de quem chamou
+ * nunca roda). `null` = sem escudo, o chamador segue seu próprio efeito
+ * normalmente.
+ *
+ * Escopo: só Estratégia (mesmo escopo do sistema de alvo já existente) - a
+ * carta protegida continua lutando normalmente no Combate, sem escudo
+ * nenhum lá.
+ */
+function tryCoringaJShieldBlock(state: GameState, targetPlayer: PlayerNumber, targetCardId: string): GameState | null {
+  if (state.phase !== 'strategy') return null;
+  if (characterOf(state, targetPlayer) !== 'coringa') return null;
+  const targetField = state[playerKeyOf(targetPlayer)].field;
+  for (let i = 0; i < 3; i++) {
+    const slot = targetField[i];
+    if (slot.faceDownCard?.id !== targetCardId) continue;
+    const jGuard = slot.horizontalCards.find((c) => c.value === 'J' && isCoringaRawTrapCard(state, targetPlayer, c));
+    if (!jGuard) return null;
+    return applyCoringaTrapReaction(state, targetPlayer, i, 'horizontal', jGuard);
+  }
+  return null;
 }
 
 /**
@@ -3041,6 +3103,11 @@ function handleExecuteMagic(
         return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
       }
     }
+    // Coringa (novo, pedido do usuário) - Valete-armadilha funciona como
+    // escudo pra carta que está montado em cima (ver tryCoringaJShieldBlock)
+    // - bloqueia a Substituição Arcana por completo se o alvo tiver um.
+    const jShieldResult = tryCoringaJShieldBlock(state, targetPlayer, targetSlot.faceDownCard.id);
+    if (jShieldResult) return jShieldResult;
 
     // FIX (pedido do usuário): a carta numeral usada na troca agora também
     // pode vir da mão do OPONENTE, não só da própria - mas, nesse caso, só se
@@ -3203,6 +3270,11 @@ function handleExecuteMagic(
         return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
       }
     }
+    // Coringa (novo, pedido do usuário) - Valete-armadilha funciona como
+    // escudo pra carta que está montado em cima (ver tryCoringaJShieldBlock)
+    // - bloqueia a Troca Predatória por completo se o alvo tiver um.
+    const jShieldResult = tryCoringaJShieldBlock(state, targetPlayer, targetSlot.faceDownCard.id);
+    if (jShieldResult) return jShieldResult;
 
     // FIX (auditoria completa da Besta - brecha real encontrada): antes não
     // havia checagem nenhuma de tipo aqui, diferente da Besta J logo acima
@@ -3358,6 +3430,11 @@ function handleExecuteMagic(
       if (isSlotProtected(state, opponent, selectedSlot)) {
         return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
       }
+      // Coringa (novo, pedido do usuário) - Valete-armadilha funciona como
+      // escudo pra carta que está montado em cima (ver tryCoringaJShieldBlock)
+      // - bloqueia a revelação da Visão Celestial por completo se o alvo tiver um.
+      const jShieldResult = tryCoringaJShieldBlock(state, opponent, targetSlot.faceDownCard.id);
+      if (jShieldResult) return jShieldResult;
 
       const isMagicValue = targetSlot.faceDownCard.value === 'J' || targetSlot.faceDownCard.value === 'Q' || targetSlot.faceDownCard.value === 'K';
       const revealedFieldCard = { ...targetSlot.faceDownCard, revealed: true };
@@ -3572,14 +3649,29 @@ function handleExecuteMagic(
     // campo) - o número de alvos escolhidos pode ser menor (poucas cartas
     // ocultas disponíveis), nunca maior.
     const revealIds = new Set((selectedRevealCardIds ?? []).slice(0, discardedCards.length));
+    // Coringa (novo, pedido do usuário) - Valete-armadilha funciona como
+    // escudo pra carta que está montado em cima (ver tryCoringaJShieldBlock):
+    // essa revelação é em LOTE (várias cartas de uma vez), então antes de
+    // revelar qualquer coisa, separa quais alvos são a carta PRINCIPAL de um
+    // slot com um Valete cru ainda montado nela - essas NUNCA são reveladas
+    // aqui (o escudo bloqueia por completo), e reagem à parte, depois do
+    // resto do lote ser resolvido normalmente (`shieldedRevealIds` abaixo).
+    const shieldedRevealIds = new Set(
+      [...revealIds].filter((id) =>
+        opponentState.field.some(
+          (slot) => slot.faceDownCard?.id === id && slot.horizontalCards.some((c) => c.value === 'J' && isCoringaRawTrapCard(state, opponent, c))
+        )
+      )
+    );
+    const nonShieldedRevealIds = new Set([...revealIds].filter((id) => !shieldedRevealIds.has(id)));
     // Glacial (personagem novo): `revealCard` já no-opa em cima de uma carta
     // congelada (nunca revela) - como esta revelação é "às cegas por
     // posição", não faz sentido rejeitar a magia inteira só porque um dos
     // alvos sorteados calhou de estar congelado, o resto do efeito continua.
-    const newOpponentHand = opponentHandAfterDiscard.map((c) => (revealIds.has(c.id) ? revealCard(c) : c));
+    const newOpponentHand = opponentHandAfterDiscard.map((c) => (nonShieldedRevealIds.has(c.id) ? revealCard(c) : c));
     const newOpponentField = opponentState.field.map((slot) => {
       let newSlot = slot;
-      if (slot.faceDownCard && revealIds.has(slot.faceDownCard.id)) {
+      if (slot.faceDownCard && nonShieldedRevealIds.has(slot.faceDownCard.id)) {
         // FIX (bug real achado por auditoria): `revealCard` já no-opa numa
         // carta congelada (devolve ela intocada, `revealed` continua false) -
         // mas isto marcava `slot.revealed = true` de qualquer jeito, mesmo
@@ -3607,8 +3699,8 @@ function handleExecuteMagic(
         : `Jogador ${player} descartou ${discardedCards.length} carta(s) com Rajada Reveladora`,
       { player, cardValue: card.value, cardSuit: card.suit }
     );
-    if (revealIds.size > 0) {
-      log = appendLog(state, log, 'magic', `${revealIds.size} carta(s) de Jogador ${opponent} foram reveladas`, { player });
+    if (nonShieldedRevealIds.size > 0) {
+      log = appendLog(state, log, 'magic', `${nonShieldedRevealIds.size} carta(s) de Jogador ${opponent} foram reveladas`, { player });
     }
 
     const resultState: GameState = {
@@ -3634,7 +3726,15 @@ function handleExecuteMagic(
     const fieldRevealIds = fieldCards(opponentState.field)
       .map((c) => c.id)
       .filter((id) => revealIds.has(id));
-    return resolveCoringaTrapTargeting(resultState, opponent, fieldRevealIds);
+    let finalState = resolveCoringaTrapTargeting(resultState, opponent, fieldRevealIds);
+    // Coringa (novo, pedido do usuário) - reage o escudo do Valete pra cada
+    // alvo separado acima em `shieldedRevealIds` (revelação em lote - cada
+    // um reage à parte, depois do resto do lote já ter sido resolvido).
+    for (const shieldedId of shieldedRevealIds) {
+      const shieldResult = tryCoringaJShieldBlock(finalState, opponent, shieldedId);
+      if (shieldResult) finalState = shieldResult;
+    }
+    return finalState;
   }
 
   // ----- Mosqueteiro K: Tiro Certeiro -----
@@ -4058,6 +4158,13 @@ function handleExecuteMagic(
       if (targetPlayer !== player && isSlotProtected(state, targetPlayer, selectedSlot)) {
         return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
       }
+      // Coringa (novo, pedido do usuário) - Valete-armadilha funciona como
+      // escudo pra carta que está montado em cima (ver tryCoringaJShieldBlock)
+      // - bloqueia o Criogenar por completo se o alvo tiver um (a carta
+      // congelante do Glacial nem chega a ser gasta, mesmo padrão de
+      // "Esse slot está protegido" acima).
+      const jShieldResult = tryCoringaJShieldBlock(state, targetPlayer, targetCard.id);
+      if (jShieldResult) return jShieldResult;
       const frozenCard = applyStatus(targetCard, { kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' } });
       setField(targetKey, updateFieldSlot(fieldOf(targetKey), selectedSlot, { faceDownCard: frozenCard }));
       targetedOnField = true;
@@ -4102,6 +4209,15 @@ function handleExecuteMagic(
     if (!targetCard || hasStatus(targetCard, 'frozen')) return state;
     if (targetPlayer !== player && isSlotProtected(state, targetPlayer, selectedSlot)) {
       return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+    }
+    // Coringa (novo, pedido do usuário) - Valete-armadilha funciona como
+    // escudo pra carta que está montado em cima (ver tryCoringaJShieldBlock)
+    // - só relevante quando o alvo é a carta PRINCIPAL do slot (mirar o
+    // próprio Valete, uma horizontal, já reage normalmente por outro
+    // caminho depois - ver resolveCoringaTrapTargeting mais abaixo).
+    if (targetSlot.faceDownCard?.id === targetId) {
+      const jShieldResult = tryCoringaJShieldBlock(state, targetPlayer, targetId);
+      if (jShieldResult) return jShieldResult;
     }
 
     const isOwn = targetPlayer === player;

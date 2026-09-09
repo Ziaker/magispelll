@@ -162,12 +162,30 @@ interface PendingUnfreeze {
   targetCardId?: string;
 }
 
-export function GameBoard({ onBack, player1Character, player2Character, gameConfig }: GameBoardProps) {
+export function GameBoard({ onBack, player1Character, player2Character, gameConfig: gameConfigProp }: GameBoardProps) {
   const [gameState, reducerDispatch] = useReducer(
     gameReducer,
     undefined,
-    () => createInitialState(player1Character, player2Character, gameConfig)
+    () => createInitialState(player1Character, player2Character, gameConfigProp)
   );
+  /**
+   * FIX (pedido do usuário: "tem como fazer algo que te permita ter
+   * controle dessa limitação [do ambiente de debug ao vivo]?") - `gameConfig`
+   * é um PROP estável (definido uma vez, na criação da partida, nunca mais
+   * mutado por esta tela - diferente de `gameState.gameConfig`, uma cópia
+   * congelada dentro do reducer só pra regras determinísticas). Testar ao
+   * vivo qualquer valor de ritmo/pacing (`postMagicPauseMs`, `aiThinkScale`
+   * etc.) exigia navegar de verdade pela tela de Configuração ANTES de
+   * iniciar a partida - inviável via `window.__debug` (que só mexe em
+   * `gameState`) e frágil de automatizar (abas Radix dependem de layout
+   * real). `debugGameConfigOverride` deixa `window.__debug.setGameConfig`
+   * (abaixo, mesmo padrão de `setAnimationsEnabled`) sobrescrever qualquer
+   * campo de ritmo/pacing NA HORA, sem precisar recriar a partida nem tocar
+   * na UI - `gameConfig` (o nome usado no resto deste arquivo) já reflete a
+   * mistura automaticamente, sem precisar tocar nenhum dos outros usos.
+   */
+  const [debugGameConfigOverride, setDebugGameConfigOverride] = useState<Partial<GameConfig> | null>(null);
+  const gameConfig = debugGameConfigOverride ? { ...gameConfigProp, ...debugGameConfigOverride } : gameConfigProp;
   /**
    * FIX (item 32 da lista de afazeres, "sistema de replay... especialmente
    * pra questões de erros/debug"): em vez de vídeo (caro de gerar, ruim pra
@@ -379,6 +397,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    *     o que também acelera bastante o "pensando..." de cada ação real da
    *     IA (não só o fastForward acima, que já ignora isso by design).
    *   window.__debug.characters -> { player1, player2 } desta partida
+   *   window.__debug.setGameConfig(partial | null) -> sobrescreve na hora
+   *     qualquer campo de ritmo/pacing de `gameConfig` (ex.: `{ postMagicPauseMs:
+   *     3000 }`, `{ aiThinkScale: 0 }`) SEM precisar navegar a tela de
+   *     Configuração antes de iniciar a partida nem recriar o `useReducer` -
+   *     mescla por cima da sobrescrita atual (chamadas sucessivas se
+   *     acumulam); `null` limpa tudo, voltando ao valor original desta
+   *     partida. Nunca afeta `gameState.gameConfig` (a cópia congelada
+   *     usada pelo reducer para regras determinísticas - fusão, Torres,
+   *     limites de descarte etc. continuam vindas de lá, propositalmente
+   *     imutáveis depois que a partida começa).
    *
    * Itens 1/2/6 do plano de melhoria do debug mode ("prever qualquer ação
    * possível" + reprodutibilidade + fuzzing) - ver src/app/lib/actionSpace.ts,
@@ -507,6 +535,15 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         rawDispatch({ type: 'DEBUG_FORCE_STATE', state: freshState });
       },
       setAnimationsEnabled: (enabled: boolean) => updateSetting('animations', enabled),
+      // FIX (pedido do usuário: testar ao vivo qualquer campo de ritmo/pacing
+      // de `gameConfig` - ex.: `postMagicPauseMs`, `aiThinkScale` - sem
+      // precisar navegar a tela de Configuração de verdade antes de iniciar
+      // a partida, nem recriar o `useReducer` do zero). Mescla por cima do
+      // valor atual (chamadas sucessivas se acumulam); `null` limpa a
+      // sobrescrita inteira, voltando ao valor original passado pra esta
+      // partida. Ver `debugGameConfigOverride` acima.
+      setGameConfig: (partial: Partial<GameConfig> | null) =>
+        setDebugGameConfigOverride((prev) => (partial === null ? null : { ...prev, ...partial })),
       // Itens 1/2/6 do plano de melhoria do debug mode - ver o comentário
       // completo acima desta função pra cada um.
       enumerateActions: (player: PlayerNumber = 1) => enumerateLegalActions(gameState, player),

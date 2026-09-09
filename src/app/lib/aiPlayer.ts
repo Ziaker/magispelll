@@ -583,6 +583,17 @@ function shouldLaunchFireball(state: GameState, ai: PlayerNumber): boolean {
   return livesDelta(state, ai) < 0 && me.fireballValue >= 5 && me.fireballValue >= total * 0.5;
 }
 
+// FIX (pedido do usuário, feature nova do escudo do Valete - ver
+// applyCoringaTrapReaction/tryCoringaJShieldBlock em gameEngine.ts): antes
+// dessa feature, o Valete sempre valia mais transformado na Mão de Ferro (11
+// garantido contra 1 cru se nunca reagir como armadilha) - agora ele também
+// PROTEGE a carta que fica embaixo dele (bloqueia efeitos de terceiros +
+// marca +5 nela), um valor estratégico real que só existe enquanto continua
+// sendo armadilha. Sem uma forma confiável de avaliar qual das duas opções
+// vale mais numa situação específica, a IA sorteia 50/50 entre elas (pedido
+// explícito do usuário: "deixe aleatório") - ver uso em decideDrawPhase.
+const CORINGA_TRANSFORM_J_EARLY_CHANCE = 0.5;
+
 function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   const character = characterOf(state, ai);
   const me = state[playerKeyOf(ai)];
@@ -663,7 +674,11 @@ function decideDrawPhase(state: GameState, ai: PlayerNumber): AiDecision {
   if (character === 'coringa' && hasStatus(me, 'transformWindow')) {
     const hasEmptyMainSlot = me.field.some((slot) => !slot.faceDownCard);
     const transformable = me.hand.find((c) => !c.coringaTransformedToNumeral && (c.value === 'J' || c.value === 'Q' || c.value === 'K'));
-    if (transformable && !hasEmptyMainSlot) {
+    // Ver CORINGA_TRANSFORM_J_EARLY_CHANCE acima: só o Valete tem essa
+    // dualidade (escudo vs valor transformado) - Rainha/Rei continuam
+    // preferindo posicionar primeiro como sempre, sem sorteio nenhum.
+    const shouldTransformJEarly = transformable?.value === 'J' && hasEmptyMainSlot && random() < CORINGA_TRANSFORM_J_EARLY_CHANCE;
+    if (transformable && (!hasEmptyMainSlot || shouldTransformJEarly)) {
       traceStep('coringaTransformarCartaMagica (Mão de Ferro)', true);
       return { type: 'action', action: { type: 'TRANSFORM_CORINGA_MAGIC_CARD', player: ai, cardId: transformable.id } };
     }
@@ -2101,7 +2116,15 @@ function decideDruidaBroto(state: GameState, ai: PlayerNumber): GameAction | nul
   const rainha = me.hand.find((c) => c.value === 'Q' && !hasStatus(c, 'frozen'));
   const rei = me.hand.find((c) => c.value === 'K' && !hasStatus(c, 'frozen'));
 
-  let brotoCard = valete ?? rainha;
+  // FIX (achado real pela tierlist de IA vs IA, pedido do usuário: "corrija
+  // as 3 - Druida, Mago, Glacial"): Simbiose (Rainha) tinha 0 ativações em
+  // 1050 partidas simuladas - toda Rainha que chegava na mão era plantada
+  // como Broto imediatamente aqui, antes do Broto sequer crescer o
+  // suficiente pra valer a pena reduzir. O Rei (Urtiga) já tinha essa
+  // proteção (`wouldUrtigaBeWorthKeeping` abaixo); a Rainha nunca teve o
+  // equivalente - mesmo padrão, agora espelhado pra ela.
+  let brotoCard = valete;
+  if (!brotoCard && rainha && !wouldSimbioseBeWorthKeeping(state, ai)) brotoCard = rainha;
   if (!brotoCard && rei && !wouldUrtigaBeWorthKeeping(state, ai)) brotoCard = rei;
   if (!brotoCard) return null;
 
@@ -2113,6 +2136,33 @@ function decideDruidaBroto(state: GameState, ai: PlayerNumber): GameAction | nul
   const emptySlotIndex = me.field.findIndex((slot) => !slot.faceDownCard);
   if (emptySlotIndex === -1) return null;
   return { type: 'PLAY_CARD', player: ai, cardId: brotoCard.id, slotIndex: emptySlotIndex, asHorizontal: false };
+}
+
+/**
+ * Irmã de `wouldUrtigaBeWorthKeeping` abaixo, mesmo motivo (ver FIX em
+ * decideDruidaBroto acima) - só que pra Simbiose (Rainha): mesmo limiar/
+ * critério de alvo de decideDruidaQ, avaliado antecipadamente pra decidir
+ * se vale reservar a Rainha em vez de plantá-la como Broto agora. Alvo é
+ * sempre o PRÓPRIO campo (nunca precisa esperar o oponente revelar nada,
+ * diferente de Urtiga) - por isso, ao contrário do Rei, a Rainha quase
+ * sempre tinha um alvo válido disponível assim que o Broto crescia o
+ * bastante; o problema real era puramente a Rainha nunca sobreviver na mão
+ * até esse ponto.
+ */
+function wouldSimbioseBeWorthKeeping(state: GameState, ai: PlayerNumber): boolean {
+  const me = state[playerKeyOf(ai)];
+  const brotoSlot = me.field.find(isBrotoSlot);
+  const brotoValue = brotoSlot?.faceDownCard?.transformedValue ?? 1;
+  const halved = Math.floor(brotoValue / 2);
+  const delta = livesDelta(state, ai);
+  const markerThreshold = delta < 0 ? 2 : delta >= 2 ? 4 : 3;
+  if (halved < markerThreshold) return false;
+
+  return me.field.some(
+    (slot) =>
+      (slot.faceDownCard && !isBrotoSlot(slot) && !hasStatus(slot.faceDownCard, 'frozen')) ||
+      slot.horizontalCards.some((c) => !hasStatus(c, 'frozen'))
+  );
 }
 
 /**
@@ -2294,7 +2344,29 @@ function decideDruidaK(state: GameState, ai: PlayerNumber): GameAction | null {
         ]
   );
   const confirmedTargets = opponentSelectedSlot !== undefined ? opponentTargets.filter((t) => t.slotIdx === opponentSelectedSlot) : [];
-  const targetPool = confirmedTargets.length > 0 ? confirmedTargets : opponentTargets;
+  let targetPool = confirmedTargets.length > 0 ? confirmedTargets : opponentTargets;
+  // FIX (overhaul de IA pedido pelo usuário, achado real - Urtiga nunca
+  // mirava um alvo oculto "porque não dá pra calcular o melhor alvo sem
+  // saber o valor"): esse raciocínio vale pra ESCOLHER entre vários alvos,
+  // mas não se aplica quando já existe um alvo GARANTIDO a brigar agora
+  // (`opponentSelectedSlot`, o mesmo `combatSelection` já usado acima) e
+  // NENHUM candidato revelado sobrou ali - reduzir qualquer carta em -N
+  // nunca é ruim, seja qual for o valor real por baixo (não precisa
+  // "calcular o melhor", só precisa saber que É o slot que vai lutar). Sem
+  // isso, a Urtiga podia nunca ser usada numa partida inteira contra um
+  // oponente que não revela nada até o Combate. `hasStatus` já filtra
+  // congelado (o motor rejeita do mesmo jeito); Ás nunca é elegível aqui só
+  // por ser oculto - `getEffectiveCardValue` de um Ás oculto (6) já é o
+  // mesmo valor "cru" que a IA usaria de qualquer forma, sem vazar
+  // informação real pro cálculo do marcador.
+  if (targetPool.length === 0 && opponentSelectedSlot !== undefined && !isSlotProtected(state, opponent, opponentSelectedSlot)) {
+    const blindSlot = opponentField[opponentSelectedSlot];
+    const blindCandidates = [
+      ...(blindSlot.faceDownCard && !hasStatus(blindSlot.faceDownCard, 'frozen') ? [{ card: blindSlot.faceDownCard, slotIdx: opponentSelectedSlot }] : []),
+      ...blindSlot.horizontalCards.filter((c) => !hasStatus(c, 'frozen')).map((card) => ({ card, slotIdx: opponentSelectedSlot })),
+    ];
+    if (blindCandidates.length > 0) targetPool = blindCandidates;
+  }
   const bestTarget = targetPool.length > 0 ? pickHighestBy(targetPool, (t) => getEffectiveCardValue(t.card)).card : null;
 
   if (halved >= markerThreshold && bestTarget) {
@@ -2314,11 +2386,14 @@ function decideDruidaK(state: GameState, ai: PlayerNumber): GameAction | null {
 // ---------------------------------------------------------------------------
 // Glacial (personagem novo) - congela cartas (StatusEffect 'frozen', ver
 // statusEffects.ts). Heurísticas confirmadas com o usuário: congelar carta
-// do oponente prioriza maior valor SÓ quando a maioria das cartas dele está
-// revelada (foco em 7-10 e magias; sem boa informação, aleatório, mas
-// sempre age); auto-congelar a própria mão é majoritariamente aleatório com
-// viés maior a magias (pra reativar 2x via a gimmick - ver
-// resolveGlacialCardConsumption, gameEngine.ts).
+// do oponente prioriza maior valor (foco em 7-10 e magias) sempre que
+// QUALQUER candidata já está revelada (nunca ignora informação de graça só
+// porque o resto do campo/mão continua oculto - achado real pela tierlist
+// de IA vs IA, "corrija as 3"); sem nenhuma revelada, sorteia entre as
+// ocultas (todas estatisticamente idênticas entre si, então sortear já é a
+// jogada ótima, não um problema). Auto-congelar a própria mão é
+// majoritariamente aleatório com viés maior a magias (pra reativar 2x via a
+// gimmick - ver resolveGlacialCardConsumption, gameEngine.ts).
 //
 // FIX (pedido do usuário: "a IA do glacial ainda descarta as próprias
 // cartas para descongelar elas, isso nunca deveria ocorrer"): a IA do
@@ -2341,7 +2416,6 @@ function glacialFreezeTargetPriority(card: Card): number {
 
 const GLACIAL_FREEZE_OWN_CARD_CHANCE = 0.25;
 const GLACIAL_FREEZE_OWN_MAGIC_BIAS = 0.7;
-const GLACIAL_FREEZE_REVEALED_THRESHOLD = 0.5;
 
 /**
  * Monta a `MagicSelection` certa (mão OU campo, principal - Criogenar não
@@ -2381,13 +2455,24 @@ function decideGlacialJ(state: GameState, ai: PlayerNumber): GameAction | null {
   const allOpponentCards = [...opponentState.hand, ...fieldCards(opponentState.field)];
   const freezableOpponentCards = allOpponentCards.filter((c) => !hasStatus(c, 'frozen'));
   if (freezableOpponentCards.length === 0) return null;
-  const revealedRatio = allOpponentCards.length > 0 ? allOpponentCards.filter((c) => c.revealed).length / allOpponentCards.length : 0;
+  // FIX (achado real pela tierlist de IA vs IA, pedido do usuário: "corrija
+  // as 3"): a versão anterior só usava informação (valor real via
+  // `glacialFreezeTargetPriority`) quando a PROPORÇÃO de cartas reveladas do
+  // oponente já batia um limiar (50%) - abaixo disso, sorteava às cegas
+  // entre TODAS as candidatas, inclusive as que por acaso já estavam
+  // reveladas (ignorando informação de graça só porque o resto da mão/campo
+  // ainda estava oculto). Cartas AINDA OCULTAS são estatisticamente
+  // idênticas entre si (nenhuma tem informação que distinga uma da outra -
+  // sortear entre elas já é a jogada ótima, não um problema a corrigir), mas
+  // uma carta JÁ revelada nunca deveria competir de igual pra igual com uma
+  // oculta num sorteio - ela é sempre pelo menos tão boa quanto adivinhar.
+  // Agora: existe QUALQUER revelada entre as candidatas? usa
+  // `glacialFreezeTargetPriority` nelas. Senão, sorteia entre as ocultas
+  // (continua aleatório de propósito, sem limiar de proporção nenhum).
+  const revealedCandidates = freezableOpponentCards.filter((c) => c.revealed);
   const chosenOpponentCard =
-    revealedRatio >= GLACIAL_FREEZE_REVEALED_THRESHOLD
-      ? pickHighestBy(
-          freezableOpponentCards.some((c) => c.revealed) ? freezableOpponentCards.filter((c) => c.revealed) : freezableOpponentCards,
-          glacialFreezeTargetPriority
-        )
+    revealedCandidates.length > 0
+      ? pickHighestBy(revealedCandidates, glacialFreezeTargetPriority)
       : freezableOpponentCards[Math.floor(random() * freezableOpponentCards.length)];
   const selection = buildGlacialFreezeSelection(opponent, opponentState, chosenOpponentCard);
   if (!selection) return null;
