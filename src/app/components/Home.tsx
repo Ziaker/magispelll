@@ -26,7 +26,16 @@ export function Home({ onNewGame, onQuickStart, onRules, onCharacters, onSetting
       
       <div className="relative z-10 w-full max-w-2xl px-4 space-y-12">
         <div className="text-center space-y-4">
-          <GameTitle className="font-display text-[64px] md:text-[80px] tracking-wider drop-shadow-[0_0_20px_rgba(197,158,79,0.4)]" />
+          {/* FIX (pesquisa de desempenho, achado ao vivo em viewport mobile:
+              "MAGISPELLLLLLL cortado, só ISPELLLLL aparece") - o título tinha
+              só 2 tamanhos fixos (64px abaixo de `md`, 80px a partir dali) e
+              `tracking-wider` (letter-spacing extra) sempre ligado - em
+              375px de largura, "MAGISPE" + 1 L por personagem (13+ letras)
+              nesse tamanho excede a viewport, cortando o "MAG" inicial. Novos
+              degraus abaixo de `md` (28px/40px) cabem em telas estreitas; o
+              tracking largo só entra a partir de `sm` (640px), onde já sobra
+              espaço de verdade pra ele. */}
+          <GameTitle className="font-display text-[28px] sm:text-[40px] md:text-[64px] lg:text-[80px] tracking-normal sm:tracking-wider drop-shadow-[0_0_20px_rgba(197,158,79,0.4)]" />
           {/* FIX (item 31 do Grupo H da lista de afazeres, "número da versão
               abaixo do título") - texto puramente informativo, sem link/ação
               nenhuma (diferente do atalho de Partida Rápida logo abaixo) -
@@ -38,7 +47,7 @@ export function Home({ onNewGame, onQuickStart, onRules, onCharacters, onSetting
               pra uma correção pequena - também serve pra confirmar visualmente
               que um deploy realmente chegou (o index.html do GitHub Pages
               cacheia por ~10min). */}
-          <p className="text-[11px] text-[#8F6A30]/70">v0.8888888.15</p>
+          <p className="text-[11px] text-[#8F6A30]/70">v0.8888888.16</p>
           {/* FIX (pedido do usuário: "atalho de Partida Rápida") - pula
               Configuração (usa a última usada ou o padrão) e Resumo, indo
               direto pra escolha de personagem - ver handleQuickStart em
