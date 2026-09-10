@@ -1144,24 +1144,38 @@ export function PlayerZone({
                   Com o mesmo fundo escuro usado em todo o resto do jogo, o
                   texto dourado do Anjo volta a ficar legível (mesma
                   combinação que já funciona em CharacterMagicReference.tsx). */}
-              <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[300px]">
-                <div className="space-y-2">
-                  <p className="text-[12px]">
-                    <span style={{ color: theme.primary }}>{spellInfo.name}</span>
-                  </p>
-                  <p className="text-[11px] text-[#BFB6A6]">
-                    {spellInfo.description}
-                  </p>
-                  <div className="text-[10px] text-[#8F6A30] border-t border-[#8F6A30] pt-2 mt-2">
-                    <p>Requisitos:</p>
-                    <ul className="list-disc list-inside space-y-1 mt-1">
-                      <li>Cartas {formatNumeralRequirement(spellInfo)} na mão</li>
-                      <li>Sem cartas no seu campo</li>
-                      <li>Sem magia numeral ativa</li>
-                    </ul>
+              {/* FIX (pedido do usuário, com screenshot: "o tooltip da magia
+                  numeral fica aparecendo encima do campo quando passa o
+                  mouse por cima, é melhor que este tooltip só apareça caso o
+                  jogador POSSA realizar a magia numeral... ele está tapando
+                  o botão de criar torre") - antes o tooltip sempre existia
+                  (só o BOTÃO ficava desabilitado quando `!canActivateNumeral`),
+                  então passar o mouse sobre o botão cinza/inativo ainda abria
+                  o balão gigante de requisitos por cima do campo. Sem
+                  `TooltipContent` nenhum, o Radix não tem o que abrir -
+                  oculta o tooltip inteiro (não só o botão) exatamente quando
+                  `canActivateNumeral` é falso, sem duplicar essa checagem
+                  (mesma variável que já controla o botão logo acima). */}
+              {canActivateNumeral && (
+                <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[300px]">
+                  <div className="space-y-2">
+                    <p className="text-[12px]">
+                      <span style={{ color: theme.primary }}>{spellInfo.name}</span>
+                    </p>
+                    <p className="text-[11px] text-[#BFB6A6]">
+                      {spellInfo.description}
+                    </p>
+                    <div className="text-[10px] text-[#8F6A30] border-t border-[#8F6A30] pt-2 mt-2">
+                      <p>Requisitos:</p>
+                      <ul className="list-disc list-inside space-y-1 mt-1">
+                        <li>Cartas {formatNumeralRequirement(spellInfo)} na mão</li>
+                        <li>Sem cartas no seu campo</li>
+                        <li>Sem magia numeral ativa</li>
+                      </ul>
+                    </div>
                   </div>
-                </div>
-              </TooltipContent>
+                </TooltipContent>
+              )}
             </Tooltip>
           </TooltipProvider>
         )}
