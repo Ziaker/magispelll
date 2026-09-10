@@ -244,6 +244,9 @@ interface FieldSlotViewProps {
   /** Ver comentário completo em BattleField.tsx - atalho de arrastar-e-soltar pra ativar magias de alvo único. */
   onMagicCardDrop?: (playerNumber: 1 | 2, slotIndex: number, cardId: string) => void;
   isMagicDropTarget?: (playerNumber: 1 | 2, slotIndex: number, card: Card) => boolean;
+  /** Ver comentário completo em BattleField.tsx - drop dedicado (canto inferior-esquerdo) pra formar/reforçar uma Torre. */
+  getTowerDropCardIds?: (playerNumber: 1 | 2, slotIndex: number, card: Card) => string[] | null;
+  onTowerDrop?: (playerNumber: 1 | 2, slotIndex: number, cardIds: string[]) => void;
   onRemoveHorizontalCard?: (playerNumber: 1 | 2, slotIndex: number, cardId: string) => void;
   /** Personagem de quem ativou a magia/efeito de Monstro atualmente em exibição neste slot, e o nome dela - ver BattleField.tsx. */
   activeMagicCaster?: CharacterId | null;
@@ -307,6 +310,8 @@ export function FieldSlotView({
   onCardDrop,
   onMagicCardDrop,
   isMagicDropTarget,
+  getTowerDropCardIds,
+  onTowerDrop,
   onRemoveHorizontalCard,
   activeMagicCaster,
   activeMagicLabel,
@@ -354,6 +359,22 @@ export function FieldSlotView({
   // diferentes) sem "perder" o selo de nenhuma delas.
   const mainAddModifiers = getAddModeCombatModifiers(slot.faceDownCard);
   const isMainBoosted = mainAddModifiers.length > 0;
+  // FIX (pedido do usuário: "quando um marcador é posto em uma carta com um
+  // marcador presente, o correto seria visualmente o marcador estar
+  // posicionado acima do outro... ter a referência visual de que há 2
+  // marcadores") - `applyStatus` (statusEffects.ts) sempre acrescenta uma
+  // entrada NOVA no FIM do array (`[...existing, effect]`), então o ÚLTIMO
+  // elemento de `mainAddModifiers` é sempre o modificador mais RECENTE, e o
+  // primeiro é o mais ANTIGO. O anel de brilho abaixo usava `[0]` (o mais
+  // antigo) - o oposto do pedido. Isso só é visível quando 2 FONTES
+  // DIFERENTES marcam a mesma carta ao mesmo tempo (a mesma fonte reativando
+  // soma na MESMA entrada, nunca empilha - ver os merges customizados em
+  // gameEngine.ts), o que não é raro: é a interação normal de, por exemplo,
+  // a Besta buffar a própria carta enquanto o Mosqueteiro adversário a
+  // debuffa com Tiro Certeiro.
+  const newestMainAddModifier = mainAddModifiers[mainAddModifiers.length - 1];
+  const oldestMainAddModifier = mainAddModifiers[0];
+  const hasStackedMainAddModifiers = mainAddModifiers.length > 1;
 
   // Ilusão Arcana do Mago: reforça o valor da carta PRINCIPAL copiando o de
   // outra já revelada (handleExecuteMagoMonsterEffect em gameEngine.ts,
@@ -466,10 +487,31 @@ export function FieldSlotView({
   // um SLOT DE CAMPO (nem principal nem horizontal) - mesma regra nova de
   // handlePlayCard/handleSwapFieldCard (gameEngine.ts).
   const isRawAceDrop = (item: CardDragItem) => item.card?.value === 'A' && item.card.transformedValue === undefined;
+  // FIX (Modo Towers, "opção 5": "através de drag & drop, da mesma forma que
+  // faz uma fusão, arrastar uma carta encima de outra do mesmo número" +
+  // "checagem que vê se ela ERA uma torre ou É uma carta singular... colocaria
+  // um indicador visual de onde posicionar a carta para ser torre, ficando no
+  // extremo esquerda inferior, o oposto da posição extrema direita superior
+  // da horizontal") - `getTowerDropCardIds` (GameBoard.tsx) já devolve os
+  // `cardIds` prontos (o GRUPO inteiro, se a carta arrastada fizer parte de
+  // um via selectedForTower, ou só ela sozinha) e já revalidados contra
+  // `canFormOrReinforceTower` - null quando não se aplica aqui. Um slot VAZIO
+  // só aceita via este caminho com 2+ cartas (criar torre nova precisa disso;
+  // reforçar 1 card só faz sentido numa torre já ATIVA, que nunca está vazia).
+  const getTowerCardIds = (item: CardDragItem): string[] | null => (item.card ? getTowerDropCardIds?.(playerNumber, i, item.card) ?? null : null);
+  const isEmptySlotTowerCreateDrop = (item: CardDragItem) => {
+    if (slot.faceDownCard) return false;
+    const ids = getTowerCardIds(item);
+    return Boolean(ids && ids.length >= 2);
+  };
   const dropOnMain = (item: CardDragItem) => {
     lastDropSpinRef.current = item.spinAngle ?? 0;
     if (isMagicDrop(item)) {
       onMagicCardDrop?.(playerNumber, i, item.cardId);
+      return;
+    }
+    if (isEmptySlotTowerCreateDrop(item)) {
+      onTowerDrop?.(playerNumber, i, getTowerCardIds(item)!);
       return;
     }
     onCardDrop?.(playerNumber, i, item.cardId, isDruidaBrotoStackDrop(item) ? false : Boolean(slot.faceDownCard));
@@ -481,6 +523,15 @@ export function FieldSlotView({
       return;
     }
     onCardDrop?.(playerNumber, i, item.cardId, true);
+  };
+  // Alvo dedicado pra Torre (canto inferior-esquerdo, espelho do de
+  // Horizontal acima) - só existe pra um slot JÁ OCUPADO (o mesmo `Boolean
+  // (slot.faceDownCard)` do alvo de Horizontal; um slot vazio usa a área
+  // PRINCIPAL acima pra criar uma torre nova, sem ambiguidade nenhuma com
+  // reforço horizontal - que nunca existe num slot vazio).
+  const dropOnTower = (item: CardDragItem) => {
+    const cardIds = getTowerCardIds(item);
+    if (cardIds) onTowerDrop?.(playerNumber, i, cardIds);
   };
 
   const [{ isOver: isOverMain, canDrop: canDropMain }, dropMainRef] = useDrop<
@@ -496,7 +547,7 @@ export function FieldSlotView({
       // pela IA) e/ou uma fase diferente (Combate) - por isso o OR com
       // `isMagicDrop`, item-aware (react-dnd chama `canDrop` com o item
       // sendo arrastado no momento).
-      canDrop: (item) => (canDropHere && !isRawAceDrop(item)) || isMagicDrop(item) || isGlacialGolemCombatDrop(item),
+      canDrop: (item) => (canDropHere && !isRawAceDrop(item)) || isMagicDrop(item) || isGlacialGolemCombatDrop(item) || isEmptySlotTowerCreateDrop(item),
       // Soltar em cima da carta principal já ocupada vira pedido de reforço
       // horizontal (mesma regra do drag nativo anterior); num slot vazio,
       // vira a carta principal. Uma magia com atalho válido tem prioridade
@@ -504,7 +555,7 @@ export function FieldSlotView({
       drop: dropOnMain,
       collect: (monitor) => ({ isOver: monitor.isOver(), canDrop: monitor.canDrop() }),
     }),
-    [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard, phase, isAiField]
+    [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, getTowerDropCardIds, onTowerDrop, slot.faceDownCard, phase, isAiField]
   );
 
   const [{ isOver: isOverHorizontal, canDrop: canDropHorizontal }, dropHorizontalRef] = useDrop<
@@ -521,6 +572,25 @@ export function FieldSlotView({
     [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard]
   );
 
+  // FIX (Modo Towers, "opção 5"): alvo dedicado pra formar/reforçar Torre -
+  // mesmo padrão estrutural do de Horizontal acima (canto oposto - ver JSX
+  // mais abaixo), só existe pra um slot já ocupado (`Boolean(slot.faceDownCard)`,
+  // igual à Horizontal - um slot vazio cria torre nova pela área PRINCIPAL,
+  // ver isEmptySlotTowerCreateDrop acima).
+  const [{ isOver: isOverTower, canDrop: canDropTower }, dropTowerRef] = useDrop<
+    CardDragItem,
+    unknown,
+    { isOver: boolean; canDrop: boolean }
+  >(
+    () => ({
+      accept: CARD_ITEM_TYPE,
+      canDrop: (item) => Boolean(slot.faceDownCard) && Boolean(getTowerCardIds(item)),
+      drop: dropOnTower,
+      collect: (monitor) => ({ isOver: monitor.isOver(), canDrop: monitor.canDrop() }),
+    }),
+    [playerNumber, i, getTowerDropCardIds, onTowerDrop, slot.faceDownCard]
+  );
+
   // FIX (pedido do usuário: "melhore a detecção de campo para cartas
   // arrastadas/jogadas lá" - "área de detecção pequena/imprecisa em geral") -
   // registra os dois alvos (principal e horizontal) no dropTargetRegistry
@@ -530,6 +600,7 @@ export function FieldSlotView({
   // `useDrop` nativo acima, nunca o substitui.
   const mainNodeRef = useRef<HTMLDivElement | null>(null);
   const horizontalNodeRef = useRef<HTMLDivElement | null>(null);
+  const towerNodeRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const mainId = `field-${playerNumber}-${i}-main`;
@@ -538,12 +609,12 @@ export function FieldSlotView({
         const rect = mainNodeRef.current?.getBoundingClientRect();
         return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
       },
-      canDrop: (item) => (canDropHere && !isRawAceDrop(item)) || isMagicDrop(item) || isGlacialGolemCombatDrop(item),
+      canDrop: (item) => (canDropHere && !isRawAceDrop(item)) || isMagicDrop(item) || isGlacialGolemCombatDrop(item) || isEmptySlotTowerCreateDrop(item),
       onDrop: dropOnMain,
     });
     return () => unregisterDropTarget(mainId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard, phase, isAiField]);
+  }, [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, getTowerDropCardIds, onTowerDrop, slot.faceDownCard, phase, isAiField]);
 
   useEffect(() => {
     const horizontalId = `field-${playerNumber}-${i}-horizontal`;
@@ -558,6 +629,20 @@ export function FieldSlotView({
     return () => unregisterDropTarget(horizontalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard]);
+
+  useEffect(() => {
+    const towerId = `field-${playerNumber}-${i}-tower`;
+    registerDropTarget(towerId, {
+      getCenter: () => {
+        const rect = towerNodeRef.current?.getBoundingClientRect();
+        return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+      },
+      canDrop: (item) => Boolean(slot.faceDownCard) && Boolean(getTowerCardIds(item)),
+      onDrop: dropOnTower,
+    });
+    return () => unregisterDropTarget(towerId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerNumber, i, getTowerDropCardIds, onTowerDrop, slot.faceDownCard]);
 
   const canRemoveHorizontal = Boolean(onRemoveHorizontalCard) && phase === 'strategy' && !isAiField;
 
@@ -844,17 +929,23 @@ export function FieldSlotView({
               {/* Marcador de combate `mode: 'add'` (Tiro Certeiro/Urtiga/
                   Simbiose/Crioescudo/Crioespinho, ...): elemento PRÓPRIO
                   (mesmo motivo do comentário acima) pra nunca disputar
-                  `animation` com os outros status. Com 2+ modificadores de
-                  fontes diferentes na MESMA carta (raro), a aura usa a cor do
-                  primeiro - cada um ainda ganha seu PRÓPRIO selo "±N" na
-                  lista de badges abaixo. */}
+                  `animation` com os outros status. Cada um ainda ganha seu
+                  PRÓPRIO selo "±N" na coluna de badges abaixo - o anel aqui é
+                  só o brilho ambiente. FIX (pedido do usuário - ver
+                  `newestMainAddModifier` acima): usa a cor do modificador
+                  mais RECENTE (não mais `[0]`, o mais antigo). Com 2+ fontes
+                  diferentes empilhadas na mesma carta, um segundo anel mais
+                  fino e recuado, na cor do modificador mais antigo, fica por
+                  DENTRO deste - dá a referência visual de que há mais de um,
+                  sem reintroduzir nenhum número escrito (isso já é papel da
+                  coluna de badges). */}
               {isMainBoosted && (
                 <div
                   className="absolute inset-0 rounded-lg animate-status-aura pointer-events-none"
                   style={
                     {
-                      '--status-color-soft': combatModifierColors(mainAddModifiers[0].source).soft,
-                      '--status-color-strong': combatModifierColors(mainAddModifiers[0].source).strong,
+                      '--status-color-soft': combatModifierColors(newestMainAddModifier.source).soft,
+                      '--status-color-strong': combatModifierColors(newestMainAddModifier.source).strong,
                       zIndex: 6,
                     } as CSSProperties
                   }
@@ -867,12 +958,24 @@ export function FieldSlotView({
                         {
                           left: p.left,
                           animationDelay: p.delay,
-                          '--status-color-strong': combatModifierColors(mainAddModifiers[0].source).strong,
+                          '--status-color-strong': combatModifierColors(newestMainAddModifier.source).strong,
                         } as CSSProperties
                       }
                     />
                   ))}
                 </div>
+              )}
+              {hasStackedMainAddModifiers && (
+                <div
+                  className="absolute inset-[5px] rounded-lg animate-status-aura pointer-events-none"
+                  style={
+                    {
+                      '--status-color-soft': combatModifierColors(oldestMainAddModifier.source).soft,
+                      '--status-color-strong': combatModifierColors(oldestMainAddModifier.source).strong,
+                      zIndex: 5,
+                    } as CSSProperties
+                  }
+                />
               )}
               {/* Modo Spotlight (pedido do usuário: "adicione um efeito de
                   spotlight nessas cartas, um verde para spotlights positivos
@@ -1185,6 +1288,14 @@ export function FieldSlotView({
               const isThisHorizontalDoubled = doubledHorizontal?.id === hCard.id;
               const hCardAddModifiers = getAddModeCombatModifiers(hCard);
               const isThisHorizontalBoosted = hCardAddModifiers.length > 0;
+              // FIX (mesmo motivo de `newestMainAddModifier` acima): o anel
+              // desta horizontal usava sempre `[0]` (o modificador mais
+              // ANTIGO) quando 2+ fontes diferentes marcam a mesma carta -
+              // agora usa o mais recente. Os selos numerados individuais
+              // logo abaixo (`hCardAddModifiers.map`, um por modificador) já
+              // mostram cada valor separadamente, então o anel aqui não
+              // precisa de um segundo aro - só a cor certa.
+              const newestHorizontalAddModifier = hCardAddModifiers[hCardAddModifiers.length - 1];
               // Modo Spotlight (pedido do usuário) - mesma ideia da carta
               // principal acima (mesmo FIX de não vazar informação: só depois
               // de `revealed === true`).
@@ -1208,8 +1319,8 @@ export function FieldSlotView({
                         ? { '--status-color-soft': STATUS_COLORS.doubled.soft, '--status-color-strong': STATUS_COLORS.doubled.strong }
                         : isThisHorizontalBoosted
                         ? {
-                            '--status-color-soft': combatModifierColors(hCardAddModifiers[0].source).soft,
-                            '--status-color-strong': combatModifierColors(hCardAddModifiers[0].source).strong,
+                            '--status-color-soft': combatModifierColors(newestHorizontalAddModifier.source).soft,
+                            '--status-color-strong': combatModifierColors(newestHorizontalAddModifier.source).strong,
                           }
                         : horizontalSpotlightEntry
                         ? {
@@ -1338,6 +1449,41 @@ export function FieldSlotView({
                       : 'border-transparent'
                   }`}
                 />
+              </div>
+            )}
+
+            {/* Área de destino dedicada pra formar/reforçar Torre (Modo
+                Towers, "opção 5" - pedido do usuário: "colocaria um
+                indicador visual de onde posicionar a carta para ser torre,
+                ficando no extremo esquerda inferior, o oposto da posição
+                extrema direita superior da horizontal") - canto ESPELHADO
+                do de Horizontal acima (inferior-esquerdo em vez de
+                superior-direito), mesmo truque de área de detecção maior
+                (`p-2 -m-2`) que a caixa visível. Só aparece/aceita quando
+                `getTowerCardIds` confirma um alvo válido AGORA (reforçar uma
+                torre ativa com 1 carta, ou absorver/criar com um grupo de
+                2+ - tudo já revalidado contra canFormOrReinforceTower,
+                gameEngine.ts) - nunca compete com o de Horizontal: os dois
+                convivem lado a lado, o jogador escolhe soltando num canto ou
+                no outro. */}
+            {slot.faceDownCard && (
+              <div className="absolute -bottom-3 -left-3 z-10 p-2 -m-2">
+                <div
+                  ref={(node) => {
+                    dropTowerRef(node);
+                    towerNodeRef.current = node;
+                  }}
+                  title="Solte aqui para formar/reforçar uma Torre"
+                  className={`w-16 h-10 rounded-md border-2 border-dashed transition-all flex items-center justify-center ${
+                    isOverTower && canDropTower
+                      ? 'border-[#7AA7C4] bg-[#7AA7C4]/10 scale-110'
+                      : canDropTower
+                      ? 'border-[#7AA7C4]/60 animate-pulse'
+                      : 'border-transparent'
+                  }`}
+                >
+                  {canDropTower && <span className="text-[14px] leading-none">🏰</span>}
+                </div>
               </div>
             )}
 

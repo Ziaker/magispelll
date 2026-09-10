@@ -50,6 +50,21 @@ interface BattleFieldProps {
   isMagicDropTarget?: (playerNumber: 1 | 2, slotIndex: number, card: Card) => boolean;
 
   /**
+   * Modo Towers, "opção 5" (pedido do usuário: "através de drag & drop...
+   * indicador visual de onde posicionar a carta para ser torre, ficando no
+   * extremo esquerda inferior, o oposto da posição extrema direita superior
+   * da horizontal") - mesmo padrão de `isMagicDropTarget` acima: decide, a
+   * cada frame do arraste, se ESTE slot aceita a carta (ou o GRUPO dela,
+   * ver `selectedForTower`) largada agora - já revalida tudo contra
+   * `canFormOrReinforceTower` (gameEngine.ts), nunca confia só na UI.
+   * Devolve os `cardIds` a usar no FORM_OR_REINFORCE_TOWER (o grupo inteiro
+   * se a carta arrastada fizer parte de um, ou só ela sozinha - válido
+   * apenas pra REFORÇAR uma torre já ativa) ou `null` quando não se aplica.
+   */
+  getTowerDropCardIds?: (playerNumber: 1 | 2, slotIndex: number, card: Card) => string[] | null;
+  onTowerDrop?: (playerNumber: 1 | 2, slotIndex: number, cardIds: string[]) => void;
+
+  /**
    * FIX (item 9 da 6ª rodada): "adicione a opção de remover a carta
    * horizontal de cima de outra carta, clicando onde normalmente sua
    * indicação visual é posicionada" - clicar na PRÓPRIA carta horizontal (a
@@ -193,6 +208,8 @@ export function BattleField({
   onCardDrop,
   onMagicCardDrop,
   isMagicDropTarget,
+  getTowerDropCardIds,
+  onTowerDrop,
   onRemoveHorizontalCard,
   monsterTargetSelection,
   effectFlashSlots,
@@ -266,6 +283,8 @@ export function BattleField({
             onCardDrop={onCardDrop}
             onMagicCardDrop={onMagicCardDrop}
             isMagicDropTarget={isMagicDropTarget}
+            getTowerDropCardIds={getTowerDropCardIds}
+            onTowerDrop={onTowerDrop}
             onRemoveHorizontalCard={onRemoveHorizontalCard}
             activeMagicCaster={activeMagicCaster}
             activeMagicLabel={activeMagicLabel}

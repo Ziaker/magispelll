@@ -85,3 +85,36 @@ export function toggleTowerCardSelection(hand: Card[], current: HandSelectionSta
   }
   return { selectedCardId: null, selectedForTower: new Set([clickedCardId]) };
 }
+
+/**
+ * FIX (pedido do usuário, "opção 5": "através de drag & drop, da mesma forma
+ * que faz uma fusão, arrastar uma carta encima de outra do mesmo número") -
+ * terceira forma de entrar no grupo de torre, além de clicar o selo 🏰: soltar
+ * uma carta da mão em cima de OUTRA carta da mão de mesmo valor efetivo. As
+ * duas entram no grupo de uma vez (a arrastada E a que recebeu o drop) -
+ * "como as cartas estarão agrupadas, é só arrastar este grupo encima da
+ * outra carta" (confirmado com o usuário: o agrupamento fica só NA MÃO,
+ * nunca posiciona nada no campo sozinho - jogar o grupo continua exigindo um
+ * passo separado, por clique ou arrasto até um slot).
+ *
+ * Reaproveita a MESMA regra de `toggleTowerCardSelection` pra decidir se
+ * junta ao grupo existente ou reinicia (chamando-a duas vezes em sequência -
+ * uma pra cada carta do par - nunca uma cópia da regra de "mesmo valor").
+ * Só a checagem de compatibilidade dos DOIS valores entre si (a `canDrop`
+ * do lado do HandCardView.tsx já garante isso antes de chamar aqui, mas
+ * nunca confiar só na UI) é refeita: se os valores não baterem, o drop não
+ * faz nada (`current` inalterado) - a UI nunca deveria ter aceitado esse
+ * drop em primeiro lugar.
+ */
+export function groupCardsForTowerViaDrag(hand: Card[], current: HandSelectionState, droppedCardId: string, targetCardId: string): HandSelectionState {
+  if (droppedCardId === targetCardId) return current;
+  const droppedCard = hand.find((c) => c.id === droppedCardId);
+  const targetCard = hand.find((c) => c.id === targetCardId);
+  if (!droppedCard || !targetCard) return current;
+  const droppedValue = towerEligibleValue(droppedCard);
+  const targetValue = towerEligibleValue(targetCard);
+  if (droppedValue === null || targetValue === null || droppedValue !== targetValue) return current;
+
+  const afterTarget = current.selectedForTower.has(targetCardId) ? current : toggleTowerCardSelection(hand, current, targetCardId);
+  return afterTarget.selectedForTower.has(droppedCardId) ? afterTarget : toggleTowerCardSelection(hand, afterTarget, droppedCardId);
+}

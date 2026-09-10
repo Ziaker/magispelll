@@ -2865,18 +2865,27 @@ function decideStrategyPhase(state: GameState, ai: PlayerNumber): AiDecision {
 
 /**
  * Modo Towers (pedido do usuário): decide se vale a pena formar uma torre
- * nova ou reforçar uma já formada neste turno.
+ * nova ou reforçar uma já existente.
  *
  * FIX (pedido do usuário: "a IA está conseguindo fazer mais do que uma torre
  * por turno, o que teoricamente era incorreto, mas volto atrás com isso,
  * permita que os jogadores coloquem até 3 torres no campo") - reversão da
- * regra anterior de 1 torre só por turno (ver `towerSlotsThisTurn`,
- * gameEngine.ts).
+ * regra anterior de 1 torre só por turno.
  *
- * - Percorre TODAS as torres já formadas por este jogador neste turno
- *   (`towerSlotsThisTurn`, até 3 agora) procurando a primeira com uma carta
- *   de reforço disponível (valor igual ao topo atual) - reforça essa e para
- *   aí, sem tentar mais nada neste turno.
+ * FIX (checagem extensa por bugs - achado investigando o pedido "reforçar
+ * por drag uma torre que sobrou de um turno anterior"): antes percorria
+ * `me.towerSlotsThisTurn` (uma lista zerada a cada virada de turno, mesmo
+ * bug documentado em canFormOrReinforceTower/gameEngine.ts) - uma torre que
+ * sobreviveu um turno inteiro sem ser tocada de novo (nunca lutou, ou
+ * venceu sem erodir) nunca aparecia nessa lista no turno seguinte, e a IA
+ * simplesmente nunca tentava reforçá-la. Agora varre o campo INTEIRO
+ * (`me.field`) procurando `isTowerSlot` diretamente - a mesma fonte de
+ * verdade que `canFormOrReinforceTower` usa, nunca uma cópia à parte.
+ *
+ * - Percorre TODOS os slots do próprio campo que JÁ são uma torre agora,
+ *   procurando a primeira com uma carta de reforço disponível (valor igual
+ *   ao topo atual) - reforça essa e para aí, sem tentar mais nada neste
+ *   turno.
  * - Se nenhuma torre existente pôde ser reforçada (nenhuma formada ainda, ou
  *   nenhuma carta de reforço disponível pra nenhuma delas): procura o MAIOR
  *   grupo de cartas elegíveis (numeral 2-10 ou Ás, nunca as reservadas pra
@@ -2899,9 +2908,9 @@ function decideTowerAction(state: GameState, ai: PlayerNumber, character: Charac
   const eligible = me.hand.filter((c) => !reserved.has(c.id) && !isFrozenPlayBlocked(character, c) && towerEligibleValue(c) !== null);
   if (eligible.length === 0) return null;
 
-  for (const towerSlotIndex of me.towerSlotsThisTurn) {
+  for (let towerSlotIndex = 0; towerSlotIndex < me.field.length; towerSlotIndex += 1) {
     const slot = me.field[towerSlotIndex];
-    if (!isTowerSlot(slot)) continue; // torre foi desfeita nesse meio tempo (ex.: magia inimiga esvaziou) - não recria
+    if (!isTowerSlot(slot)) continue;
     const topValue = getEffectiveCardValue(slot.faceDownCard!);
     const reinforceCard = eligible.find((c) => towerEligibleValue(c) === topValue);
     if (!reinforceCard) continue;

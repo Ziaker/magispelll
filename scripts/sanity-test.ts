@@ -15,6 +15,7 @@ import {
   getMagicActivationContext,
   getFireballCap,
   canFormOrReinforceTower,
+  isTowerSlot,
   ALL_CHARACTER_IDS,
   type CharacterId,
   type GameState,
@@ -1621,9 +1622,10 @@ function activateMagoNumeralSpell(state: GameState): GameState {
   // FIX (pedido do usuário: "a IA está conseguindo fazer mais do que uma
   // torre por turno, o que teoricamente era incorreto, mas volto atrás com
   // isso, permita que os jogadores coloquem até 3 torres no campo") -
-  // reversão da regra anterior de 1 torre só por turno. `towerSlotsThisTurn`
-  // (PlayerState, gameEngine.ts) virou uma lista - os 3 slots do campo agora
-  // podem virar torre no mesmo turno.
+  // reversão da regra anterior de 1 torre só por turno - os 3 slots do campo
+  // agora podem virar torre no mesmo turno (ownership sempre lido direto do
+  // campo via `isTowerSlot`, nunca cacheado num contador à parte - ver
+  // canFormOrReinforceTower, gameEngine.ts).
   const config: GameConfig = { ...DEFAULT_GAME_CONFIG, towersMode: true };
   let state = createInitialState('mago', 'besta', config);
   const a1 = makeCard('multi-tower-a1', '5');
@@ -1644,8 +1646,8 @@ function activateMagoNumeralSpell(state: GameState): GameState {
   assert(state.player1.field[2].faceDownCard?.value === '9', 'FIX Multi-Torres: uma 3ª torre (slot 2) também forma - os 3 slots do campo podem virar torre no mesmo turno');
 
   assert(
-    state.player1.towerSlotsThisTurn.length === 3 && [0, 1, 2].every((i) => state.player1.towerSlotsThisTurn.includes(i)),
-    `towerSlotsThisTurn rastreia as 3 torres formadas neste turno (recebido: ${JSON.stringify(state.player1.towerSlotsThisTurn)})`
+    [0, 1, 2].every((i) => isTowerSlot(state.player1.field[i])),
+    `Os 3 slots do campo são reconhecidos como torre (lido direto do campo via isTowerSlot, não de um contador à parte)`
   );
 
   // Reforçar qualquer uma das 3 continua funcionando normalmente.
@@ -1653,6 +1655,44 @@ function activateMagoNumeralSpell(state: GameState): GameState {
   state = { ...state, player1: { ...state.player1, hand: [extra] } };
   state = gameReducer(state, { type: 'FORM_OR_REINFORCE_TOWER', player: 1, slotIndex: 0, cardIds: [extra.id] });
   assert(state.player1.field[0].towerReserve?.length === 2, 'FIX Multi-Torres: reforçar uma das 3 torres já formadas neste turno continua funcionando');
+})();
+
+// ---------------------------------------------------------------------------
+// FIX (checagem extensa por bugs - achado investigando o pedido "reforçar por
+// drag uma torre que sobrou de um turno anterior"): antes, reforçar uma torre
+// exigia o slot numa lista `towerSlotsThisTurn` zerada em toda virada de
+// turno - uma torre que sobreviveu (nunca foi tocada de novo neste turno,
+// nem formada nele) ficava fora dessa lista e nunca podia ser reforçada.
+// Simula exatamente esse cenário: uma torre já EXISTE no campo (construída
+// direto no estado, sem passar por FORM_OR_REINFORCE_TOWER nesta "sessão" -
+// exatamente como uma torre sobrevivente de um turno anterior apareceria).
+// ---------------------------------------------------------------------------
+(function testReinforceTowerThatSurvivedFromEarlierTurnWorks() {
+  const config: GameConfig = { ...DEFAULT_GAME_CONFIG, towersMode: true };
+  let state = createInitialState('mago', 'besta', config);
+  const top = makeCard('surviving-tower-top', '6');
+  const reserveCard = makeCard('surviving-tower-reserve', '6');
+  const reinforcement = makeCard('surviving-tower-new', '6');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [reinforcement],
+      field: [
+        { faceDownCard: top, towerReserve: [reserveCard], revealed: true, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  assert(isTowerSlot(state.player1.field[0]), 'Pré-condição: o slot 0 já é reconhecido como torre, mesmo nunca tendo passado por FORM_OR_REINFORCE_TOWER nesta simulação');
+  assert(
+    canFormOrReinforceTower(state, 1, 0, [reinforcement.id]),
+    'FIX: uma torre já existente no campo (ex.: sobrevivente de um turno anterior) é reforçável com só 1 carta, sem depender de nenhum registro prévio de "quando" ela foi formada'
+  );
+  state = gameReducer(state, { type: 'FORM_OR_REINFORCE_TOWER', player: 1, slotIndex: 0, cardIds: [reinforcement.id] });
+  assert(state.player1.field[0].towerReserve?.length === 2, `FIX: o reforço realmente aplicou (recebido: ${state.player1.field[0].towerReserve?.length} cartas na reserva)`);
 })();
 
 // 32. Item 9 da 6ª rodada: RETURN_HORIZONTAL_CARD_TO_HAND remove só a carta

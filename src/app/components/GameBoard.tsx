@@ -103,7 +103,7 @@ import { simulateSteps, fuzzSteps } from '../lib/simulateGame';
 import { enumerateLegalActions, checkActionDivergence } from '../lib/actionSpace';
 import { checkInvariants, countAllCards } from '../lib/invariants';
 import { setSeed, getSeed, clearSeed } from '../lib/rng';
-import { decideHandCardSelection, toggleTowerCardSelection } from '../lib/handSelection';
+import { decideHandCardSelection, toggleTowerCardSelection, groupCardsForTowerViaDrag } from '../lib/handSelection';
 import { findFieldCardWithStatus, getCombatModifierStatuses, getStatusMagnitude, hasStatus } from '../lib/statusEffects';
 
 /**
@@ -320,6 +320,29 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   // que esta vive na fase de Estratégia. Reaproveita `selectedSlot` (o mesmo
   // usado por Posicionar/Horizontal) para o jogador escolher o slot alvo.
   const [selectedForTower, setSelectedForTower] = useState<Set<string>>(new Set());
+  // FIX (checagem extensa por bugs, achado testando o drag & drop de Torres
+  // - "opção 5"): uma carta agrupada em `selectedForTower` (via selo 🏰 ou
+  // via groupCardsForTowerViaDrag) pode sair da mão por um caminho TOTALMENTE
+  // diferente (ex.: arrastada como reforço horizontal comum, fundida,
+  // transformada) sem passar por nenhum dos handlers que já limpam essa
+  // seleção (handleFormTower/handleTowerDrop) - o id dela ficava "preso" em
+  // `selectedForTower` mesmo sem mais existir na mão. Qualquer tentativa
+  // seguinte de formar/reforçar torre com o grupo então rejeitava SEMPRE
+  // (canFormOrReinforceTower recusa se algum id selecionado não existir mais
+  // na mão), sem nenhuma pista visível de por quê - a única saída era
+  // desmarcar manualmente cada carta ainda válida e recomeçar do zero. Este
+  // efeito remove do grupo qualquer id que já não exista mais na mão do
+  // dono, toda vez que QUALQUER mão mudar - mantém `selectedForTower` sempre
+  // em sincronia com a realidade, sem precisar caçar todo caminho que possa
+  // ter tirado uma carta da mão.
+  useEffect(() => {
+    setSelectedForTower((prev) => {
+      if (prev.size === 0) return prev;
+      const validIds = new Set([...gameState.player1.hand, ...gameState.player2.hand].map((c) => c.id));
+      const next = new Set([...prev].filter((id) => validIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [gameState.player1.hand, gameState.player2.hand]);
   const [showDiscardPile, setShowDiscardPile] = useState(false);
   const [showPhaseTransition, setShowPhaseTransition] = useState(false);
   /**
@@ -1917,6 +1940,20 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     setSelectedForTower(next.selectedForTower);
   };
 
+  // FIX (Modo Towers, "opção 5": "através de drag & drop, da mesma forma que
+  // faz uma fusão, arrastar uma carta encima de outra do mesmo número") -
+  // solta uma carta da mão em cima de outra de mesmo valor efetivo: as duas
+  // entram no grupo de torre (mesmo `selectedForTower` do selo 🏰), sem
+  // posicionar nada no campo ainda - "fica agrupada na mão até ser jogada
+  // com clique/drag até o campo" (confirmado com o usuário). Função pura
+  // testada isoladamente - ver groupCardsForTowerViaDrag em handSelection.ts.
+  const handleTowerGroupDrop = (playerNumber: 1 | 2, droppedCardId: string, targetCardId: string) => {
+    const player = gameState[playerKeyOf(playerNumber)];
+    const next = groupCardsForTowerViaDrag(player.hand, { selectedCardId, selectedForTower }, droppedCardId, targetCardId);
+    setSelectedCardId(next.selectedCardId);
+    setSelectedForTower(next.selectedForTower);
+  };
+
   const handleFormTower = (playerNumber: 1 | 2, slotIndex: number) => {
     if (selectedForTower.size === 0) return;
     dispatch({ type: 'FORM_OR_REINFORCE_TOWER', player: playerNumber, slotIndex, cardIds: Array.from(selectedForTower) });
@@ -2665,6 +2702,41 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       selectedRevealCardIds: selection.selectedRevealCardIds,
       fireballLaunch: selection.fireballLaunch,
     });
+  };
+
+  /**
+   * Modo Towers, "opção 5" (pedido do usuário: "através de drag & drop, da
+   * mesma forma que faz uma fusão, arrastar uma carta encima de outra do
+   * mesmo número" + "checagem que vê se ela ERA uma torre ou É uma carta
+   * singular... pode sim posicionar uma carta vertical nela") - devolve os
+   * `cardIds` prontos pra FORM_OR_REINFORCE_TOWER se soltar `card` no slot
+   * `slotIndex` do campo `dropPlayerNumber` formar/reforçar uma Torre AGORA,
+   * ou `null` se não fizer sentido (nunca confia só na UI: sempre revalida
+   * contra `canFormOrReinforceTower`, a mesma função que o fluxo de clique -
+   * handleFormTower/GameBoard.tsx - já usa). Torre só existe no PRÓPRIO
+   * campo - arrastar pro campo do OPONENTE nunca se aplica aqui, ao
+   * contrário da maioria das magias em dragActivation.ts.
+   *
+   * Se `card` fizer parte de um grupo de 2+ já reunido em `selectedForTower`
+   * (via selo 🏰 ou via groupCardsForTowerViaDrag), usa o GRUPO inteiro;
+   * senão, tenta só ela sozinha (só é válido pra REFORÇAR uma torre já
+   * ativa - criar uma nova sempre exige 2+, ver canFormOrReinforceTower).
+   */
+  const getTowerDropCardIds = (dropPlayerNumber: 1 | 2, slotIndex: number, card: Card): string[] | null => {
+    if (gameState.phase !== 'strategy' || !gameConfig.towersMode) return null;
+    const ownerPlayerNumber: 1 | 2 = gameState.player1.hand.some((c) => c.id === card.id) ? 1 : 2;
+    if (ownerPlayerNumber !== dropPlayerNumber) return null;
+    if (isAi(ownerPlayerNumber)) return null;
+    const cardIds = selectedForTower.has(card.id) && selectedForTower.size >= 2 ? Array.from(selectedForTower) : [card.id];
+    return canFormOrReinforceTower(gameState, ownerPlayerNumber, slotIndex, cardIds) ? cardIds : null;
+  };
+
+  const handleTowerDrop = (playerNumber: 1 | 2, slotIndex: number, cardIds: string[]) => {
+    if (!canFormOrReinforceTower(gameState, playerNumber, slotIndex, cardIds)) return;
+    dispatch({ type: 'FORM_OR_REINFORCE_TOWER', player: playerNumber, slotIndex, cardIds: [...cardIds] });
+    setSelectedForTower(new Set());
+    setSelectedCardId(null);
+    setSelectedSlot(null);
   };
 
   /**
@@ -3799,6 +3871,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onDrawCards={(count) => handleDrawCards(2, count)}
                 onTransformAce={(cardId) => handleTransformAce(2, cardId)}
                 onAceTransformDrop={(aceCardId, targetCardId) => handleAceTransformDrop(2, aceCardId, targetCardId)}
+                onTowerGroupDrop={(droppedCardId, targetCardId) => handleTowerGroupDrop(2, droppedCardId, targetCardId)}
                 onActivateMagic={(cardId) => handleActivateMagicClick(2, cardId)}
                 onSwapFieldCard={(cardId, slotIndex) => handleSwapFieldCard(2, cardId, slotIndex)}
                 deckSize={gameState.deck.length}
@@ -3854,6 +3927,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     onCardDrop={handleCardDrop}
                     onMagicCardDrop={handleMagicCardDrop}
                     isMagicDropTarget={isMagicDropTarget}
+                    getTowerDropCardIds={getTowerDropCardIds}
+                    onTowerDrop={handleTowerDrop}
                     onRemoveHorizontalCard={handleRemoveHorizontalCard}
                     monsterTargetSelection={pendingMonsterTarget}
                     effectFlashSlots={effectFlashSlots}
@@ -3915,6 +3990,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onDrawCards={(count) => handleDrawCards(1, count)}
                 onTransformAce={(cardId) => handleTransformAce(1, cardId)}
                 onAceTransformDrop={(aceCardId, targetCardId) => handleAceTransformDrop(1, aceCardId, targetCardId)}
+                onTowerGroupDrop={(droppedCardId, targetCardId) => handleTowerGroupDrop(1, droppedCardId, targetCardId)}
                 onActivateMagic={(cardId) => handleActivateMagicClick(1, cardId)}
                 onSwapFieldCard={(cardId, slotIndex) => handleSwapFieldCard(1, cardId, slotIndex)}
                 deckSize={gameState.deck.length}

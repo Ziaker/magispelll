@@ -152,6 +152,15 @@ interface PlayerZoneProps {
    * é o Ás arrastado, `targetCardId` a carta numeral da mão onde foi solto.
    */
   onAceTransformDrop: (aceCardId: string, targetCardId: string) => void;
+  /**
+   * Modo Towers, "opção 5" (pedido do usuário: "através de drag & drop, da
+   * mesma forma que faz uma fusão, arrastar uma carta encima de outra do
+   * mesmo número") - agrupa as duas cartas (`droppedCardId`/`targetCardId`)
+   * pra formar/reforçar Torre depois, sem posicionar nada no campo ainda -
+   * mesmo grupo (`selectedForTower`) que o selo 🏰 já usa, só populado via
+   * arrasto em vez de clique por clique.
+   */
+  onTowerGroupDrop: (droppedCardId: string, targetCardId: string) => void;
   onActivateMagic: (cardId: string) => void;
   /** FIX (item 9): troca a carta principal (ainda não revelada) de um slot do campo pela carta da mão selecionada; a carta antiga volta para a mão. */
   onSwapFieldCard: (cardId: string, slotIndex: number) => void;
@@ -323,6 +332,7 @@ export function PlayerZone({
   onFuseCards,
   onTransformAce,
   onAceTransformDrop,
+  onTowerGroupDrop,
   onActivateMagic,
   onSwapFieldCard,
   deckSize,
@@ -1828,6 +1838,8 @@ export function PlayerZone({
                         onFuseDrop={(droppedCardId) => onFuseCards(droppedCardId, card.id)}
                         canAceTransformTarget={canAceTransformTarget}
                         onAceTransformDrop={(droppedAceCardId) => onAceTransformDrop(droppedAceCardId, card.id)}
+                        canTowerGroupTarget={towerBadgeEligible}
+                        onTowerGroupDrop={(droppedCardId) => onTowerGroupDrop(droppedCardId, card.id)}
                         arcRotateDeg={handSortMode === 'manual' ? 0 : arcRotateDeg}
                         arcLiftPx={handSortMode === 'manual' ? 0 : arcLiftPx}
                         fusionPreview={fusionPartnerPreviews?.get(card.id)}

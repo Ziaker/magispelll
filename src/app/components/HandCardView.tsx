@@ -9,7 +9,7 @@ import { AceTransformBurst } from './AceTransformBurst';
 import { CardRejectFlash } from './CardRejectFlash';
 import type { Card } from '../lib/cardUtils';
 import type { FusionPartnerPreview } from '../lib/handQol';
-import type { CharacterId, Phase } from '../lib/gameEngine';
+import { towerEligibleValue, type CharacterId, type Phase } from '../lib/gameEngine';
 import type { SpotlightState } from '../lib/spotlight';
 import { CARD_ITEM_TYPE, CARD_SNAP_RADIUS, type CardDragItem } from '../lib/dnd';
 import { findNearestDropTarget } from '../lib/dropTargetRegistry';
@@ -63,8 +63,21 @@ interface HandCardViewProps {
    * nunca Monstro.
    */
   canAceTransformTarget?: boolean;
-  /** Disparado quando um Ás não transformado é solto em cima desta carta (transformação via drag-and-drop) - `droppedAceCardId` é o Ás que estava sendo arrastado. */
+  /** Disparado quando um Ás não transformado é solto em cima desta carta (transformação via drag-and-drop) - `droppedAceCardId` é o Ás que estava sendo arrastada. */
   onAceTransformDrop?: (droppedAceCardId: string) => void;
+  /**
+   * Modo Towers, "opção 5" (pedido do usuário: "através de drag & drop, da
+   * mesma forma que faz uma fusão, arrastar uma carta encima de outra do
+   * mesmo número") - verdadeiro quando ESTA carta específica (elegível pra
+   * torre, fase de Estratégia, Modo Towers ligado) pode receber outra carta
+   * arrastada em cima pra entrar no grupo de torre junto com ela. O valor
+   * EFETIVO da carta arrastada precisa bater com o desta (checado dentro do
+   * `canDrop` abaixo, item-aware - `canTowerGroupTarget` sozinho só cobre a
+   * elegibilidade desta carta, igual a `canFuseTarget`/`canAceTransformTarget`).
+   */
+  canTowerGroupTarget?: boolean;
+  /** Disparado quando outra carta da mão de mesmo valor é solta em cima desta (agrupamento pra Torre via drag-and-drop) - `droppedCardId` é a carta que estava sendo arrastada. */
+  onTowerGroupDrop?: (droppedCardId: string) => void;
 
   /**
    * QoL da mão (pedido do usuário: "me de mais ideias, melhores" sobre a
@@ -159,6 +172,8 @@ export function HandCardView({
   onFuseDrop,
   canAceTransformTarget,
   onAceTransformDrop,
+  canTowerGroupTarget,
+  onTowerGroupDrop,
   arcRotateDeg = 0,
   arcLiftPx = 0,
   fusionPreview,
@@ -238,22 +253,40 @@ export function HandCardView({
   // transformação; um já transformado cai no branch de Fusão como qualquer
   // carta comum (que o motor também recusa corretamente, já que Ás nunca
   // participa de fusão normal - isPlainNumeralCard).
+  // FIX (Modo Towers, "opção 5": "através de drag & drop, da mesma forma que
+  // faz uma fusão, arrastar uma carta encima de outra do mesmo número") -
+  // 3ª interpretação possível de "outra carta solta em cima desta", depois
+  // do Ás cru (transforma) e de qualquer outra (funde). `canTowerGroupTarget`
+  // já garante fase de Estratégia/Modo Towers ligado (nunca compete com
+  // Fusão, exclusiva da fase de Compra) - só falta o valor efetivo do item
+  // arrastado bater com o desta carta (item-aware, igual isMagicDrop em
+  // FieldSlotView.tsx - nunca confia só no `canTowerGroupTarget` do alvo,
+  // que não sabe nada sobre a carta sendo arrastada).
+  const isMatchingTowerDrag = (item: CardDragItem) =>
+    Boolean(canTowerGroupTarget) && item.card !== undefined && towerEligibleValue(item.card) !== null && towerEligibleValue(item.card) === towerEligibleValue(card);
   const [{ isCardDropOver, canDropNow }, cardDropRef] = useDrop<CardDragItem, unknown, { isCardDropOver: boolean; canDropNow: boolean }>(
     () => ({
       accept: CARD_ITEM_TYPE,
       canDrop: (item) => {
         if (item.cardId === card.id) return false;
         const isUntransformedDraggedAce = item.card?.value === 'A' && item.card?.transformedValue === undefined;
-        return isUntransformedDraggedAce ? Boolean(canAceTransformTarget) : Boolean(canFuseTarget);
+        if (isUntransformedDraggedAce) return Boolean(canAceTransformTarget);
+        if (isMatchingTowerDrag(item)) return true;
+        return Boolean(canFuseTarget);
       },
       drop: (item) => {
         const isUntransformedDraggedAce = item.card?.value === 'A' && item.card?.transformedValue === undefined;
-        if (isUntransformedDraggedAce) onAceTransformDrop?.(item.cardId);
-        else onFuseDrop?.(item.cardId);
+        if (isUntransformedDraggedAce) {
+          onAceTransformDrop?.(item.cardId);
+        } else if (isMatchingTowerDrag(item)) {
+          onTowerGroupDrop?.(item.cardId);
+        } else {
+          onFuseDrop?.(item.cardId);
+        }
       },
       collect: (monitor) => ({ isCardDropOver: monitor.isOver(), canDropNow: monitor.canDrop() }),
     }),
-    [canFuseTarget, canAceTransformTarget, card.id, onFuseDrop, onAceTransformDrop]
+    [canFuseTarget, canAceTransformTarget, canTowerGroupTarget, card, onFuseDrop, onAceTransformDrop, onTowerGroupDrop]
   );
 
   // Dispara o equivalente ao antigo `onDragStart` nativo (seleciona a carta
@@ -339,7 +372,7 @@ export function HandCardView({
         cardDropRef(node);
       }}
       data-card-id={card.id}
-      data-card-drop-target={canFuseTarget || canAceTransformTarget ? 'true' : undefined}
+      data-card-drop-target={canFuseTarget || canAceTransformTarget || canTowerGroupTarget ? 'true' : undefined}
       layout
       initial={{ opacity: 0, y: -36, scale: 0.7 }}
       // FIX (pedido do usuário: "a carta não tira quando atirada") - antes
@@ -404,7 +437,7 @@ export function HandCardView({
           ? 'ring-4 ring-[#6CC47A] rounded-lg scale-105'
           : fusionPreview
           ? 'ring-4 rounded-lg shadow-lg'
-          : canFuseTarget || canAceTransformTarget
+          : canFuseTarget || canAceTransformTarget || canTowerGroupTarget
           ? 'ring-2 ring-dashed ring-[#C59E4F]/50 rounded-lg'
           : ''
       }`}

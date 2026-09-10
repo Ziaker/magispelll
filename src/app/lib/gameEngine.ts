@@ -98,7 +98,14 @@ export type FieldSlot = {
    * precisa saber que existe uma pilha por baixo). O valor de combate do
    * slot soma o topo + toda a reserva (ver handleResolveCombat); ao
    * descartar o campo inteiro, a reserva também vai junto (ver fieldCards).
-   * `undefined`/`[]` = slot normal, sem torre. Ver FORM_OR_REINFORCE_TOWER.
+   * Ver FORM_OR_REINFORCE_TOWER.
+   *
+   * 3 estados, não 2 (FIX, pedido do usuário: "checagem que vê se ela ERA
+   * uma torre ou É uma carta singular"): `undefined` = nunca foi torre;
+   * `[]` (array vazio, nunca convertido de volta pra `undefined`) = FOI
+   * torre e erodiu até sobrar só o topo sozinho (`isTowerSlot` falso, mas
+   * `wasEverTowerSlot` verdadeiro); `.length > 0` = torre ativa agora
+   * (`isTowerSlot`). Ver isTowerSlot/wasEverTowerSlot logo abaixo.
    */
   towerReserve?: Card[];
   /**
@@ -106,11 +113,14 @@ export type FieldSlot = {
    * (mesma forma de `towerReserve`, mas NUNCA erode - ver resolveCombatSlot).
    * Campo IRMÃO de `towerReserve`, não reaproveitado dele de propósito: um
    * Broto plantado sozinho (sem nenhum Valete extra empilhado) já marca este
-   * campo como `[]` (define a PRESENÇA do Broto, ao contrário de
-   * `towerReserve`, que só existe de verdade com 1+ carta - uma torre
-   * precisa de 2+ cartas pra nascer, um Broto nasce sozinho com 1) - por
-   * isso `isBrotoSlot` testa PRESENÇA (`!== undefined`), nunca o
-   * comprimento, diferente de `isTowerSlot`. O valor de combate atual do
+   * campo como `[]` (define a PRESENÇA do Broto desde o nascimento, com só
+   * 1 carta - diferente de `towerReserve`, que só chega a `[]` DEPOIS de já
+   * ter sido uma torre de verdade, nunca no nascimento - uma torre precisa
+   * de 2+ cartas pra nascer) - por isso `isBrotoSlot` testa PRESENÇA
+   * (`!== undefined`), nunca o comprimento, diferente de `isTowerSlot`
+   * (embora `wasEverTowerSlot` também teste só presença, pelo motivo
+   * oposto: sinalizar histórico, não estado atual - ver os dois logo
+   * abaixo). O valor de combate atual do
    * Broto vive em `faceDownCard.transformedValue` (mesmo campo reaproveitado
    * do Ás transformado e do Monstro-15 do Coringa) - a reserva aqui só
    * guarda as cartas físicas empilhadas por baixo, pra conservação de
@@ -229,26 +239,6 @@ export interface PlayerState {
    * removido pelo tick genérico na virada pra Compra (ver `resetForNewTurn`).
    */
   statusEffects?: import('./statusEffects').StatusEffect[];
-  /**
-   * Modo Towers: quais slots (0-2) do PRÓPRIO campo este jogador já formou
-   * como torre NESTE turno.
-   *
-   * FIX (pedido do usuário: "a IA está conseguindo fazer mais do que uma
-   * torre por turno, o que teoricamente era incorreto, mas volto atrás com
-   * isso, permita que os jogadores coloquem até 3 torres no campo") -
-   * reversão de uma regra anterior que limitava a 1 slot só por turno
-   * (`towerSlotThisTurn?: number`, singular). Agora é uma lista - até os 3
-   * slots do campo podem virar torre no mesmo turno, cada um pode ser
-   * reforçado quantas vezes o jogador quiser dentro do mesmo turno (ver
-   * FORM_OR_REINFORCE_TOWER), mas só um slot que JÁ está nesta lista pode
-   * ser reforçado - formar uma torre NOVA num slot que ainda não está aqui
-   * sempre precisa de 2+ cartas (ver canFormOrReinforceTower). Lista vazia =
-   * nenhuma torre formada ainda neste turno. Zerada a cada turno junto com
-   * `discardsThisTurn` (ver `resetForNewTurn`) - o campo inteiro é
-   * descartado a cada fim de turno de qualquer forma, então uma torre nunca
-   * sobrevive de um turno pro outro.
-   */
-  towerSlotsThisTurn: number[];
   /**
    * Mosqueteiro (personagem novo, foco em descarte) - contador PRÓPRIO de
    * quantas cartas suas magias (Valete/Rainha) descartaram NESTE turno (só a
@@ -684,7 +674,6 @@ function createPlayerState(hand: Card[], handLimit: number): PlayerState {
     monsterCard: undefined,
     monsterTargetSlot: undefined,
     monsterProtectedSlots: [],
-    towerSlotsThisTurn: [],
     mosqueteiroDiscardsThisTurn: 0,
     mosqueteiroDiscardsTurnMinus1: 0,
     mosqueteiroDiscardsTurnMinus2: 0,
@@ -891,6 +880,28 @@ export function isTowerSlot(slot: FieldSlot): boolean {
 }
 
 /**
+ * Verdadeiro quando este slot JÁ FOI uma torre em algum momento (mesmo que
+ * agora só reste a carta do topo sozinha, `isTowerSlot` falso) - pedido do
+ * usuário: "precisa que faça uma checagem que vê se ela ERA uma torre ou É
+ * uma carta singular" (drag & drop pra reforçar uma torre que virou avulsa,
+ * sem confundir com uma carta comum que nunca teve nada a ver com Torres).
+ *
+ * Convenção de `FieldSlot.towerReserve` (3 estados, não 2):
+ * `undefined` = nunca foi torre; `[]` (array vazio, NUNCA `undefined`) = FOI
+ * torre e erodiu até sobrar só o topo; `.length > 0` = torre ativa agora
+ * (`isTowerSlot`). `resolveCombatSlot`/`resolveSlotToHand` preservam esse
+ * `[]` de propósito (em vez de voltar pra `undefined`) exatamente pra esta
+ * função conseguir distinguir os dois primeiros casos depois - qualquer
+ * caminho que de fato ESVAZIA o slot pra valer (RETURN_CARD_TO_HAND,
+ * SWAP_FIELD_CARD, descarte no fim de combate) constrói um FieldSlot do
+ * zero sem a chave `towerReserve` nenhuma, voltando a `undefined` como
+ * sempre - nunca precisa "limpar" este sinal manualmente.
+ */
+export function wasEverTowerSlot(slot: FieldSlot): boolean {
+  return slot.towerReserve !== undefined;
+}
+
+/**
  * Glacial - valor atual do Criogolem (8 + 1 por carta congelada em jogo,
  * mão e campo dos DOIS jogadores) - usado tanto para travar o valor no
  * instante em que o Criogolem é posicionado (handlePlaceMonsterCard) quanto
@@ -1067,7 +1078,12 @@ function resolveCombatSlot(slot: FieldSlot, erodeOnly: boolean): { newSlot: Fiel
   const newReserve = reserve.slice(0, -1);
   const discarded = [slot.faceDownCard, ...slot.horizontalCards].filter((c): c is Card => Boolean(c));
   return {
-    newSlot: { faceDownCard: newTop, towerReserve: newReserve.length > 0 ? newReserve : undefined, revealed: true, horizontalCards: [] },
+    // FIX (pedido do usuário: "precisa de uma checagem que vê se ela ERA uma
+    // torre ou É uma carta singular") - `towerReserve: newReserve` direto
+    // (nunca convertido pra `undefined` quando esvazia) - o `[]` resultante
+    // preserva o sinal "isto já foi uma torre" pra wasEverTowerSlot acima
+    // conseguir distinguir depois de uma carta comum que nunca foi torre.
+    newSlot: { faceDownCard: newTop, towerReserve: newReserve, revealed: true, horizontalCards: [] },
     discarded,
   };
 }
@@ -2474,9 +2490,6 @@ function handleReturnCardToHand(state: GameState, player: PlayerNumber, slotInde
       ...playerState,
       hand: newHand,
       field: newField,
-      // A torre deste jogador (se era esta) deixou de existir - libera o
-      // slot pra poder virar uma torre nova neste mesmo turno, se quiser.
-      towerSlotsThisTurn: playerState.towerSlotsThisTurn.filter((s) => s !== slotIndex),
     },
   };
 }
@@ -2718,15 +2731,17 @@ export function towerEligibleValue(card: Card): number | null {
  * - Só na fase de Estratégia, com o Modo Towers ligado nesta partida.
  * - Todas as cartas selecionadas precisam existir na mão do jogador, ser
  *   elegíveis (numeral 2-10 ou Ás) e ter o MESMO valor efetivo entre si.
- * - CRIAR uma torre nova (o slot ainda não é torre neste turno): precisa de
- *   2+ cartas selecionadas, e o slot precisa estar vazio OU já ter uma carta
- *   comum (não torre) de valor igual (ela é absorvida) - sem nenhuma carta
- *   horizontal already ali. Qualquer slot ainda livre serve - sem limite de
- *   1 por turno, até os 3 slots do campo podem virar torre no mesmo turno
- *   (ver `towerSlotsThisTurn`, PlayerState).
- * - REFORÇAR uma torre já formada por este jogador neste turno (o slot já É
- *   torre e já está em `towerSlotsThisTurn`): basta 1+ carta selecionada,
- *   valor igual ao topo atual da torre.
+ * - CRIAR uma torre nova (o slot ainda NÃO é uma torre agora, `isTowerSlot`
+ *   falso): precisa de 2+ cartas selecionadas, e o slot precisa estar vazio
+ *   OU já ter uma carta comum (não torre) de valor igual (ela é absorvida) -
+ *   sem nenhuma carta horizontal já ali. Qualquer slot ainda livre serve -
+ *   sem limite de 1 por turno, até os 3 slots do campo podem virar torre.
+ * - REFORÇAR uma torre já existente (o slot JÁ é uma torre, `isTowerSlot`
+ *   verdadeiro - checado direto no campo, nunca cacheado num contador "por
+ *   turno": uma torre que sobreviveu de um turno anterior sem nunca ter
+ *   sido tocada de novo continua reforçável normalmente, mesmo padrão de
+ *   qualquer torre formada neste turno): basta 1+ carta selecionada, valor
+ *   igual ao topo atual da torre.
  */
 export function canFormOrReinforceTower(state: GameState, player: PlayerNumber, slotIndex: number, cardIds: string[]): boolean {
   if (state.phase !== 'strategy' || !state.gameConfig.towersMode) return false;
@@ -2749,15 +2764,25 @@ export function canFormOrReinforceTower(state: GameState, player: PlayerNumber, 
   const targetValue = values[0];
   if (!values.every((v) => v === targetValue)) return false;
 
-  const alreadyMyTower = playerState.towerSlotsThisTurn.includes(slotIndex) && isTowerSlot(slot);
-  if (alreadyMyTower) {
+  // FIX (checagem extensa por bugs - achado investigando o pedido "reforçar
+  // por drag uma torre que sobrou de um turno anterior"): "já é minha
+  // torre" costumava exigir o slot numa lista `towerSlotsThisTurn` zerada a
+  // cada virada de turno - uma torre sobrevivente que ainda não tinha sido
+  // TOCADA de novo neste turno (nunca reforçada, só sobrevivendo ao
+  // combate) ficava fora dessa lista, e `isTowerSlot(slot)` sozinho não
+  // bastava pra reconhecer "reforçável" no branch de baixo (que
+  // explicitamente exige `!isTowerSlot` pra "absorver carta avulsa") - um
+  // beco sem saída. `isTowerSlot(slot)` (lido direto do campo, nunca de um
+  // contador à parte) já é a única checagem que faz sentido aqui: é uma
+  // torre agora, ou não é.
+  if (isTowerSlot(slot)) {
     return getEffectiveCardValue(slot.faceDownCard!) === targetValue;
   }
 
-  // Ainda não é uma torre minha neste turno - CRIAR uma torre nova aqui
-  // (pedido do usuário: "permita que os jogadores coloquem até 3 torres no
-  // campo") - qualquer slot ainda livre pode virar torre, sem limite de 1
-  // por turno (o campo só tem 3 slots de qualquer forma).
+  // Não é uma torre agora - CRIAR uma torre nova aqui (pedido do usuário:
+  // "permita que os jogadores coloquem até 3 torres no campo") - qualquer
+  // slot ainda livre (ou com carta avulsa absorvível) pode virar torre, sem
+  // limite de 1 por turno (o campo só tem 3 slots de qualquer forma).
   if (cardIds.length < 2) return false;
   if (slot.horizontalCards.length > 0) return false;
   if (!slot.faceDownCard) return true; // slot vazio
@@ -2823,9 +2848,6 @@ function handleFormOrReinforceTower(state: GameState, player: PlayerNumber, slot
       ...playerState,
       hand: newHand,
       field: newField,
-      towerSlotsThisTurn: playerState.towerSlotsThisTurn.includes(slotIndex)
-        ? playerState.towerSlotsThisTurn
-        : [...playerState.towerSlotsThisTurn, slotIndex],
     },
   };
 }
@@ -5963,7 +5985,10 @@ function handleFinalizeCombat(state: GameState): GameState {
       const newTop = reserve[reserve.length - 1];
       const newReserve = reserve.slice(0, -1);
       return {
-        newSlot: { faceDownCard: newTop, towerReserve: newReserve.length > 0 ? newReserve : undefined, revealed: true, horizontalCards: [] },
+        // Mesmo `towerReserve: newReserve` direto de resolveCombatSlot acima
+        // (nunca `undefined` ao esvaziar) - preserva o sinal de
+        // wasEverTowerSlot mesmo neste caminho irmão (Rei armadilha do Coringa).
+        newSlot: { faceDownCard: newTop, towerReserve: newReserve, revealed: true, horizontalCards: [] },
         returnedToHand,
       };
     };
@@ -6321,7 +6346,6 @@ function advancePhaseState(state: GameState): GameState {
       discardsThisTurn: newPhase === 'draw' ? 0 : p.discardsThisTurn,
       drawsThisTurn: newPhase === 'draw' ? 0 : p.drawsThisTurn,
       fusesThisTurn: newPhase === 'draw' ? 0 : p.fusesThisTurn,
-      towerSlotsThisTurn: newPhase === 'draw' ? [] : p.towerSlotsThisTurn,
       // Mosqueteiro (personagem novo) - janela deslizante de 3 turnos (ver
       // comentário completo em `mosqueteiroDiscardsThisTurn`, PlayerState): a
       // cada nova virada de turno, T-1 vira T-2 e o valor final do turno que
