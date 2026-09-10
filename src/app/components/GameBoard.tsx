@@ -2547,13 +2547,20 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     const magicType = card.value as MagicCardType;
     const rule = getDragActivationRule(character, magicType);
     if (!rule) return false;
-    const expectedDropSide: 1 | 2 = rule.side === 'own' ? ownerPlayerNumber : opponentOf(ownerPlayerNumber);
-    if (slotPlayerNumber !== expectedDropSide) return false;
+    // FIX (pedido do usuário: "o drag & drop do glacial na parte das
+    // magias não funciona") - `side: 'either'` (Criogenar/Crioespinho do
+    // Glacial) aceita o drop em QUALQUER um dos dois campos, não só um lado
+    // fixo - ver comentário de `DragActivationRule.side` em
+    // dragActivation.ts.
+    if (rule.side !== 'either') {
+      const expectedDropSide: 1 | 2 = rule.side === 'own' ? ownerPlayerNumber : opponentOf(ownerPlayerNumber);
+      if (slotPlayerNumber !== expectedDropSide) return false;
+    }
     // FIX (pedido do usuário: "a rainha do anjo impede a ativação... até o
     // fim do turno") - checagem por CARTA específica, ver PlayerZone.tsx.
     if (hasStatus(card, 'magicLocked')) return false;
     if (!canActivateMagic(gameState.phase, character, magicType, getMagicActivationContext(gameState, ownerPlayerNumber))) return false;
-    return rule.isValidSlotTarget(gameState, ownerPlayerNumber, slotIndex);
+    return rule.isValidSlotTarget(gameState, ownerPlayerNumber, slotPlayerNumber, slotIndex);
   };
 
   /**
@@ -2580,10 +2587,17 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // fim do turno") - checagem por CARTA específica, ver PlayerZone.tsx.
     if (hasStatus(card, 'magicLocked')) return false;
     if (!canActivateMagic(gameState.phase, character, magicType, getMagicActivationContext(gameState, ownerPlayerNumber))) return false;
-    const targetSide: 1 | 2 = rule.side === 'own' ? ownerPlayerNumber : opponentOf(ownerPlayerNumber);
-    const fieldLength = gameState[playerKeyOf(targetSide)].field.length;
-    for (let i = 0; i < fieldLength; i += 1) {
-      if (rule.isValidSlotTarget(gameState, ownerPlayerNumber, i)) return true;
+    // FIX (pedido do usuário: "o drag & drop do glacial na parte das
+    // magias não funciona") - `side: 'either'` precisa checar os DOIS
+    // campos antes de decidir se a carta vira arrastável, ver
+    // isMagicDropTarget acima.
+    const sidesToCheck: (1 | 2)[] =
+      rule.side === 'own' ? [ownerPlayerNumber] : rule.side === 'opponent' ? [opponentOf(ownerPlayerNumber)] : [1, 2];
+    for (const targetSide of sidesToCheck) {
+      const fieldLength = gameState[playerKeyOf(targetSide)].field.length;
+      for (let i = 0; i < fieldLength; i += 1) {
+        if (rule.isValidSlotTarget(gameState, ownerPlayerNumber, targetSide, i)) return true;
+      }
     }
     return false;
   };
@@ -2607,7 +2621,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     const magicType = card.value as MagicCardType;
     const rule = getDragActivationRule(character, magicType)!;
 
-    const selection = rule.buildSelection(gameState, ownerPlayerNumber, slotIndex);
+    const selection = rule.buildSelection(gameState, ownerPlayerNumber, dropPlayerNumber, slotIndex);
     executeMagicEffect({
       playerNumber: ownerPlayerNumber,
       cardId,

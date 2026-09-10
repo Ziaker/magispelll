@@ -15,13 +15,17 @@
  * consultam `getDragActivationRule`.
  *
  * ESCOPO: toda magia cuja seleção INTEIRA se resume a "escolher 1 slot de
- * campo" (do próprio lado ou do oponente) ganha uma entrada aqui - hoje
- * cobre a Bola de Fogo do Piromante (J/Q/K, o caso original que motivou o
- * pedido), Destruição de Reforço do Mago (K), Visão Celestial do Anjo (Q,
- * só o modo "revelar slot"), Tiro Certeiro do Mosqueteiro (K) e Simbiose/
- * Urtiga do Druida (Q/K, só o modo "marcador" - a opção "aumentar o Broto"
- * não tem alvo, e plantar/empilhar o Broto em si já tem seu próprio atalho
- * de arrastar via PLAY_CARD, ver isDruidaBrotoCard em gameEngine.ts).
+ * campo" (do próprio lado, do oponente, OU de qualquer um dos dois - ver
+ * `side: 'either'` abaixo) ganha uma entrada aqui - hoje cobre a Bola de
+ * Fogo do Piromante (J/Q/K, o caso original que motivou o pedido),
+ * Destruição de Reforço do Mago (K), Visão Celestial do Anjo (Q, só o modo
+ * "revelar slot"), Tiro Certeiro do Mosqueteiro (K), Simbiose/Urtiga do
+ * Druida (Q/K, só o modo "marcador" - a opção "aumentar o Broto" não tem
+ * alvo, e plantar/empilhar o Broto em si já tem seu próprio atalho de
+ * arrastar via PLAY_CARD, ver isDruidaBrotoCard em gameEngine.ts) e
+ * Criogenar/Crioespinho do Glacial (J/Q, só o modo "slot de campo" - Criogenar
+ * também aceita mirar uma carta de MÃO, que continua só por clique, mesmo
+ * padrão de exclusão parcial do Anjo Q acima).
  *
  * FICAM DE FORA as magias de seleção COMPOSTA (mais de uma escolha
  * independente pra completar a ativação) - não há um único "alvo" pra um
@@ -37,18 +41,22 @@
  *
  * EXTENSÃO: pra adicionar um personagem/magia novo aqui, adicione uma
  * entrada em `DRAG_ACTIVATION_RULES` com a chave `${character}-${magicType}`.
- * `side` diz de qual campo os slots-alvo válidos vêm (o mesmo jogador que
- * arrasta, ou o oponente dele); `isValidSlotTarget` decide se ESTE slot
- * específico aceita o drop agora (reaproveite a mesma checagem que o motor
- * usa pra aceitar a ativação de verdade, nunca invente uma segunda cópia da
- * regra); `buildSelection` monta a `MagicSelection` exatamente como o
- * diálogo de clique já monta pro mesmo caso.
+ * `side` diz de qual campo os slots-alvo válidos vêm: o mesmo jogador que
+ * arrasta ('own'), o oponente dele ('opponent'), ou QUALQUER um dos dois
+ * campos ('either' - pedido do usuário: "Criogenar/Crioespinho miram o
+ * próprio campo OU o do oponente, à escolha do jogador" - o Glacial J/Q são
+ * o caso original que motivou este 3º valor). `isValidSlotTarget`/
+ * `buildSelection` recebem o `targetPlayer` (o lado de fato largado, sempre
+ * igual ao lado fixo de 'own'/'opponent', mas livre pra ser QUALQUER um dos
+ * dois quando `side === 'either'`) - reaproveite a mesma checagem que o
+ * motor usa pra aceitar a ativação de verdade, nunca invente uma segunda
+ * cópia da regra; `buildSelection` monta a `MagicSelection` exatamente como
+ * o diálogo de clique já monta pro mesmo caso.
  */
 import {
   getDestroyableReinforcementSlots,
   isBrotoSlot,
   isSlotProtected,
-  opponentOf,
   playerKeyOf,
   type CharacterId,
   type GameState,
@@ -59,9 +67,9 @@ import { hasStatus } from './statusEffects';
 import type { MagicCardType } from './magicCards';
 
 export interface DragActivationRule {
-  side: 'own' | 'opponent';
-  isValidSlotTarget: (state: GameState, player: PlayerNumber, slotIndex: number) => boolean;
-  buildSelection: (state: GameState, player: PlayerNumber, slotIndex: number) => MagicSelection;
+  side: 'own' | 'opponent' | 'either';
+  isValidSlotTarget: (state: GameState, player: PlayerNumber, targetPlayer: PlayerNumber, slotIndex: number) => boolean;
+  buildSelection: (state: GameState, player: PlayerNumber, targetPlayer: PlayerNumber, slotIndex: number) => MagicSelection;
 }
 
 /**
@@ -75,13 +83,12 @@ export interface DragActivationRule {
  */
 const fireballLaunchRule: DragActivationRule = {
   side: 'opponent',
-  isValidSlotTarget: (state, player, slotIndex) => {
-    const opponent = opponentOf(player);
-    if (isSlotProtected(state, opponent, slotIndex)) return false;
-    const slot = state[playerKeyOf(opponent)].field[slotIndex];
+  isValidSlotTarget: (state, _player, targetPlayer, slotIndex) => {
+    if (isSlotProtected(state, targetPlayer, slotIndex)) return false;
+    const slot = state[playerKeyOf(targetPlayer)].field[slotIndex];
     return Boolean(slot.faceDownCard) || slot.horizontalCards.length > 0;
   },
-  buildSelection: (_state, _player, slotIndex) => ({ fireballLaunch: true, selectedTargetSlot: slotIndex }),
+  buildSelection: (_state, _player, _targetPlayer, slotIndex) => ({ fireballLaunch: true, selectedTargetSlot: slotIndex }),
 };
 
 /**
@@ -100,12 +107,11 @@ const fireballLaunchRule: DragActivationRule = {
  */
 const magoKRule: DragActivationRule = {
   side: 'opponent',
-  isValidSlotTarget: (state, player, slotIndex) => {
-    const opponent = opponentOf(player);
-    if (isSlotProtected(state, opponent, slotIndex)) return false;
-    return getDestroyableReinforcementSlots(state[playerKeyOf(opponent)].field).includes(slotIndex);
+  isValidSlotTarget: (state, _player, targetPlayer, slotIndex) => {
+    if (isSlotProtected(state, targetPlayer, slotIndex)) return false;
+    return getDestroyableReinforcementSlots(state[playerKeyOf(targetPlayer)].field).includes(slotIndex);
   },
-  buildSelection: (_state, _player, slotIndex) => ({ selectedSlot: slotIndex }),
+  buildSelection: (_state, _player, _targetPlayer, slotIndex) => ({ selectedSlot: slotIndex }),
 };
 
 /**
@@ -115,13 +121,12 @@ const magoKRule: DragActivationRule = {
  */
 const anjoQFieldRule: DragActivationRule = {
   side: 'opponent',
-  isValidSlotTarget: (state, player, slotIndex) => {
-    const opponent = opponentOf(player);
-    const slot = state[playerKeyOf(opponent)].field[slotIndex];
+  isValidSlotTarget: (state, _player, targetPlayer, slotIndex) => {
+    const slot = state[playerKeyOf(targetPlayer)].field[slotIndex];
     if (!slot.faceDownCard || slot.revealed) return false;
-    return !isSlotProtected(state, opponent, slotIndex);
+    return !isSlotProtected(state, targetPlayer, slotIndex);
   },
-  buildSelection: (_state, _player, slotIndex) => ({ selectedSlot: slotIndex }),
+  buildSelection: (_state, _player, _targetPlayer, slotIndex) => ({ selectedSlot: slotIndex }),
 };
 
 /**
@@ -137,13 +142,12 @@ const anjoQFieldRule: DragActivationRule = {
  */
 const mosqueteiroKRule: DragActivationRule = {
   side: 'opponent',
-  isValidSlotTarget: (state, player, slotIndex) => {
-    const opponent = opponentOf(player);
-    if (isSlotProtected(state, opponent, slotIndex)) return false;
-    return Boolean(state[playerKeyOf(opponent)].field[slotIndex].faceDownCard);
+  isValidSlotTarget: (state, _player, targetPlayer, slotIndex) => {
+    if (isSlotProtected(state, targetPlayer, slotIndex)) return false;
+    return Boolean(state[playerKeyOf(targetPlayer)].field[slotIndex].faceDownCard);
   },
-  buildSelection: (state, player, slotIndex) => ({
-    selectedCards: [state[playerKeyOf(opponentOf(player))].field[slotIndex].faceDownCard!.id],
+  buildSelection: (state, _player, targetPlayer, slotIndex) => ({
+    selectedCards: [state[playerKeyOf(targetPlayer)].field[slotIndex].faceDownCard!.id],
   }),
 };
 
@@ -158,14 +162,14 @@ const mosqueteiroKRule: DragActivationRule = {
  */
 const druidaQRule: DragActivationRule = {
   side: 'own',
-  isValidSlotTarget: (state, player, slotIndex) => {
-    const field = state[playerKeyOf(player)].field;
+  isValidSlotTarget: (state, _player, targetPlayer, slotIndex) => {
+    const field = state[playerKeyOf(targetPlayer)].field;
     const slot = field[slotIndex];
     if (!slot.faceDownCard) return false;
     return !isBrotoSlot(slot);
   },
-  buildSelection: (state, player, slotIndex) => ({
-    selectedCards: [state[playerKeyOf(player)].field[slotIndex].faceDownCard!.id],
+  buildSelection: (state, _player, targetPlayer, slotIndex) => ({
+    selectedCards: [state[playerKeyOf(targetPlayer)].field[slotIndex].faceDownCard!.id],
   }),
 };
 
@@ -176,13 +180,12 @@ const druidaQRule: DragActivationRule = {
  */
 const druidaKRule: DragActivationRule = {
   side: 'opponent',
-  isValidSlotTarget: (state, player, slotIndex) => {
-    const opponent = opponentOf(player);
-    if (isSlotProtected(state, opponent, slotIndex)) return false;
-    return Boolean(state[playerKeyOf(opponent)].field[slotIndex].faceDownCard);
+  isValidSlotTarget: (state, _player, targetPlayer, slotIndex) => {
+    if (isSlotProtected(state, targetPlayer, slotIndex)) return false;
+    return Boolean(state[playerKeyOf(targetPlayer)].field[slotIndex].faceDownCard);
   },
-  buildSelection: (state, player, slotIndex) => ({
-    selectedCards: [state[playerKeyOf(opponentOf(player))].field[slotIndex].faceDownCard!.id],
+  buildSelection: (state, _player, targetPlayer, slotIndex) => ({
+    selectedCards: [state[playerKeyOf(targetPlayer)].field[slotIndex].faceDownCard!.id],
   }),
 };
 
@@ -209,12 +212,61 @@ const druidaKRule: DragActivationRule = {
  */
 const glacialKRule: DragActivationRule = {
   side: 'own',
-  isValidSlotTarget: (state, player, slotIndex) => {
+  isValidSlotTarget: (state, _player, targetPlayer, slotIndex) => {
     if (state.phase !== 'strategy') return false;
-    const slot = state[playerKeyOf(player)].field[slotIndex];
+    const slot = state[playerKeyOf(targetPlayer)].field[slotIndex];
     return Boolean(slot.faceDownCard) && !hasStatus(slot.faceDownCard, 'frozen');
   },
-  buildSelection: (_state, _player, slotIndex) => ({ selectedSlot: slotIndex }),
+  buildSelection: (_state, _player, _targetPlayer, slotIndex) => ({ selectedSlot: slotIndex }),
+};
+
+/**
+ * Glacial J - Criogenar, só o modo "slot de campo" (a magia também aceita
+ * mirar uma carta de MÃO, própria ou do oponente, que continua só por
+ * clique - mesma exclusão parcial de anjoQFieldRule acima). Mira QUALQUER
+ * um dos dois campos (`side: 'either'`, ver GameBoard.tsx, bloco "Glacial J"
+ * do diálogo de clique: coluna "Seu Campo" e "Campo Oponente" lado a lado,
+ * ambas habilitadas ao mesmo tempo) - a Proteção Divina só bloqueia o lado
+ * do OPONENTE (`!isOwn && isSlotProtected`, o próprio campo nunca é
+ * protegido contra o próprio dono).
+ */
+const glacialJFieldRule: DragActivationRule = {
+  side: 'either',
+  isValidSlotTarget: (state, player, targetPlayer, slotIndex) => {
+    const isOwn = targetPlayer === player;
+    if (!isOwn && isSlotProtected(state, targetPlayer, slotIndex)) return false;
+    const slot = state[playerKeyOf(targetPlayer)].field[slotIndex];
+    return Boolean(slot.faceDownCard) && !hasStatus(slot.faceDownCard, 'frozen');
+  },
+  buildSelection: (_state, _player, targetPlayer, slotIndex) => ({
+    selectedSlot: slotIndex,
+    selectedTargetPlayer: targetPlayer,
+  }),
+};
+
+/**
+ * Glacial Q - Crioespinho, mira QUALQUER um dos dois campos (`side:
+ * 'either'`, mesmo padrão de glacialJFieldRule acima). A magia aceita
+ * mirar a carta principal OU uma horizontal específica dentro do slot (ver
+ * bloco "Glacial Q" do diálogo de clique em GameBoard.tsx); arrastar sempre
+ * mira a carta PRINCIPAL do slot - mesma simplificação deliberada de
+ * mosqueteiroKRule/druidaKRule acima (soltar "no slot" não distingue qual
+ * carta dentro dele), mirar uma horizontal específica continua exigindo o
+ * diálogo de clique.
+ */
+const glacialQRule: DragActivationRule = {
+  side: 'either',
+  isValidSlotTarget: (state, player, targetPlayer, slotIndex) => {
+    const isOwn = targetPlayer === player;
+    if (!isOwn && isSlotProtected(state, targetPlayer, slotIndex)) return false;
+    const slot = state[playerKeyOf(targetPlayer)].field[slotIndex];
+    return Boolean(slot.faceDownCard) && !hasStatus(slot.faceDownCard, 'frozen');
+  },
+  buildSelection: (state, _player, targetPlayer, slotIndex) => ({
+    selectedSlot: slotIndex,
+    selectedCards: [state[playerKeyOf(targetPlayer)].field[slotIndex].faceDownCard!.id],
+    selectedTargetPlayer: targetPlayer,
+  }),
 };
 
 type DragActivationKey = `${CharacterId}-${MagicCardType}`;
@@ -237,6 +289,13 @@ const DRAG_ACTIVATION_RULES: Partial<Record<DragActivationKey, DragActivationRul
   // ganhou um efeito de Estratégia com alvo simples (1 slot de campo
   // próprio) que se encaixa no mesmo escopo.
   'glacial-K': glacialKRule,
+  // FIX (pedido do usuário: "o drag & drop do glacial na parte das magias
+  // não funciona") - Criogenar (J) e Crioespinho (Q) nunca tinham entrada
+  // aqui; ambos miram "qualquer um dos dois campos" (`side: 'either'`, ver
+  // comentário de glacialJFieldRule acima) - o primeiro caso real que
+  // precisou desse 3º valor de `side`.
+  'glacial-J': glacialJFieldRule,
+  'glacial-Q': glacialQRule,
 };
 
 export function getDragActivationRule(character: CharacterId, magicType: MagicCardType): DragActivationRule | undefined {
