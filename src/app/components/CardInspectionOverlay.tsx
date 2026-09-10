@@ -263,25 +263,48 @@ export function CardInspectionOverlay({ spec, onClose }: CardInspectionOverlayPr
             </div>
           )}
 
-          {cutout && spec.valueBreakdown.adjustments.length > 0 && (
+          {/* FIX (pedido do usuário, achado jogando: "nas cartas torres /
+              cartas do oponente, não diz o valor delas no total com
+              alterações... é pra dizer o número original + o buff em verde
+              ou - o debuff em vermelho para todas cartas inspecionadas") -
+              antes só aparecia quando havia algum ajuste; agora SEMPRE
+              aparece (base sozinha quando não há nada a somar), como uma
+              fórmula inline: base, cada ajuste na cor da própria polaridade
+              (verde/vermelho/dourado neutro), e o resultado final em branco -
+              a mesma cor não importa se subiu ou desceu, porque ele já é a
+              SOMA de tudo que veio colorido antes dele. */}
+          {cutout && (
             <div
               className="absolute text-center"
               style={{ left: cutout.cx, top: cutout.top + cutout.height + VALUE_LINE_OFFSET, transform: 'translateX(-50%)' }}
               onClick={(e) => e.stopPropagation()}
             >
-              <p
-                className="px-3 py-1 rounded-lg text-[13px] font-bold inline-block"
-                style={{
-                  backgroundColor: '#1E1A16F2',
-                  border: `1.5px solid ${
-                    spec.valueBreakdown.polarity === 'higher' ? '#6CC47A' : spec.valueBreakdown.polarity === 'lower' ? '#D45D4A' : theme.primary
-                  }`,
-                  color: spec.valueBreakdown.polarity === 'higher' ? '#6CC47A' : spec.valueBreakdown.polarity === 'lower' ? '#D45D4A' : '#EFE7D6',
-                }}
+              <div
+                className="px-3 py-1.5 rounded-lg text-[14px] font-bold inline-flex items-center gap-1.5 flex-wrap justify-center"
+                style={{ backgroundColor: '#1E1A16F2', border: `1.5px solid ${theme.primary}` }}
               >
-                {displayValue}
-                {displaySuit} vale {spec.valueBreakdown.total} no combate
-              </p>
+                <span style={{ color: '#EFE7D6' }}>
+                  {displayValue}
+                  {displaySuit}
+                </span>
+                {spec.valueBreakdown.adjustments.map((adj, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      color: adj.polarity === 'positive' ? '#6CC47A' : adj.polarity === 'negative' ? '#D45D4A' : theme.primary,
+                    }}
+                    title={adj.label}
+                  >
+                    {adj.text}
+                  </span>
+                ))}
+                {spec.valueBreakdown.adjustments.length > 0 && (
+                  <>
+                    <span style={{ color: '#BFB6A6' }}>=</span>
+                    <span style={{ color: '#EFE7D6' }}>{spec.valueBreakdown.total}</span>
+                  </>
+                )}
+              </div>
             </div>
           )}
 
@@ -316,7 +339,8 @@ export function CardInspectionOverlay({ spec, onClose }: CardInspectionOverlayPr
               className="absolute px-3 py-1 rounded-lg text-[12px] font-semibold"
               style={{
                 left: cutout.cx,
-                top: cutout.top + cutout.height + (spec.valueBreakdown.adjustments.length > 0 ? VALUE_LINE_OFFSET + 42 : VALUE_LINE_OFFSET),
+                // A linha de valor agora SEMPRE aparece (ver FIX acima), então o aviso de overflow sempre precisa do espaço extra abaixo dela.
+                top: cutout.top + cutout.height + VALUE_LINE_OFFSET + 42,
                 transform: 'translateX(-50%)',
                 backgroundColor: '#1E1A16F2',
                 border: `1.5px solid ${theme.primary}`,

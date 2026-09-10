@@ -54,6 +54,16 @@ export interface StatusEffect {
   magnitude?: number;
   /** Só relevante para `kind === 'combatModifier'` - substitui o `kind: 'multiply'|'add'` de CombatModifier (renomeado pra `mode` aqui pra não colidir com o `kind` de StatusEffect). */
   mode?: 'add' | 'multiply';
+  /**
+   * Pedido do usuário, interface de inspeção: "cada buff e debuff... ao
+   * invés de agrupar tudo em um só caso tenha ocorrido em fases diferentes" -
+   * `turn`/`phase` no instante em que este registro foi criado OU somado pela
+   * última vez (ver `applyTimedCombatModifier` abaixo). Opcional porque só
+   * `combatModifier` usa isto hoje - os outros kinds nunca precisaram
+   * distinguir "reativação imediata" de "reativação depois de algo
+   * acontecer no meio".
+   */
+  appliedAt?: { turn: number; phase: Phase };
 }
 
 export interface WithStatusEffects {
@@ -108,6 +118,46 @@ export function applyStatus<T extends WithStatusEffects>(
   if (matchIndex === -1) return { ...entity, statusEffects: [...existing, effect] };
   const merged = typeof merge === 'function' ? merge(existing[matchIndex], effect) : effect;
   return { ...entity, statusEffects: [...existing.slice(0, matchIndex), merged, ...existing.slice(matchIndex + 1)] };
+}
+
+/**
+ * Aplica um StatusEffect `kind: 'combatModifier'` decidindo, ele mesmo, entre
+ * SOMAR no registro já existente da MESMA fonte+carta (reativação
+ * verdadeiramente IMEDIATA - mesmo turno, mesma fase, nada mudou desde a
+ * última vez) ou EMPILHAR como um registro independente ao lado (qualquer
+ * outra coisa - turno diferente, fase diferente) - pedido do usuário,
+ * interface de inspeção: "cada buff e debuff adicionado... ao invés de
+ * agrupar tudo em um só caso tenha ocorrido em fases diferentes ou após
+ * efeitos causados antes de serem ativados novamente".
+ *
+ * `sumMerge` é a MESMA função de soma que cada efeito (Tiro Certeiro,
+ * Crioescudo, Criogolem, Valete-Escudo do Coringa, Simbiose/Urtiga do
+ * Druida) já usava sozinho antes desta função existir - só a DECISÃO de
+ * quando usá-la (em vez de empilhar) é nova, centralizada aqui em vez de
+ * repetida em cada chamador.
+ *
+ * NOTA DE ESCOPO (decisão confirmada com o usuário): "algo aconteceu no
+ * meio" é aproximado por turno+fase, não por um contador de ações exato -
+ * uma reativação da MESMA fonte que acontece na mesma fase que a anterior
+ * (ex.: os dois jogadores agindo na mesma fase de Estratégia) ainda soma.
+ * Cobre os casos citados (mudança de fase, novo turno) sem precisar de um
+ * contador de sequência global novo no GameState inteiro.
+ */
+export function applyTimedCombatModifier<T extends WithStatusEffects>(
+  entity: T,
+  effect: Omit<StatusEffect, 'appliedAt'>,
+  now: { turn: number; phase: Phase },
+  sumMerge: (existing: StatusEffect, incoming: StatusEffect) => StatusEffect
+): T {
+  const existing = getStatus(entity, effect.kind, { source: effect.source });
+  const isImmediateReactivation = Boolean(
+    existing?.appliedAt && existing.appliedAt.turn === now.turn && existing.appliedAt.phase === now.phase
+  );
+  const stamped: StatusEffect = { ...effect, appliedAt: now };
+  if (isImmediateReactivation) {
+    return applyStatus(entity, stamped, (ex, inc) => ({ ...sumMerge(ex, inc), appliedAt: now }));
+  }
+  return applyStatus(entity, stamped, 'stack');
 }
 
 export function removeStatus<T extends WithStatusEffects>(

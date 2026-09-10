@@ -1363,11 +1363,16 @@ export function FieldSlotView({
                   // acima) - antes só existia UM card rastreado por jogador
                   // (`boostedCardId`), então um 2º "Tiro Certeiro" na mesma
                   // partida nunca aparecia até o 1º sair do campo.
-                  mainAddModifiers.forEach((status) => {
+                  // FIX (pedido do usuário: "cada buff e debuff... ao invés
+                  // de agrupar" + applyTimedCombatModifier, statusEffects.ts) -
+                  // a MESMA fonte agora pode aparecer 2+ vezes (reativação
+                  // depois de algo no meio) - `idx` garante uma key única
+                  // mesmo quando `source` repete.
+                  mainAddModifiers.forEach((status, idx) => {
                     const magnitude = status.magnitude ?? 0;
                     const signed = magnitude > 0 ? `+${magnitude}` : `${magnitude}`;
                     statusBadges.push({
-                      key: `boosted-${status.source}`,
+                      key: `boosted-${idx}-${status.source}`,
                       colors: combatModifierColors(status.source),
                       title: `${status.label}: ${signed} de valor no combate`,
                       content: <span className="text-[12px] font-black">{signed}</span>,
@@ -1584,7 +1589,7 @@ export function FieldSlotView({
                     const signed = magnitude > 0 ? `+${magnitude}` : `${magnitude}`;
                     return (
                       <div
-                        key={status.source}
+                        key={`${statusIdx}-${status.source}`}
                         className="absolute z-20 rounded-full px-1.5 py-0.5 flex items-center justify-center"
                         style={{ top: `-${12 + statusIdx * 18}px`, left: '-12px', backgroundColor: combatModifierColors(status.source).ring, border: '1.5px solid #0F1113' }}
                         title={`${status.label}: ${signed} de valor no combate`}

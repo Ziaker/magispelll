@@ -192,13 +192,18 @@ export function getCardStatusSummaries(card: Card, ctx: CardValueContext): CardS
     }
   }
 
-  getCombatModifierStatuses(card).forEach((status) => {
+  // FIX (pedido do usuário: "cada buff e debuff... ao invés de agrupar tudo
+  // em um só" + `applyTimedCombatModifier`, statusEffects.ts) - a MESMA
+  // fonte agora pode aparecer como 2+ registros independentes (reativação
+  // depois de algo acontecer no meio) - o índice (`idx`) garante um id único
+  // por entrada mesmo quando `source`+`mode` repetem.
+  getCombatModifierStatuses(card).forEach((status, idx) => {
     const magnitude = status.magnitude ?? 0;
     const isMultiply = status.mode === 'multiply';
     const isPositive = isMultiply ? magnitude > 1 : magnitude > 0;
     const signed = isMultiply ? `×${magnitude}` : `${magnitude > 0 ? '+' : ''}${magnitude}`;
     summaries.push({
-      id: `combatModifier-${status.source}-${status.mode}`,
+      id: `combatModifier-${idx}-${status.source}-${status.mode}`,
       icon: isPositive ? ArrowUp : ArrowDown,
       label: `${isPositive ? 'Buff' : 'Debuff'}: ${status.label}`,
       description: `${signed} no valor de combate.`,
@@ -213,6 +218,8 @@ export function getCardStatusSummaries(card: Card, ctx: CardValueContext): CardS
 export interface CardValueAdjustment {
   label: string;
   text: string;
+  /** Pedido do usuário: "+2 (buff verde) -2 (debuff vermelho)" - cor de CADA ajuste na fórmula, não só do resultado final. */
+  polarity: 'positive' | 'negative' | 'neutral';
 }
 
 export interface CardValueBreakdown {
@@ -238,17 +245,53 @@ export function getCardValueBreakdown(card: Card, ctx: CardValueContext): CardVa
   const adjustments: CardValueAdjustment[] = [];
   if (showSpotlight) {
     const entry = getSpotlightEntry(card, ctx.spotlight);
-    if (entry) adjustments.push({ label: 'Spotlight', text: entry.polarity === 'positive' ? '×3' : '→ 1' });
+    if (entry) {
+      const isPositive = entry.polarity === 'positive';
+      adjustments.push({ label: 'Spotlight', text: isPositive ? '×3' : '→ 1', polarity: isPositive ? 'positive' : 'negative' });
+    }
   }
   getCombatModifierStatuses(card).forEach((status) => {
     const magnitude = status.magnitude ?? 0;
+    const isMultiply = status.mode === 'multiply';
+    const polarity: CardValueAdjustment['polarity'] = isMultiply
+      ? magnitude > 1
+        ? 'positive'
+        : magnitude < 1
+        ? 'negative'
+        : 'neutral'
+      : magnitude > 0
+      ? 'positive'
+      : magnitude < 0
+      ? 'negative'
+      : 'neutral';
     adjustments.push({
       label: status.label,
-      text: status.mode === 'multiply' ? `×${magnitude}` : `${magnitude > 0 ? '+' : ''}${magnitude}`,
+      text: isMultiply ? `×${magnitude}` : `${magnitude > 0 ? '+' : ''}${magnitude}`,
+      polarity,
     });
   });
 
-  const total = applyCombatModifierStatuses(spotlightAdjusted, card);
+  let total = applyCombatModifierStatuses(spotlightAdjusted, card);
+
+  // FIX (pedido do usuário, achado jogando: "nas cartas torres... não diz o
+  // valor delas no total com alterações") - o valor de combate de verdade de
+  // uma Torre nunca é só o da carta do TOPO (`card` aqui) - é o topo + toda a
+  // reserva empilhada embaixo (mesma soma que `slotCombatTotal`, gameEngine.ts,
+  // realmente usa na resolução de combate). Sem isso, inspecionar o topo de
+  // uma torre mostrava só o valor dela sozinha, nunca o total que decide a
+  // disputa de verdade. Só se aplica quando a carta inspecionada É o topo
+  // (não uma carta qualquer da reserva, que nunca é inspecionável sozinha).
+  if (ctx.slot && isTowerSlot(ctx.slot) && ctx.slot.faceDownCard?.id === card.id) {
+    const reserveTotal = (ctx.slot.towerReserve ?? []).reduce(
+      (sum, c) => sum + (ctx.isOwnOrRevealed ? getSpotlightAdjustedValue(c, ctx.spotlight) : getEffectiveCardValue(c)),
+      0
+    );
+    if (reserveTotal !== 0) {
+      adjustments.push({ label: 'Torre (reserva)', text: `+${reserveTotal}`, polarity: 'positive' });
+      total += reserveTotal;
+    }
+  }
+
   return { base, adjustments, total, polarity: total > base ? 'higher' : total < base ? 'lower' : 'equal' };
 }
 

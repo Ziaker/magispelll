@@ -118,3 +118,35 @@ export function groupCardsForTowerViaDrag(hand: Card[], current: HandSelectionSt
   const afterTarget = current.selectedForTower.has(targetCardId) ? current : toggleTowerCardSelection(hand, current, targetCardId);
   return afterTarget.selectedForTower.has(droppedCardId) ? afterTarget : toggleTowerCardSelection(hand, afterTarget, droppedCardId);
 }
+
+/**
+ * FIX (pedido do usuário, achado jogando: "as cartas agrupadas devem estar
+ * de fato agrupadas, visualmente, uma junta da outra no modo towers") -
+ * antes, marcar 2+ cartas pro grupo de torre só mudava a cor do anel de
+ * cada uma (`isSelectedForTower`, HandCardView.tsx) - elas continuavam
+ * espalhadas pela mão, em qualquer ordem que já estivessem, sem nenhuma
+ * pista visual de QUANTAS fazem parte do mesmo grupo ou QUAIS são. Esta
+ * função só reordena a exibição (nunca `hand`/`customOrderIds` de verdade
+ * por baixo - reverte sozinha assim que o grupo é desfeito/jogado) - todas
+ * as cartas do grupo colapsam pra ficarem lado a lado, ancoradas na posição
+ * de onde a PRIMEIRA delas já estava (evita o resto da mão "pular" mais do
+ * que o necessário). Com `layout` do Framer Motion já ligado em cada carta
+ * (HandCardView.tsx), a mudança de ordem anima sozinha - sem precisar de
+ * nenhuma animação extra aqui.
+ */
+export function groupTowerCardsForDisplay(hand: Card[], selectedForTower: Set<string>): Card[] {
+  if (selectedForTower.size < 2) return hand;
+  const grouped: Card[] = [];
+  const rest: Card[] = [];
+  let anchorIndex = -1;
+  for (const card of hand) {
+    if (selectedForTower.has(card.id)) {
+      if (anchorIndex === -1) anchorIndex = rest.length;
+      grouped.push(card);
+    } else {
+      rest.push(card);
+    }
+  }
+  if (grouped.length < 2) return hand;
+  return [...rest.slice(0, anchorIndex), ...grouped, ...rest.slice(anchorIndex)];
+}

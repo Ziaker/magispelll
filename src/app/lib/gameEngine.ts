@@ -50,6 +50,7 @@ import { getCharacterTheme } from './characterThemes';
 import {
   applyCombatModifierStatuses,
   applyStatus,
+  applyTimedCombatModifier,
   getCombatModifierStatuses,
   getStatusMagnitude,
   hasStatus,
@@ -1185,9 +1186,10 @@ function applyCoringaTrapReaction(
     if (hostCard) {
       newField[slotIndex] = {
         ...newField[slotIndex],
-        faceDownCard: applyStatus(
+        faceDownCard: applyTimedCombatModifier(
           hostCard,
           { kind: 'combatModifier', source: 'coringa', label: 'Valete - Escudo', mode: 'add', magnitude: 5, duration: { type: 'untilPhase', phase: 'draw' } },
+          { turn: state.turn, phase: state.phase },
           (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
         ),
       };
@@ -2397,16 +2399,18 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
         return {
           ...slot,
           faceDownCard: slot.faceDownCard
-            ? applyStatus(
+            ? applyTimedCombatModifier(
                 slot.faceDownCard,
                 { kind: 'combatModifier', source: 'glacial', label: 'Criogolem Congelado', mode: 'add', magnitude: -2, duration: { type: 'untilPhase', phase: 'draw' } },
+                { turn: state.turn, phase: state.phase },
                 (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
               )
             : slot.faceDownCard,
           horizontalCards: slot.horizontalCards.map((c) =>
-            applyStatus(
+            applyTimedCombatModifier(
               c,
               { kind: 'combatModifier', source: 'glacial', label: 'Criogolem Congelado', mode: 'add', magnitude: -2, duration: { type: 'untilPhase', phase: 'draw' } },
+              { turn: state.turn, phase: state.phase },
               (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
             )
           ),
@@ -3968,9 +3972,10 @@ function handleExecuteMagic(
     // aprofunda) o valor existente; mirar uma carta diferente cria um
     // marcador independente, permitindo vários "Tiro Certeiro" simultâneos
     // em cartas diferentes do campo do oponente.
-    const markedCard = applyStatus(
+    const markedCard = applyTimedCombatModifier(
       targetCard,
       { kind: 'combatModifier', source: 'mosqueteiro', label: 'Tiro Certeiro', mode: 'add', magnitude: -boostAmount, duration: { type: 'untilPhase', phase: 'draw' } },
+      { turn: state.turn, phase: state.phase },
       (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
     );
     const newAmount = getStatusMagnitude(markedCard, 'combatModifier', { source: 'mosqueteiro' });
@@ -4465,17 +4470,19 @@ function handleExecuteMagic(
           ...slot,
           faceDownCard:
             slot.faceDownCard && hasStatus(slot.faceDownCard, 'frozen')
-              ? applyStatus(
+              ? applyTimedCombatModifier(
                   slot.faceDownCard,
                   { kind: 'combatModifier', source: 'glacial', label: 'Crioescudo', mode: 'add', magnitude, duration: { type: 'untilPhase', phase: 'draw' } },
+                  { turn: state.turn, phase: state.phase },
                   (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
                 )
               : slot.faceDownCard,
           horizontalCards: slot.horizontalCards.map((c) =>
             hasStatus(c, 'frozen')
-              ? applyStatus(
+              ? applyTimedCombatModifier(
                   c,
                   { kind: 'combatModifier', source: 'glacial', label: 'Crioescudo', mode: 'add', magnitude, duration: { type: 'untilPhase', phase: 'draw' } },
+                  { turn: state.turn, phase: state.phase },
                   (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
                 )
               : c

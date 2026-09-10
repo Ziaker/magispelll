@@ -6339,6 +6339,20 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onCheckedChange={(checked) => updateSetting('confirmBeforeDiscard', checked)}
               />
             </div>
+            {/* FIX (pedido do usuário: "há certas configurações... que deviam
+                estar no menu de pausa também, como a confirmação de troca de
+                fase") - mesmo padrão/posição do switch de descarte acima,
+                que já era espelhado aqui. */}
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pauseConfirmPhaseChange" className="text-[#BFB6A6]">
+                Confirmar Antes de Trocar de Fase
+              </Label>
+              <Switch
+                id="pauseConfirmPhaseChange"
+                checked={settings.confirmBeforePhaseChange}
+                onCheckedChange={(checked) => updateSetting('confirmBeforePhaseChange', checked)}
+              />
+            </div>
             {/* FIX (pedido do usuário: "ocultar mão do oponente
                 automaticamente" no Hotseat) - só faz sentido nesse modo (ver
                 comentário completo em hotseatPrivacyMode, settings.ts). */}

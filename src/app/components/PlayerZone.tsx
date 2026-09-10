@@ -18,6 +18,7 @@ import { hasStatus } from '../lib/statusEffects';
 import { useEffect, useRef, useState } from 'react';
 import { canActivateMagic, getMagicCardInfo, type MagicActivationContext } from '../lib/magicCards';
 import { canActivateNumeralSpell, getNumeralSpellInfo, formatNumeralRequirement } from '../lib/numeralSpells';
+import { groupTowerCardsForDisplay } from '../lib/handSelection';
 import { canFuseCards, computeFusionResult, isUntransformedAce } from '../lib/fusion';
 import { isPlainNumeralCard, getDisplayValue, type Card } from '../lib/cardUtils';
 import type { SpotlightState } from '../lib/spotlight';
@@ -473,10 +474,16 @@ export function PlayerZone({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerState.hand]);
 
-  const displayHand: PlayerState['hand'] =
+  const baseDisplayHand: PlayerState['hand'] =
     handSortMode === 'auto'
       ? sortHandForDisplay(playerState.hand)
       : (customOrderIds.map((id) => playerState.hand.find((c) => c.id === id)).filter(Boolean) as PlayerState['hand']);
+  // FIX (pedido do usuário: "as cartas agrupadas devem estar de fato
+  // agrupadas, visualmente, uma junta da outra no modo towers") - só
+  // reordena a EXIBIÇÃO (nunca `hand`/`customOrderIds` por baixo - ver
+  // groupTowerCardsForDisplay, handSelection.ts). Fora do Modo Towers,
+  // `selectedForTower` nunca populado, então isto nunca muda nada.
+  const displayHand: PlayerState['hand'] = towersMode ? groupTowerCardsForDisplay(baseDisplayHand, selectedForTower) : baseDisplayHand;
 
   const moveCardInCustomOrder = (cardId: string, direction: -1 | 1) => {
     setCustomOrderIds((prev) => {
