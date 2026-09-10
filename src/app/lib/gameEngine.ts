@@ -2069,12 +2069,31 @@ export function isFrozenMagicActivationBlocked(character: CharacterId, card: Car
 }
 
 function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, slotIndex: number, asHorizontal: boolean): GameState {
-  if (state.phase !== 'strategy') return state;
   const playerKey = playerKeyOf(player);
   const playerState = state[playerKey];
   const card = playerState.hand.find((c) => c.id === cardId);
   if (!card) return state;
   const character = characterOf(state, player);
+  // Glacial (personagem novo) - o Criogolem também nunca usa a Zona Monstro
+  // (ver handlePlaceMonsterCard) - mesmo padrão do Monstro-15 do Coringa e
+  // do Broto Espelhado do Druida. Calculado aqui em cima (antes só existia
+  // mais abaixo) porque o guard de fase logo a seguir também depende dele.
+  const isGlacialMonsterCard = character === 'glacial' && Boolean(card.isMonster);
+  // FIX (pedido do usuário: "o monstro do glacial só pode ser posicionado
+  // da mão para o campo na fase de combate quando ele tiver um campo
+  // livre, a ideia é ser uma surpresa") - o Criogolem agora é a ÚNICA
+  // carta jogável FORA da Estratégia: só pode ser posicionado durante o
+  // COMBATE (nunca mais na Estratégia, onde denunciaria de antemão qual
+  // slot esconde uma carta extra antes mesmo do oponente escolher os
+  // confrontos daquela rodada - "a ideia é ser uma surpresa"). Qualquer
+  // outra carta (de qualquer personagem) continua exigindo a Estratégia
+  // como sempre. `decideGlacialMonster`/`decideCombatPhase` (aiPlayer.ts)
+  // espelham esta mesma regra pra IA.
+  if (isGlacialMonsterCard) {
+    if (state.phase !== 'combat') return state;
+  } else if (state.phase !== 'strategy') {
+    return state;
+  }
 
   if (isFrozenPlayBlocked(character, card)) {
     return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta está congelada e não pode ser jogada!`) };
@@ -2137,10 +2156,8 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
   // ela).
   const isDruidaBrotoCard = character === 'druida' && (card.value === 'J' || card.value === 'Q' || card.value === 'K');
   const isDruidaMonsterCard = character === 'druida' && Boolean(card.isMonster);
-  // Glacial (personagem novo) - o Criogolem também nunca usa a Zona Monstro
-  // (ver handlePlaceMonsterCard) - mesmo padrão do Monstro-15 do Coringa e
-  // do Broto Espelhado do Druida.
-  const isGlacialMonsterCard = character === 'glacial' && Boolean(card.isMonster);
+  // isGlacialMonsterCard já foi calculado no topo da função (o guard de fase
+  // depende dele antes de chegarmos aqui).
   if (!isCoringaTrapCard && !isDruidaBrotoCard && !isDruidaMonsterCard && !isGlacialMonsterCard) {
     // FIX: Cartas mágicas (J, Q, K) de qualquer OUTRO personagem nunca podem
     // ser posicionadas no campo como carta comum - elas só saem da mão
@@ -2306,6 +2323,16 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     // não recalcula depois se mais cartas forem congeladas/descongeladas.
     if (newField[slotIndex].faceDownCard) return state;
     const golemValue = getGlacialGolemValue(state);
+    // FIX (feature nova, pedido do usuário: "ao ser jogado congelado, ele
+    // adiciona um marcador -2 para as cartas do oponente em campo") - lido
+    // ANTES de sobrescrever `newField[slotIndex]` abaixo (que preserva os
+    // statusEffects da carta original, incluindo 'frozen' - jogar uma carta
+    // congelada nunca "descongela" ela sozinho, ver isFrozenPlayBlocked
+    // acima). Só é alcançável de verdade se o próprio Criogolem foi
+    // congelado (por Criogenar, de qualquer um dos dois jogadores) enquanto
+    // ainda estava na mão - a exceção de handlePlayCard que permite ao
+    // Glacial jogar sua própria carta congelada é o que torna isto possível.
+    const wasFrozen = hasStatus(card, 'frozen');
     newField[slotIndex] = {
       ...newField[slotIndex],
       faceDownCard: { ...card, revealed: true, transformedValue: golemValue },
@@ -2317,6 +2344,51 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     // onde o Criogolem caiu - sem isso, `entry.slotIndex` chegaria sempre
     // `undefined` e o burst nunca dispararia (só o som).
     log = appendLog(state, log, 'monster', `Jogador ${player} posicionou o Criogolem no slot ${slotIndex + 1} (valendo ${golemValue})`, { player, cardValue: '🃏', slotIndex });
+
+    if (wasFrozen) {
+      // "As cartas do oponente em campo" - carta principal E horizontais de
+      // TODO o campo do oponente, de uma vez, sem seleção de alvo (mesmo
+      // padrão de alcance total do efeito de Combate do Crioescudo, ver
+      // applyCrioescudoMarker acima) - exceto slots protegidos pela Proteção
+      // Divina do Anjo (`isSlotProtected`), mesma exceção de toda magia que
+      // mira o campo do oponente (Crioespinho, Urtiga, Tiro Certeiro).
+      const opponentKey = opponentKeyOf(player);
+      const opponent = opponentOf(player);
+      const opponentState = state[opponentKey];
+      const newOpponentField = opponentState.field.map((slot, i) => {
+        if (isSlotProtected(state, opponent, i)) return slot;
+        return {
+          ...slot,
+          faceDownCard: slot.faceDownCard
+            ? applyStatus(
+                slot.faceDownCard,
+                { kind: 'combatModifier', source: 'glacial', label: 'Criogolem Congelado', mode: 'add', magnitude: -2, duration: { type: 'untilPhase', phase: 'draw' } },
+                (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+              )
+            : slot.faceDownCard,
+          horizontalCards: slot.horizontalCards.map((c) =>
+            applyStatus(
+              c,
+              { kind: 'combatModifier', source: 'glacial', label: 'Criogolem Congelado', mode: 'add', magnitude: -2, duration: { type: 'untilPhase', phase: 'draw' } },
+              (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+            )
+          ),
+        };
+      }) as [FieldSlot, FieldSlot, FieldSlot];
+      log = appendLog(
+        state,
+        log,
+        'monster',
+        `O Criogolem chegou congelado: -2 de marcador em toda carta de Jogador ${opponent} no campo`,
+        { player }
+      );
+      return {
+        ...state,
+        log,
+        [playerKey]: { ...playerState, hand: newHand, field: newField },
+        [opponentKey]: { ...opponentState, field: newOpponentField },
+      };
+    }
   } else {
     if (newField[slotIndex].faceDownCard) return state;
 

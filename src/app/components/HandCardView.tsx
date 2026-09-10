@@ -384,6 +384,11 @@ export function HandCardView({
           ? 'cursor-pointer hover:shadow-lg'
           : card.revealed && phase === 'draw'
           ? 'cursor-not-allowed'
+          : // FIX (pedido do usuário: "o monstro do glacial só pode ser
+            // posicionado... na fase de combate... a ideia é ser uma
+            // surpresa") - único caso clicável do Combate.
+            phase === 'combat' && character === 'glacial' && card.isMonster
+          ? 'cursor-pointer hover:shadow-lg'
           : ''
       } ${
         // FIX (pedido do usuário, variante "Fusão", depois estendido para o

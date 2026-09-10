@@ -7,6 +7,7 @@ import { FlipCard } from './FlipCard';
 import { CharacterMagicBurst } from './CharacterMagicBurst';
 import { MagicCalloutLabel } from './MagicCalloutLabel';
 import { CardShatterBurst } from './CardShatterBurst';
+import { BeastBiteBurst } from './BeastBiteBurst';
 import { FireShatterBurst } from './FireShatterBurst';
 import { CoringaSmokeBurst } from './CoringaSmokeBurst';
 import { CardImpactBurst } from './CardImpactBurst';
@@ -249,6 +250,8 @@ interface FieldSlotViewProps {
   activeMagicLabel?: string | null;
   /** FIX (pedido do usuário, item 5): verdadeiro quando ESTE slot acabou de ser destruído pela Destruição de Reforço do Mago - troca o burst mágico genérico por CardShatterBurst.tsx (estilhaços). Ver BattleField.tsx/GameBoard.tsx. */
   isShattering?: boolean;
+  /** Besta (overhaul visual, "todos" - item 5): verdadeiro quando ESTE slot acabou de ser roubado pelo Roubo Brutal (Besta K) - troca o burst mágico genérico por BeastBiteBurst.tsx (mordida). Ver BattleField.tsx/GameBoard.tsx. */
+  isBiting?: boolean;
   /** Coringa (redesenho completo, "armadilhas"): verdadeiro quando ESTE slot acabou de ter um Valete/Rei armadilha reagindo (dissipando em fumaça) - troca o burst mágico genérico por CoringaSmokeBurst.tsx. Ver BattleField.tsx/GameBoard.tsx. */
   isSmoking?: boolean;
   /** Piromante (personagem novo, pedido explícito do usuário: "carta pegando fogo e se despedaçando") - verdadeiro quando ESTE slot acabou de ser atingido por um lançamento da Bola de Fogo (obliterado ou reduzido a carta-token) - troca o burst mágico genérico por FireShatterBurst.tsx. Ver BattleField.tsx/GameBoard.tsx. */
@@ -308,6 +311,7 @@ export function FieldSlotView({
   activeMagicCaster,
   activeMagicLabel,
   isShattering,
+  isBiting,
   isSmoking,
   isBurning,
   effectFlashCardIds,
@@ -439,6 +443,20 @@ export function FieldSlotView({
   // horizontal) vale pras 3 cartas agora, não só o Valete.
   const isDruidaBrotoStackDrop = (item: CardDragItem) =>
     (item.card?.value === 'J' || item.card?.value === 'Q' || item.card?.value === 'K') && isBrotoSlot(slot);
+  // FIX (pedido do usuário: "o monstro do glacial só pode ser posicionado
+  // da mão para o campo na fase de combate quando ele tiver um campo
+  // livre, a ideia é ser uma surpresa") - mesmo padrão item-aware de
+  // isMagicDrop acima: o Criogolem só vira um alvo de arraste válido no
+  // Combate (nunca mais na Estratégia, ver canDragToPlaceOnField em
+  // PlayerZone.tsx) e só quando ESTE slot específico ainda está vazio -
+  // ele nunca vira reforço horizontal nem substitui uma carta já
+  // posicionada, por isso só entra no `canDrop` da área PRINCIPAL abaixo,
+  // nunca no da horizontal (que exige `slot.faceDownCard`, o oposto do que
+  // o Criogolem precisa). `isMonster` sozinho já basta pra identificar o
+  // Criogolem aqui - nenhuma outra carta arrastável chega até este ponto
+  // com `isMonster: true` fora da Estratégia (ver isDraggable/
+  // canDragToPlaceOnField, PlayerZone.tsx).
+  const isGlacialGolemCombatDrop = (item: CardDragItem) => Boolean(item.card?.isMonster) && phase === 'combat' && !isAiField && !slot.faceDownCard;
   const dropOnMain = (item: CardDragItem) => {
     lastDropSpinRef.current = item.spinAngle ?? 0;
     if (isMagicDrop(item)) {
@@ -469,7 +487,7 @@ export function FieldSlotView({
       // pela IA) e/ou uma fase diferente (Combate) - por isso o OR com
       // `isMagicDrop`, item-aware (react-dnd chama `canDrop` com o item
       // sendo arrastado no momento).
-      canDrop: (item) => canDropHere || isMagicDrop(item),
+      canDrop: (item) => canDropHere || isMagicDrop(item) || isGlacialGolemCombatDrop(item),
       // Soltar em cima da carta principal já ocupada vira pedido de reforço
       // horizontal (mesma regra do drag nativo anterior); num slot vazio,
       // vira a carta principal. Uma magia com atalho válido tem prioridade
@@ -477,7 +495,7 @@ export function FieldSlotView({
       drop: dropOnMain,
       collect: (monitor) => ({ isOver: monitor.isOver(), canDrop: monitor.canDrop() }),
     }),
-    [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard]
+    [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard, phase, isAiField]
   );
 
   const [{ isOver: isOverHorizontal, canDrop: canDropHorizontal }, dropHorizontalRef] = useDrop<
@@ -511,12 +529,12 @@ export function FieldSlotView({
         const rect = mainNodeRef.current?.getBoundingClientRect();
         return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
       },
-      canDrop: (item) => canDropHere || isMagicDrop(item),
+      canDrop: (item) => canDropHere || isMagicDrop(item) || isGlacialGolemCombatDrop(item),
       onDrop: dropOnMain,
     });
     return () => unregisterDropTarget(mainId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard]);
+  }, [canDropHere, playerNumber, i, onCardDrop, onMagicCardDrop, isMagicDropTarget, slot.faceDownCard, phase, isAiField]);
 
   useEffect(() => {
     const horizontalId = `field-${playerNumber}-${i}-horizontal`;
@@ -954,6 +972,8 @@ export function FieldSlotView({
                 )}
                 {isShattering ? (
                   <CardShatterBurst active={isShattering} />
+                ) : isBiting ? (
+                  <BeastBiteBurst active={isBiting} />
                 ) : isSmoking ? (
                   <CoringaSmokeBurst active={isSmoking} />
                 ) : isBurning ? (

@@ -3119,6 +3119,23 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // Posicionar/Horizontal) confirma de fato.
       setSelectedSlot({ player: playerNumber, slot: slotIndex });
     } else if (gameState.phase === 'combat') {
+      // FIX (pedido do usuário: "o monstro do glacial só pode ser
+      // posicionado... na fase de combate quando ele tiver um campo livre,
+      // a ideia é ser uma surpresa") - o Combate nunca teve um fluxo de
+      // "selecionar carta da mão -> clicar slot" até agora (nenhuma outra
+      // carta pode sair da mão nesta fase); com o Criogolem selecionado
+      // (ver o novo branch `phase === 'combat'` de handleCardClick,
+      // PlayerZone.tsx) e um slot VAZIO do PRÓPRIO campo, o clique
+      // posiciona a carta em vez de escolher um slot pra combate - mesmo
+      // `setSelectedSlot` que a Estratégia usa pra abrir o botão
+      // "Posicionar" (ver canPlayCard/handlePlayFaceDown, PlayerZone.tsx,
+      // agora também habilitado no Combate pra este caso específico).
+      const selected = selectedCardId ? gameState[playerKeyOf(playerNumber)].hand.find((c) => c.id === selectedCardId) : undefined;
+      const isGlacialGolemSelected = Boolean(selected?.isMonster) && characterOf(gameState, playerNumber) === 'glacial';
+      if (isGlacialGolemSelected && !gameState[playerKeyOf(playerNumber)].field[slotIndex].faceDownCard) {
+        setSelectedSlot({ player: playerNumber, slot: slotIndex });
+        return;
+      }
       dispatch({ type: 'SELECT_COMBAT_SLOT', player: playerNumber, slotIndex });
     }
   };

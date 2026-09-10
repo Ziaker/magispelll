@@ -22,7 +22,7 @@ import {
   type GameAction,
 } from '../src/app/lib/gameEngine';
 import { getDisplayValue, resetCardForDiscard, revealCard, type Card } from '../src/app/lib/cardUtils';
-import { applyStatus, getCombatModifierStatuses, getStatus, hasStatus } from '../src/app/lib/statusEffects';
+import { applyStatus, getCombatModifierStatuses, getStatus, getStatusMagnitude, hasStatus } from '../src/app/lib/statusEffects';
 import { DEFAULT_GAME_CONFIG, MIN_DISCARD_LIMIT, type GameConfig } from '../src/app/lib/gameConfig';
 import { getLogEffectInfo } from '../src/app/lib/logFormat';
 import { decideAiAction, decideReactionToMagic } from '../src/app/lib/aiPlayer';
@@ -5828,6 +5828,11 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 // ---------------------------------------------------------------------------
 // GLACIAL - Fase 6: Criogolem (Monstro) - nunca usa Zona Monstro, valor 8 + 1
 // por carta congelada em jogo, travado no instante em que é jogado.
+// FIX (pedido do usuário: "o monstro do glacial só pode ser posicionado da
+// mão para o campo na fase de combate quando ele tiver um campo livre, a
+// ideia é ser uma surpresa") - os testes de valor/snapshot abaixo agora
+// jogam o Criogolem na fase de COMBATE (não mais Estratégia, que passou a
+// rejeitar - ver testGlacialMonsterRejectedInStrategy mais abaixo).
 // ---------------------------------------------------------------------------
 (function testGlacialMonsterNeverUsesMonsterZone() {
   let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
@@ -5838,10 +5843,33 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(after.player1.hand.some((c) => c.id === golem.id), 'A carta continua na mão (não foi consumida pelo no-op)');
 })();
 
+(function testGlacialMonsterRejectedInStrategy() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const golem = { ...makeCard('glacial-golem-strategy-reject', 'JOKER', '🃏'), isMonster: true };
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [golem] } };
+  const after = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: golem.id, slotIndex: 0, asHorizontal: false });
+  assert(!after.player1.field[0].faceDownCard, 'FIX Glacial Criogolem: PLAY_CARD é rejeitado na Estratégia agora - só pode ser posicionado no Combate ("a ideia é ser uma surpresa")');
+  assert(after.player1.hand.some((c) => c.id === golem.id), 'A carta continua na mão (não foi consumida pela tentativa rejeitada)');
+})();
+
+(function testGlacialMonsterRejectedWithoutFreeSlotInCombat() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const golem = { ...makeCard('glacial-golem-no-free-slot', 'JOKER', '🃏'), isMonster: true };
+  const occupying = makeCard('glacial-golem-occupying', '5');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: { ...state.player1, hand: [golem], field: [{ faceDownCard: occupying, revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] },
+  };
+  const after = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: golem.id, slotIndex: 0, asHorizontal: false });
+  assert(after.player1.field[0].faceDownCard?.id === 'glacial-golem-occupying', 'FIX Glacial Criogolem: PLAY_CARD é rejeitado no Combate quando o slot alvo já está ocupado (não substitui a carta existente)');
+  assert(after.player1.hand.some((c) => c.id === golem.id), 'A carta continua na mão (não foi consumida pela tentativa rejeitada)');
+})();
+
 (function testGlacialMonsterValueWithNoFrozenCards() {
   let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
   const golem = { ...makeCard('glacial-golem-base', 'JOKER', '🃏'), isMonster: true };
-  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [golem] } };
+  state = { ...state, phase: 'combat', player1: { ...state.player1, hand: [golem] } };
   state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: golem.id, slotIndex: 0, asHorizontal: false });
   assert(state.player1.field[0].faceDownCard?.transformedValue === 8, `FIX Glacial Criogolem: sem nenhuma carta congelada em jogo, vale a base 8 (recebido: ${state.player1.field[0].faceDownCard?.transformedValue})`);
 })();
@@ -5860,7 +5888,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   });
   state = {
     ...state,
-    phase: 'strategy',
+    phase: 'combat',
     player1: {
       ...state.player1,
       hand: [golem, frozenOwnHand],
@@ -5875,7 +5903,7 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 (function testGlacialMonsterValueIsSnapshotNotLive() {
   let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
   const golem = { ...makeCard('glacial-golem-snapshot', 'JOKER', '🃏'), isMonster: true };
-  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [golem] } };
+  state = { ...state, phase: 'combat', player1: { ...state.player1, hand: [golem] } };
   state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: golem.id, slotIndex: 0, asHorizontal: false });
   assert(state.player1.field[0].faceDownCard?.transformedValue === 8, 'Pré-condição: Criogolem jogado valendo 8 (nenhuma carta congelada ainda)');
   // Congela uma carta DEPOIS que o Criogolem já está em campo.
@@ -5884,6 +5912,59 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   });
   state = { ...state, player2: { ...state.player2, hand: [lateFrozen] } };
   assert(state.player1.field[0].faceDownCard?.transformedValue === 8, 'FIX Glacial Criogolem: o valor é um SNAPSHOT - não recalcula depois de mais cartas serem congeladas');
+})();
+
+// ---------------------------------------------------------------------------
+// GLACIAL - Feature nova (pedido do usuário): "adicione este efeito extra
+// para caso o monstro do glacial estiver congelado: ao ser jogado congelado,
+// ele adiciona um marcador -2 para as cartas do oponente em campo."
+// ---------------------------------------------------------------------------
+(function testGlacialFrozenMonsterAppliesMinusTwoToAllOpponentFieldCards() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const frozenGolem = applyStatus({ ...makeCard('glacial-golem-frozen-self', 'JOKER', '🃏'), isMonster: true }, {
+    kind: 'frozen', source: 'glacial', label: 'Criogenar', duration: { type: 'permanent' },
+  });
+  const opponentMain = makeCard('glacial-golem-opp-main', '7');
+  const opponentHorizontal = makeCard('glacial-golem-opp-horizontal', '3');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: { ...state.player1, hand: [frozenGolem] },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: opponentMain, revealed: false, horizontalCards: [opponentHorizontal] },
+        { revealed: false, horizontalCards: [] },
+        { revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: frozenGolem.id, slotIndex: 0, asHorizontal: false });
+  assert(hasStatus(state.player1.field[0].faceDownCard, 'frozen'), 'FIX Glacial Criogolem congelado: a carta continua congelada depois de jogada (jogar não descongela sozinho)');
+  const markedMain = state.player2.field[0].faceDownCard;
+  const markedHorizontal = state.player2.field[0].horizontalCards[0];
+  assert(
+    getStatusMagnitude(markedMain, 'combatModifier', { source: 'glacial' }) === -2,
+    `FIX Glacial Criogolem congelado: -2 de marcador na carta principal do oponente (recebido: ${getStatusMagnitude(markedMain, 'combatModifier', { source: 'glacial' })})`
+  );
+  assert(
+    getStatusMagnitude(markedHorizontal, 'combatModifier', { source: 'glacial' }) === -2,
+    `FIX Glacial Criogolem congelado: -2 de marcador também na horizontal do oponente (recebido: ${getStatusMagnitude(markedHorizontal, 'combatModifier', { source: 'glacial' })})`
+  );
+})();
+
+(function testGlacialUnfrozenMonsterNeverAppliesMarker() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const golem = { ...makeCard('glacial-golem-not-frozen', 'JOKER', '🃏'), isMonster: true };
+  const opponentMain = makeCard('glacial-golem-opp-unmarked', '7');
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: { ...state.player1, hand: [golem] },
+    player2: { ...state.player2, field: [{ faceDownCard: opponentMain, revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] },
+  };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: golem.id, slotIndex: 0, asHorizontal: false });
+  assert(!hasStatus(state.player2.field[0].faceDownCard, 'combatModifier'), 'FIX Glacial Criogolem: um Criogolem jogado NÃO congelado nunca aplica o marcador -2 no oponente');
 })();
 
 // ---------------------------------------------------------------------------
@@ -6112,8 +6193,37 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 })();
 
 (function testGlacialAiPlaysMonsterAssoonAsPossible() {
+  // FIX (pedido do usuário: "o monstro do glacial só pode ser posicionado
+  // da mão para o campo na fase de combate quando ele tiver um campo
+  // livre... ajuste isso pra IA também") - decideGlacialMonster mudou de
+  // decideStrategyPhase pra decideCombatPhase; este teste agora roda em
+  // 'combat', não mais 'strategy'.
   let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
   const golem = { ...makeCard('glacial-ai-golem', 'JOKER', '🃏'), isMonster: true };
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      hand: [golem],
+      field: [{ revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const decision = decideAiAction(state, 1);
+  assert(
+    decision.type === 'action' && decision.action.type === 'PLAY_CARD' && decision.action.cardId === golem.id,
+    `FIX Glacial IA: joga o Criogolem assim que há slot vazio no Combate, sem esperar (recebido: ${JSON.stringify(decision)})`
+  );
+})();
+
+(function testGlacialAiNeverPlaysMonsterInStrategy() {
+  // FIX (pedido do usuário, mesma mudança acima) - regressão: a IA não deve
+  // mais tentar jogar o Criogolem durante a Estratégia (decideStrategyPhase
+  // não chama mais decideGlacialMonster) - com só o Criogolem na mão e
+  // nenhuma outra ação disponível, a IA deve ficar "ready" em vez de propor
+  // um PLAY_CARD que o motor rejeitaria.
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const golem = { ...makeCard('glacial-ai-golem-strategy', 'JOKER', '🃏'), isMonster: true };
   state = {
     ...state,
     phase: 'strategy',
@@ -6125,8 +6235,8 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   };
   const decision = decideAiAction(state, 1);
   assert(
-    decision.type === 'action' && decision.action.type === 'PLAY_CARD' && decision.action.cardId === golem.id,
-    `FIX Glacial IA: joga o Criogolem assim que há slot vazio, sem esperar (recebido: ${JSON.stringify(decision)})`
+    decision.type !== 'action' || decision.action.type !== 'PLAY_CARD',
+    `FIX Glacial IA: NÃO tenta mais jogar o Criogolem na Estratégia (recebido: ${JSON.stringify(decision)})`
   );
 })();
 

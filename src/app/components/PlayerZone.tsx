@@ -589,6 +589,19 @@ export function PlayerZone({
       // torre ou seguir a seleção normal de carta única - clique simples
       // resolve os dois casos, sem precisar de nenhuma tecla modificadora.
       onSelectCardForField(cardId);
+    } else if (phase === 'combat') {
+      // Glacial (personagem novo) - FIX (pedido do usuário: "o monstro do
+      // glacial só pode ser posicionado... na fase de combate quando ele
+      // tiver um campo livre, a ideia é ser uma surpresa") - o Combate nunca
+      // tinha NENHUM clique de carta na mão até agora (nenhuma outra carta
+      // sai da mão nesta fase); o Criogolem selecionado aqui habilita o
+      // clique num slot vazio do próprio campo (ver handleFieldSlotClick,
+      // GameBoard.tsx) e o botão "Posicionar" abaixo da mão (mesmo fluxo já
+      // usado na Estratégia pra qualquer outra carta).
+      if (handInteractionMode === 'dragOnly') return;
+      if (character === 'glacial' && card.isMonster) {
+        onSelectCardForField(cardId);
+      }
     }
   };
 
@@ -901,8 +914,17 @@ export function PlayerZone({
           </div>
         </div>
 
-        {/* Botões de ação para a carta selecionada */}
-        {!isAiControlled && canPlayCard && phase === 'strategy' && (
+        {/* Botões de ação para a carta selecionada.
+            FIX (pedido do usuário: "o monstro do glacial só pode ser
+            posicionado... na fase de combate... a ideia é ser uma
+            surpresa") - `phase === 'combat'` só habilita este bloco quando a
+            carta selecionada É o Criogolem do Glacial (a única carta que
+            pode sair da mão durante o Combate agora); pra qualquer outra
+            situação de Combate (nada selecionado, ou uma seleção que não é
+            o Criogolem), o bloco continua fora, como sempre foi. */}
+        {!isAiControlled &&
+          canPlayCard &&
+          (phase === 'strategy' || (phase === 'combat' && character === 'glacial' && selectedCard?.isMonster)) && (
           <div
             className="border-2 rounded-lg p-2"
             style={{
@@ -1374,6 +1396,16 @@ export function PlayerZone({
                   : '→ Clique em um slot no campo'}
               </p>
             )}
+            {/* Glacial (personagem novo) - FIX (pedido do usuário: "o
+                monstro do glacial só pode ser posicionado... na fase de
+                combate quando ele tiver um campo livre, a ideia é ser uma
+                surpresa") - única dica de seleção que existe no Combate
+                (nenhuma outra carta sai da mão nesta fase). */}
+            {!isAiControlled && selectedCardId && phase === 'combat' && character === 'glacial' && selectedCard?.isMonster && (
+              <p className="text-[10px]" style={{ color: theme.primary }}>
+                → Clique em um slot vazio do seu campo
+              </p>
+            )}
             {!isAiControlled && phase === 'draw' && selectedForDiscard.size > 0 && (
               <p className="text-[10px] text-[#D45D4A]">
                 {selectedForDiscard.size} selecionada(s)
@@ -1625,8 +1657,23 @@ export function PlayerZone({
                   // não mexe em `canDragToFuse`/`isMagicDragEligible`
                   // (Fusão e o atalho de magia por arraste continuam
                   // funcionando do mesmo jeito, ver settings.ts).
+                  // FIX (pedido do usuário: "o monstro do glacial só pode
+                  // ser posicionado da mão para o campo na fase de combate
+                  // quando ele tiver um campo livre, a ideia é ser uma
+                  // surpresa") - o Criogolem sai da lista de cartas
+                  // arrastáveis na Estratégia (não é mais posicionável ali,
+                  // ver handlePlayCard em gameEngine.ts) e ganha uma
+                  // elegibilidade PRÓPRIA, só no Combate - `!isMagic` mais
+                  // abaixo continuaria incluindo-o na Estratégia (o
+                  // Criogolem nunca teve valor J/Q/K), por isso a exclusão
+                  // explícita ali.
+                  const glacialGolemCombatPlaceable = character === 'glacial' && card.isMonster && phase === 'combat';
                   const canDragToPlaceOnField =
-                    handInteractionMode !== 'clickOnly' && phase === 'strategy' && (!isMagic || coringaFieldPlaceable || druidaFieldPlaceable);
+                    handInteractionMode !== 'clickOnly' &&
+                    (glacialGolemCombatPlaceable ||
+                      (phase === 'strategy' &&
+                        !(character === 'glacial' && card.isMonster) &&
+                        (!isMagic || coringaFieldPlaceable || druidaFieldPlaceable)));
                   const isDraggable = !isAiControlled && (canDragToPlaceOnField || canDragToFuse || isMagicDragEligible);
                   // FIX (pedido do usuário, variante "Fusão"): esta carta
                   // pode RECEBER outra arrastada em cima agora? Mesma

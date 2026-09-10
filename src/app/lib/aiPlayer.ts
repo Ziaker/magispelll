@@ -2849,13 +2849,12 @@ function decideStrategyPhase(state: GameState, ai: PlayerNumber): AiDecision {
     const druidaMonsterAction = traced('decideDruidaMonster', decideDruidaMonster(state, ai));
     if (druidaMonsterAction) return { type: 'action', action: druidaMonsterAction };
   }
-  // Glacial (personagem novo) - Criogolem nunca passa por decidePlaceMonsterCard
-  // (nunca usa Zona Monstro) nem por decideFieldPlacement (não é elegível lá,
-  // mesmo motivo do Broto/Monstro do Druida) - decidido à parte.
-  if (character === 'glacial') {
-    const glacialMonsterAction = traced('decideGlacialMonster', decideGlacialMonster(state, ai));
-    if (glacialMonsterAction) return { type: 'action', action: glacialMonsterAction };
-  }
+  // Glacial (personagem novo) - FIX (pedido do usuário: "o monstro do
+  // glacial só pode ser posicionado... na fase de combate... a ideia é ser
+  // uma surpresa") - decideGlacialMonster MUDOU de fase: agora só roda em
+  // decideCombatPhase (mais abaixo), nunca mais aqui na Estratégia (ver
+  // handlePlayCard/gameEngine.ts, que agora rejeita o Criogolem fora do
+  // Combate).
 
   const placeAction = traced('decideFieldPlacement', decideFieldPlacement(state, ai, character));
   if (placeAction) return { type: 'action', action: placeAction };
@@ -3542,6 +3541,16 @@ function decideCombatPhase(state: GameState, ai: PlayerNumber): AiDecision {
 
   const magicAction = traced('decideCombatMagic', decideCombatMagic(state, ai, character));
   if (magicAction) return { type: 'action', action: magicAction };
+
+  // Glacial (personagem novo) - FIX (pedido do usuário: "o monstro do
+  // glacial só pode ser posicionado... na fase de combate... a ideia é ser
+  // uma surpresa. Ajuste isso pra IA também") - decideGlacialMonster (antes
+  // rodava em decideStrategyPhase) já cobre exatamente a checagem pedida
+  // ("campo próprio livre") - só precisou mudar de fase.
+  if (character === 'glacial') {
+    const glacialMonsterAction = traced('decideGlacialMonster', decideGlacialMonster(state, ai));
+    if (glacialMonsterAction) return { type: 'action', action: glacialMonsterAction };
+  }
 
   const monsterAction = traced('decideMonsterEffect', decideMonsterEffect(state, ai, character));
   if (monsterAction) return { type: 'action', action: monsterAction };
