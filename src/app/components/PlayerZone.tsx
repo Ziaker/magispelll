@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { motion } from 'motion/react';
-import { Wand2, Heart as HeartIcon, Flame, Check, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Hand, MousePointerClick, Eye, EyeOff, Sprout, Snowflake } from 'lucide-react';
+import { Wand2, Heart as HeartIcon, Flame, Check, X as XIcon, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Hand, MousePointerClick, Eye, EyeOff, Sprout, Snowflake, Zap } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { Badge } from './ui/badge';
@@ -36,6 +36,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
+
+/**
+ * FIX (pedido do usuário: "a parte de pilha e descarte da interface, só
+ * deixe visível para quem utiliza ambos como a besta e o mosqueteiro") -
+ * personagens cujo kit lê/recicla o descarte compartilhado como recurso de
+ * verdade (Besta: Fúria Sanguinária/Troca Predatória pegam cartas de volta
+ * do descarte; Mosqueteiro: conta descartes das próprias magias pra Tiro
+ * Certeiro/Munição Infinita) - só estes veem o badge "Desc." ao lado da mão
+ * (ver uso mais abaixo). Isolado num Set pra ficar fácil de estender se outro
+ * personagem ganhar uma mecânica parecida no futuro.
+ */
+const USES_DISCARD_PILE = new Set<CharacterId>(['besta', 'mosqueteiro']);
 
 /**
  * FIX (pedido do usuário, item 5): "contador de vida com coração
@@ -172,7 +184,6 @@ interface PlayerZoneProps {
   onActivateMagic: (cardId: string) => void;
   /** FIX (item 9): troca a carta principal (ainda não revelada) de um slot do campo pela carta da mão selecionada; a carta antiga volta para a mão. */
   onSwapFieldCard: (cardId: string, slotIndex: number) => void;
-  deckSize: number;
   discardPileSize: number;
   /** QoL da mão (ideia "contagem de risco no baralho"): composição real do baralho, pra calcular quantas cópias de cada carta ainda restam pra comprar - ver handQol.ts. */
   deck: Card[];
@@ -343,7 +354,6 @@ export function PlayerZone({
   onTowerGroupDrop,
   onActivateMagic,
   onSwapFieldCard,
-  deckSize,
   discardPileSize,
   deck,
   magicContext,
@@ -737,6 +747,23 @@ export function PlayerZone({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maxDrawCards]);
 
+  // FIX (pedido do usuário: "adicione ao lado do botão de comprar um botão
+  // toggle que desliga este botão mas faz você automaticamente comprar uma
+  // carta quando a mão não tiver cheia na fase de compra") - compra 1 carta
+  // de cada vez (nunca `drawCount`, que é só do fluxo manual) sempre que a
+  // mão do jogador HUMANO desta zona ainda tem espaço e ainda há compras
+  // disponíveis no turno - o próprio efeito se repete a cada re-render
+  // disparado pela mudança de `playerState.hand.length` após cada compra,
+  // até um dos dois faltar. Só pra zona humana - a mão da IA já se
+  // autocompra pelo próprio aiPlayer.ts, sem depender disto.
+  useEffect(() => {
+    if (isAiControlled || phase !== 'draw' || !settings.autoDrawEnabled) return;
+    if (playerState.hand.length >= playerState.handLimit) return;
+    if (drawsRemainingThisTurn <= 0) return;
+    onDrawCards(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAiControlled, phase, settings.autoDrawEnabled, playerState.hand.length, playerState.handLimit, drawsRemainingThisTurn]);
+
   return (
     <div
       className={`border-2 rounded-lg p-3 ${isVictoryGlow ? 'animate-victory-glow' : ''} ${isFirstPicker ? 'animate-first-picker-glow' : ''}`}
@@ -881,55 +908,51 @@ export function PlayerZone({
               </TooltipProvider>
             )}
 
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div
-                    className="border rounded px-2 py-1 cursor-help"
-                    style={{
-                      backgroundColor: `${theme.dark}40`,
-                      borderColor: `${theme.primary}50`,
-                    }}
-                  >
-                    <p className="text-[9px] text-[#BFB6A6]">Pilha</p>
-                    <p
-                      className="text-[13px] font-display leading-tight"
-                      style={{ color: theme.primary }}
+            {/* FIX (pedido do usuário: "a parte de pilha e descarte da
+                interface, só deixe visível para quem utiliza ambos como a
+                besta e o mosqueteiro. remova a pilha por completo da
+                interface da mão") - dois ajustes distintos:
+                1) O badge genérico "Pilha" (baralho) somem daqui pra TODO
+                   personagem - já existe em "Baralho & Cemitério" (painel
+                   lateral), repetir aqui ao lado da mão era ruído pra quem
+                   não interage com ele de verdade.
+                2) O badge "Desc." (tamanho do descarte compartilhado) só
+                   continua aparecendo pros personagens cujo kit de verdade
+                   lê/recicla o descarte como recurso - hoje Besta (Fúria
+                   Sanguinária/Troca Predatória pegam cartas do descarte de
+                   volta) e Mosqueteiro (conta descartes pra Tiro Certeiro/
+                   Munição Infinita - ver o bloco específico dele logo acima,
+                   que é OUTRO número, uma janela de 3 turnos das PRÓPRIAS
+                   magias, não o tamanho total do descarte compartilhado).
+                   `USES_DISCARD_PILE` isolado embaixo pra ficar fácil de
+                   estender se outro personagem ganhar uma mecânica parecida
+                   no futuro. */}
+            {USES_DISCARD_PILE.has(character) && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div
+                      className="border rounded px-2 py-1 cursor-help"
+                      style={{
+                        backgroundColor: `${theme.dark}40`,
+                        borderColor: `${theme.primary}50`,
+                      }}
                     >
-                      {deckSize}
-                    </p>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Cartas restantes no baralho</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div
-                    className="border rounded px-2 py-1 cursor-help"
-                    style={{
-                      backgroundColor: `${theme.dark}40`,
-                      borderColor: `${theme.primary}50`,
-                    }}
-                  >
-                    <p className="text-[9px] text-[#BFB6A6]">Desc.</p>
-                    <p
-                      className="text-[13px] font-display leading-tight"
-                      style={{ color: theme.primary }}
-                    >
-                      {discardPileSize}
-                    </p>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Cartas no descarte</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+                      <p className="text-[9px] text-[#BFB6A6]">Desc.</p>
+                      <p
+                        className="text-[13px] font-display leading-tight"
+                        style={{ color: theme.primary }}
+                      >
+                        {discardPileSize}
+                      </p>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Cartas no descarte</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
 
             {isAiControlled ? (
               <div
@@ -1331,33 +1354,63 @@ export function PlayerZone({
                     </span>
                   </Button>
                 )}
-                <div className="flex gap-1 items-center">
-                  <Select
-                    value={drawCount.toString()}
-                    onValueChange={(val) => setDrawCount(parseInt(val, 10))}
-                    disabled={playerState.hand.length >= playerState.handLimit || drawsRemainingThisTurn <= 0}
+                {/* FIX (pedido do usuário: "prototipe o visual reworkado do
+                    botão de compra sendo um toggle agora") - com auto-compra
+                    LIGADA, o Select+Comprar manuais somem (não fazem sentido
+                    mais - o efeito acima já compra sozinho) e dão lugar a UM
+                    único controle largo, no mesmo verde do botão antigo, que
+                    já É o toggle (clicar nele desliga de novo) - literalmente
+                    "o botão de compra virou um toggle" em vez de um botão ao
+                    lado de outro botão. Desligada, os controles manuais de
+                    sempre voltam, com um toggle pequeno (ícone de raio) ao
+                    lado deles pra ligar o modo automático. */}
+                {settings.autoDrawEnabled ? (
+                  <button
+                    type="button"
+                    onClick={() => updateSetting('autoDrawEnabled', false)}
+                    title="Auto-Compra ligada: compra sozinha 1 carta por vez até a mão encher (clique para desligar e voltar ao manual)"
+                    className="h-auto py-1 px-3 rounded-md flex items-center gap-1.5 border-2 transition-colors bg-[#6CC47A] hover:bg-[#4A8A5A] border-[#6CC47A] text-[#0F1113]"
                   >
-                    <SelectTrigger className="h-auto py-1 px-2 w-[50px] bg-[#1E1A16] border-[#6CC47A]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#1E1A16] border-[#6CC47A]">
-                      {Array.from({ length: maxDrawCards }, (_, i) => i + 1).map((num) => (
-                        <SelectItem key={num} value={num.toString()} className="text-[#EFE7D6]">
-                          {num}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    onClick={() => onDrawCards(drawCount)}
-                    size="sm"
-                    disabled={playerState.hand.length >= playerState.handLimit || drawsRemainingThisTurn <= 0}
-                    className="h-auto py-1 px-3 bg-[#6CC47A] hover:bg-[#4A8A5A] text-[#0F1113] disabled:opacity-50"
-                  >
-                    <ShoppingCart className="w-3 h-3 mr-1" />
-                    <span className="text-[10px]">Comprar</span>
-                  </Button>
-                </div>
+                    <Zap className="w-3 h-3 fill-current" />
+                    <span className="text-[10px] font-semibold">Auto-Compra: Ligada</span>
+                  </button>
+                ) : (
+                  <div className="flex gap-1 items-center">
+                    <Select
+                      value={drawCount.toString()}
+                      onValueChange={(val) => setDrawCount(parseInt(val, 10))}
+                      disabled={playerState.hand.length >= playerState.handLimit || drawsRemainingThisTurn <= 0}
+                    >
+                      <SelectTrigger className="h-auto py-1 px-2 w-[50px] bg-[#1E1A16] border-[#6CC47A]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#1E1A16] border-[#6CC47A]">
+                        {Array.from({ length: maxDrawCards }, (_, i) => i + 1).map((num) => (
+                          <SelectItem key={num} value={num.toString()} className="text-[#EFE7D6]">
+                            {num}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      onClick={() => onDrawCards(drawCount)}
+                      size="sm"
+                      disabled={playerState.hand.length >= playerState.handLimit || drawsRemainingThisTurn <= 0}
+                      className="h-auto py-1 px-3 bg-[#6CC47A] hover:bg-[#4A8A5A] text-[#0F1113] disabled:opacity-50"
+                    >
+                      <ShoppingCart className="w-3 h-3 mr-1" />
+                      <span className="text-[10px]">Comprar</span>
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => updateSetting('autoDrawEnabled', true)}
+                      title="Ligar Auto-Compra: compra sozinha 1 carta por vez sempre que a mão não estiver cheia na Fase de Compra"
+                      className="h-full px-1.5 py-1 rounded-md border-2 flex items-center justify-center transition-colors border-[#6CC47A]/50 text-[#6CC47A]/70 hover:border-[#6CC47A] hover:text-[#6CC47A]"
+                    >
+                      <Zap className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1423,6 +1476,31 @@ export function PlayerZone({
                   <span className="text-[9px]">
                     {handInteractionMode === 'both' ? 'Arrastar+Clique' : handInteractionMode === 'dragOnly' ? 'Só Arrastar' : 'Só Clique'}
                   </span>
+                </button>
+              )}
+              {/* FIX (pedido do usuário, 2ª vez pedindo: "cade a opção da
+                  confirmação existir na interface ao lado das configurações
+                  da mão????") - a 1ª tentativa só espelhou o switch no menu
+                  de pausa (Configurações Rápidas), mas "ao lado das opções
+                  da mão" quer dizer literalmente AQUI, nesta fileira de
+                  botões alternadores ao lado de "Mão (X/Y)" - mesmo padrão
+                  visual do botão de modo de interação logo acima (também
+                  espelha `settings.confirmBeforePhaseChange`, então mudar
+                  aqui reflete em Configurações/pausa e vice-versa). Só pro
+                  jogador HUMANO, mesma razão do botão de modo acima. */}
+              {!isAiControlled && (
+                <button
+                  onClick={() => updateSetting('confirmBeforePhaseChange', !settings.confirmBeforePhaseChange)}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 border transition-colors"
+                  style={{ borderColor: `${theme.primary}50`, color: theme.primary }}
+                  title={
+                    settings.confirmBeforePhaseChange
+                      ? 'Confirmar antes de trocar de fase: ligado (clique para desligar)'
+                      : 'Confirmar antes de trocar de fase: desligado (clique para ligar)'
+                  }
+                >
+                  {settings.confirmBeforePhaseChange ? <Check className="w-2.5 h-2.5" /> : <XIcon className="w-2.5 h-2.5" />}
+                  <span className="text-[9px]">Confirmar Fase</span>
                 </button>
               )}
               {/* FIX (pedido do usuário: "ocultar mão do oponente
@@ -1792,9 +1870,38 @@ export function PlayerZone({
                   // ver comentário completo em handSelection.ts.
                   const towerBadgeEligible = towersMode && phase === 'strategy' && !isAiControlled && towerEligibleValue(card) !== null;
                   const isMarkedForTower = selectedForTower.has(card.id);
+                  // FIX (pedido do usuário, 2ª vez pedindo: "as cartas ainda
+                  // não se empilham visualmente, continuam uma do lado da
+                  // outra") - a 1ª tentativa só reordenava o ARRAY de exibição
+                  // (groupTowerCardsForDisplay, handSelection.ts), deixando as
+                  // cartas adjacentes mas com o mesmo espaçamento/borda
+                  // individual de sempre - indistinguível de "por acaso ficou
+                  // do lado". "Empilhar" pede sobreposição de verdade: aqui,
+                  // cada carta do grupo (exceto a 1ª) puxa uma margem negativa
+                  // por cima da anterior do MESMO grupo (`isGroupedWithPrev`,
+                  // só true quando a carta anterior em `displayHand` também
+                  // está no grupo - preserva o espaçamento normal com o resto
+                  // da mão) e ganha um z-index crescente, pra parecer um baralho
+                  // físico empilhado em leque (carta mais nova por cima).
+                  const isGroupedWithPrev =
+                    towersMode &&
+                    isMarkedForTower &&
+                    selectedForTower.size >= 2 &&
+                    displayIndex > 0 &&
+                    selectedForTower.has(displayHand[displayIndex - 1].id);
 
                   return (
-                    <div key={card.id} className="relative">
+                    <div
+                      key={card.id}
+                      className="relative transition-[margin] duration-200"
+                      style={
+                        isGroupedWithPrev
+                          ? { marginLeft: -34, zIndex: 20 + displayIndex, transform: 'translateY(-3px)' }
+                          : isMarkedForTower && towersMode && selectedForTower.size >= 2
+                          ? { zIndex: 20 + displayIndex }
+                          : undefined
+                      }
+                    >
                       {towerBadgeEligible && (
                         <button
                           type="button"

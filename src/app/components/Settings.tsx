@@ -295,6 +295,24 @@ export function Settings({ onBack }: SettingsProps) {
                 />
               </div>
 
+              {/* FIX (pedido do usuário: "botão toggle que desliga o botão de
+                  comprar mas faz você automaticamente comprar uma carta
+                  quando a mão não tiver cheia na fase de compra") - mesmo
+                  padrão/posição dos switches acima; também disponível como
+                  toggle direto ao lado do botão "Comprar" durante a partida
+                  (ver PlayerZone.tsx), mesmo espírito do modo de interação da
+                  mão logo acima. */}
+              <div className="flex items-center justify-between">
+                <Label htmlFor="autoDrawEnabled" className="text-[#BFB6A6]">
+                  Auto-Compra na Fase de Compra
+                </Label>
+                <Switch
+                  id="autoDrawEnabled"
+                  checked={settings.autoDrawEnabled}
+                  onCheckedChange={(checked) => updateSetting('autoDrawEnabled', checked)}
+                />
+              </div>
+
               {/* FIX (pedido do usuário: "desligar tooltips") - só o popup de
                   descrição do efeito de uma carta de magia/armadilha NA MÃO
                   (ver `showHandEffectTooltips`, settings.ts) - não afeta os

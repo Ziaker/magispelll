@@ -1,4 +1,5 @@
 import { motion } from 'motion/react';
+import { Pause, Play } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { isTowerSlot, type FieldSlot, type CharacterId } from '../lib/gameEngine';
 import type { Card } from '../lib/cardUtils';
@@ -194,6 +195,18 @@ interface BattleFieldProps {
   fireballCap?: number;
   player1SpreadArmed?: boolean;
   player2SpreadArmed?: boolean;
+  /**
+   * Modo Espectador (pedido do usuário: "adicione a opção in-game no modo
+   * espectador, um botão que congele as duas IAs e permita inspecionar uma
+   * carta") - botão grande no divisor central do campo (ao lado do ícone de
+   * espadas), só existe no Modo Espectador (`isSpectatorMode`). Congelado,
+   * o loop de decisão da IA (GameBoard.tsx) para por completo pros dois
+   * lados - dá tempo de segurar uma carta pra inspecionar (FieldSlotView.tsx)
+   * sem o campo mudando embaixo. Aperta de novo pra descongelar.
+   */
+  isSpectatorMode?: boolean;
+  spectatorFrozen?: boolean;
+  onToggleSpectatorFreeze?: () => void;
 }
 
 export function BattleField({
@@ -242,6 +255,9 @@ export function BattleField({
   fireballCap,
   player1SpreadArmed,
   player2SpreadArmed,
+  isSpectatorMode = false,
+  spectatorFrozen = false,
+  onToggleSpectatorFreeze,
 }: BattleFieldProps) {
   const p1Theme = getCharacterTheme(player1Character);
   const p2Theme = getCharacterTheme(player2Character);
@@ -390,6 +406,36 @@ export function BattleField({
           cobrindo o centro da tela inteira (ver CombatValueReveal.tsx). */}
       <div className="relative flex items-center justify-center w-full py-1">
         <div className="absolute inset-x-0 h-px bg-gradient-to-r from-transparent via-[#C59E4F] to-transparent" />
+        {/* FIX (pedido do usuário: "adicione a opção in-game no modo
+            espectador, um botão que congele as duas IAs e permita
+            inspecionar uma carta... bem no meio do campo na região direita
+            abaixo das pilhas e do baralho, faça ele ser grande") - vive no
+            mesmo divisor central do ícone de espadas (é "o meio do campo"),
+            ancorado à direita dele via `justify-between`/margin-left auto no
+            botão. Congelado, o loop de decisão da IA (GameBoard.tsx) pausa
+            por completo pros dois lados - a inspeção de carta (segurar 1.5s)
+            continua funcionando normalmente enquanto congelado, já que ela
+            já tinha seu próprio guard independente no loop da IA. */}
+        {isSpectatorMode && onToggleSpectatorFreeze && (
+          <button
+            type="button"
+            onClick={onToggleSpectatorFreeze}
+            title={
+              spectatorFrozen
+                ? 'Descongelar as IAs (a partida volta a rodar sozinha)'
+                : 'Congelar as duas IAs - dá tempo de inspecionar uma carta com calma'
+            }
+            className="absolute right-0 z-20 flex items-center gap-2 px-5 py-3 rounded-lg border-2 shadow-lg transition-all hover:scale-105"
+            style={
+              spectatorFrozen
+                ? { backgroundColor: '#0ADEFF20', borderColor: '#0ADEFF', color: '#0ADEFF' }
+                : { backgroundColor: '#1E1A16', borderColor: '#C59E4F80', color: '#C59E4F' }
+            }
+          >
+            {spectatorFrozen ? <Play className="w-5 h-5 fill-current" /> : <Pause className="w-5 h-5 fill-current" />}
+            <span className="text-[13px] font-display">{spectatorFrozen ? 'Descongelar IAs' : 'Congelar IAs'}</span>
+          </button>
+        )}
         <div className="relative bg-[#1E1A16] px-4 flex items-center gap-3">
           {combatValueSpec && (
             <motion.span

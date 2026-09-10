@@ -108,6 +108,17 @@ export interface Settings {
    */
   confirmBeforePhaseChange: boolean;
   /**
+   * FIX (pedido do usuário: "adicione ao lado do botão de comprar um botão
+   * toggle que desliga este botão mas faz você automaticamente comprar uma
+   * carta quando a mão não tiver cheia na fase de compra") - desligado por
+   * padrão (preserva o fluxo manual de sempre); quando ligado, o botão
+   * "Comprar" (PlayerZone.tsx) fica desabilitado e um efeito compra 1 carta
+   * por vez sozinho, sempre que a mão do jogador HUMANO não está cheia e
+   * ainda há compras disponíveis no turno (respeita `drawLimitEnabled`
+   * normalmente - nunca ultrapassa o limite configurado).
+   */
+  autoDrawEnabled: boolean;
+  /**
    * FIX (pedido do usuário: "ocultar mão do oponente automaticamente" no
    * Hotseat) - fora do modo Hotseat isso nunca importa (contra a IA/
    * Espectador já escondem a mão automaticamente, ver isAiControlled em
@@ -216,6 +227,7 @@ export const DEFAULT_SETTINGS: Settings = {
   interfaceZoom: 85,
   confirmBeforeDiscard: false,
   confirmBeforePhaseChange: false,
+  autoDrawEnabled: false,
   hotseatPrivacyMode: false,
   spectatorRevealHands: false,
   showFloatingScore: true,

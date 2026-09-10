@@ -385,6 +385,18 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [cardInspectionCooldownActive, setCardInspectionCooldownActive] = useState(false);
   const cardInspectionCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /**
+   * Modo Espectador (pedido do usuário: "adicione a opção in-game no modo
+   * espectador, um botão que congele as duas IAs e permita inspecionar uma
+   * carta. as descongela ao apertar ele denovo") - estado LOCAL, mesmo
+   * espírito de `cardInspection`/`postMagicPause` acima: um novo "motivo de
+   * pausa" que entra na mesma lista de guards do loop de decisão da IA
+   * (useEffect mais abaixo), sem tocar em `gameState.paused`/`TOGGLE_PAUSE`.
+   * Só existe/importa no Modo Espectador - resetado a cada partida nova via
+   * a mesma chave de remount do GameBoard (nunca precisa de reset manual).
+   */
+  const [spectatorFrozen, setSpectatorFrozen] = useState(false);
+
   useEffect(() => {
     return () => {
       if (cardInspectionAutoCloseTimerRef.current) clearTimeout(cardInspectionAutoCloseTimerRef.current);
@@ -1824,6 +1836,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     if (showPhaseTransition) return; // ver comentário do `dispatch` guardado acima
     if (postMagicPause) return; // idem - ver comentário do `dispatch` guardado acima
     if (cardInspection) return; // idem - ver comentário do `dispatch` guardado acima
+    if (spectatorFrozen) return; // idem - botão de Congelar IAs do Modo Espectador (BattleField.tsx)
 
     const timers: ReturnType<typeof setTimeout>[] = [];
     for (const ai of aiPlayers) {
@@ -1908,7 +1921,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // Agora, ao voltar a `false`, este efeito roda de novo e agenda a próxima
     // decisão normalmente.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, aiPlayers, pendingMagic, pendingAceTransform, pendingMonsterEffect, pendingMonsterTarget, pendingBestaMonsterTarget, pendingCoringaQChoice, pendingUnfreeze, showPhaseTransition, postMagicPause, cardInspection]);
+  }, [gameState, aiPlayers, pendingMagic, pendingAceTransform, pendingMonsterEffect, pendingMonsterTarget, pendingBestaMonsterTarget, pendingCoringaQChoice, pendingUnfreeze, showPhaseTransition, postMagicPause, cardInspection, spectatorFrozen]);
 
   // FIX (pedido do usuário: "ainda ocorre softlocks no espectador... adicione
   // um timer de 10 segundos pra IA rever o que está ou deveria fazer, caso
@@ -1944,6 +1957,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // ESPECTADOR está inspecionando uma carta não é um travamento - nunca
     // deveria forçar TOGGLE_READY nas duas IAs só por causa disso.
     if (cardInspection) return;
+    // FIX (mesmo motivo do guard de cardInspection acima): o botão "Congelar
+    // IAs" (BattleField.tsx) é uma pausa INTENCIONAL do espectador, não um
+    // travamento - sem este guard, congelar por mais de 10s forçaria
+    // TOGGLE_READY nas duas IAs sozinho, descongelando na prática por trás
+    // do botão ainda mostrando "congelado".
+    if (spectatorFrozen) return;
 
     const t = setTimeout(() => {
       for (const ai of aiPlayers) {
@@ -1954,7 +1973,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     }, 10000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, aiPlayers, cardInspection]);
+  }, [gameState, aiPlayers, cardInspection, spectatorFrozen]);
 
   // ----- Handlers: traduzem interação do usuário em dispatch() -----
 
@@ -3998,7 +4017,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onTowerGroupDrop={(droppedCardId, targetCardId) => handleTowerGroupDrop(2, droppedCardId, targetCardId)}
                 onActivateMagic={(cardId) => handleActivateMagicClick(2, cardId)}
                 onSwapFieldCard={(cardId, slotIndex) => handleSwapFieldCard(2, cardId, slotIndex)}
-                deckSize={gameState.deck.length}
                 discardPileSize={gameState.discardPile.length}
                 deck={gameState.deck}
                 magicContext={getMagicActivationContext(gameState, 2)}
@@ -4081,6 +4099,9 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     fireballCap={getFireballCap(gameConfig)}
                     player1SpreadArmed={hasStatus(gameState.player1, 'spreadArmed')}
                     player2SpreadArmed={hasStatus(gameState.player2, 'spreadArmed')}
+                    isSpectatorMode={gameConfig.mode === 'spectator'}
+                    spectatorFrozen={spectatorFrozen}
+                    onToggleSpectatorFreeze={() => setSpectatorFrozen((v) => !v)}
                   />
                 </div>
                 <SpotlightSidebar spotlight={gameState.spotlight} />
@@ -4120,7 +4141,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onTowerGroupDrop={(droppedCardId, targetCardId) => handleTowerGroupDrop(1, droppedCardId, targetCardId)}
                 onActivateMagic={(cardId) => handleActivateMagicClick(1, cardId)}
                 onSwapFieldCard={(cardId, slotIndex) => handleSwapFieldCard(1, cardId, slotIndex)}
-                deckSize={gameState.deck.length}
                 discardPileSize={gameState.discardPile.length}
                 deck={gameState.deck}
                 magicContext={getMagicActivationContext(gameState, 1)}
@@ -6351,6 +6371,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 id="pauseConfirmPhaseChange"
                 checked={settings.confirmBeforePhaseChange}
                 onCheckedChange={(checked) => updateSetting('confirmBeforePhaseChange', checked)}
+              />
+            </div>
+            {/* FIX (pedido do usuário: mesmo padrão/posição do switch de
+                troca de fase acima - também disponível como toggle direto ao
+                lado do botão "Comprar" durante a partida (PlayerZone.tsx). */}
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pauseAutoDraw" className="text-[#BFB6A6]">
+                Auto-Compra na Fase de Compra
+              </Label>
+              <Switch
+                id="pauseAutoDraw"
+                checked={settings.autoDrawEnabled}
+                onCheckedChange={(checked) => updateSetting('autoDrawEnabled', checked)}
               />
             </div>
             {/* FIX (pedido do usuário: "ocultar mão do oponente

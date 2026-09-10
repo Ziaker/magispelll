@@ -49,7 +49,7 @@ export function Home({ onNewGame, onQuickStart, onRules, onCharacters, onSetting
               pra uma correção pequena - também serve pra confirmar visualmente
               que um deploy realmente chegou (o index.html do GitHub Pages
               cacheia por ~10min). */}
-          <p className="text-[11px] text-[#8F6A30]/70">v0.8888888.32</p>
+          <p className="text-[11px] text-[#8F6A30]/70">v0.8888888.33</p>
           {/* FIX (pedido do usuário: "atalho de Partida Rápida") - pula
               Configuração (usa a última usada ou o padrão) e Resumo, indo
               direto pra escolha de personagem - ver handleQuickStart em
