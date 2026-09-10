@@ -265,9 +265,10 @@ export function GameConfig({ onBack, onStartGame, showSteps = true }: GameConfig
                   {/* FIX (pedido do usuário: "abaixo da opção de fusão,
                       implemente a possibilidade de limite de fusões,
                       podendo selecionar quantas fusões os jogadores poderão
-                      fazer cada turno, com o limite normal sendo de 1 e o
-                      limite de vezes indo até 4") - só aparece (e só
-                      importa) com a variante Fusão ligada. */}
+                      fazer cada turno") - só aparece (e só importa) com a
+                      variante Fusão ligada. FIX (pedido do usuário, depois de
+                      jogar mais): padrão subiu de 1 pra 2, e o teto
+                      selecionável de 4 pra 6. */}
                   {config.fusion && (
                     <div className="flex items-center justify-between">
                       <Label htmlFor="fusionLimit" className="text-[#BFB6A6]">
@@ -281,7 +282,7 @@ export function GameConfig({ onBack, onStartGame, showSteps = true }: GameConfig
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="bg-[#1E1A16] border-[#C59E4F]">
-                          {[1, 2, 3, 4].map((n) => (
+                          {[1, 2, 3, 4, 5, 6].map((n) => (
                             <SelectItem key={n} value={n.toString()} className="text-[#EFE7D6]">
                               {n}
                             </SelectItem>

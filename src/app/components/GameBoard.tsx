@@ -2043,6 +2043,39 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     const next = groupCardsForTowerViaDrag(player.hand, { selectedCardId, selectedForTower }, droppedCardId, targetCardId);
     setSelectedCardId(next.selectedCardId);
     setSelectedForTower(next.selectedForTower);
+    // FIX (pedido do usuário, achado na investigação do item 2: "confusão
+    // real com o fluxo de Fusão" - o mesmo gesto de arrastar-sobre-carta
+    // completa uma Fusão na hora, mas só AGRUPA na Torre, sem jogar nada no
+    // campo ainda) - um toast avisa explicitamente que isto é um passo
+    // PREPARATÓRIO, não a ação final. Só na transição de <2 pra 2+ cartas
+    // (o momento em que um grupo de verdade nasce por este gesto) - não
+    // repete a cada carta adicional agrupada depois, pra não virar spam.
+    if (selectedForTower.size < 2 && next.selectedForTower.size >= 2) {
+      toast(`🏰 ${next.selectedForTower.size} cartas agrupadas na mão - arraste até o campo ou toque num slot pra formar a torre`, { duration: 3000 });
+    }
+  };
+
+  // FIX (pedido do usuário, achado jogando: "o sistema de towers... não está
+  // funcionando corretamente, ainda é complexo") - `HandCardView.tsx` dispara
+  // `onDragStart` (pra já mostrar o painel Posicionar/Horizontal durante o
+  // arraste) chamando `onCardSelect` cru (`setSelectedCardId` direto, sem
+  // passar por `decideHandCardSelection`). Isso violava a invariante que o
+  // próprio handSelection.ts documenta ("as duas seleções são mutuamente
+  // exclusivas, cada uma só muda pelo controle dedicado a ela") - começar a
+  // arrastar QUALQUER carta, mesmo uma já marcada pro grupo de torre (selo
+  // 🏰 ou agrupada via drag-sobre-drag), zerava `selectedForTower` na
+  // prática assim que o próximo toque normal caísse em
+  // handleSelectCardForField/decideHandCardSelection - o grupo de torre
+  // "sumia" sem nenhum aviso, exatamente o bug relatado. Agora: arrastar uma
+  // carta que JÁ faz parte do grupo de torre não mexe em nenhuma seleção
+  // (o grupo seguirá intacto, o próprio arraste vai ou reagrupar mais uma
+  // carta - handleTowerGroupDrop - ou reforçar/formar a torre no campo -
+  // handleTowerDrop); só uma carta FORA do grupo continua virando seleção
+  // normal de carta única, exatamente como antes.
+  const handleHandCardDragStart = (cardId: string | null) => {
+    if (cardId && selectedForTower.has(cardId)) return;
+    setSelectedCardId(cardId);
+    setSelectedForTower(new Set());
   };
 
   const handleFormTower = (playerNumber: 1 | 2, slotIndex: number) => {
@@ -3937,7 +3970,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 // showPhaseTransition é true (ver guards mais abaixo).
                 playerState={showPhaseTransition && isGameStart ? { ...gameState.player2, hand: [] } : gameState.player2}
                 selectedCardId={selectedCardId}
-                onCardSelect={setSelectedCardId}
+                onCardSelect={handleHandCardDragStart}
                 onPlayCard={(cardId, slotIndex, asHorizontal) => handlePlayCard(2, cardId, slotIndex, asHorizontal)}
                 selectedSlot={selectedSlot}
                 onToggleReady={() => handleToggleReady(2)}
@@ -4059,7 +4092,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 phase={gameState.phase}
                 playerState={showPhaseTransition && isGameStart ? { ...gameState.player1, hand: [] } : gameState.player1}
                 selectedCardId={selectedCardId}
-                onCardSelect={setSelectedCardId}
+                onCardSelect={handleHandCardDragStart}
                 onPlayCard={(cardId, slotIndex, asHorizontal) => handlePlayCard(1, cardId, slotIndex, asHorizontal)}
                 selectedSlot={selectedSlot}
                 onToggleReady={() => handleToggleReady(1)}
@@ -6076,7 +6109,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           <DialogHeader>
             {gameState.numeralSpellPending && (() => {
               const theme = getCharacterTheme(gameState.numeralSpellPending.character);
-              const spellInfo = getNumeralSpellInfo(gameState.numeralSpellPending.character);
+              const spellInfo = getNumeralSpellInfo(gameState.numeralSpellPending.character, { fusionEnabled: gameConfig.fusion });
               return (
                 <div className="flex flex-col items-center gap-4 py-4">
                   <motion.div

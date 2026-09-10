@@ -61,7 +61,7 @@ const READINESS_CLASSES: Record<BadgeReadiness, string> = {
 export function CharacterMagicReference({ character, gameState, playerNumber }: CharacterMagicReferenceProps) {
   const theme = getCharacterTheme(character);
   const magicTypes: MagicCardType[] = ['J', 'Q', 'K'];
-  const numeralInfo = getNumeralSpellInfo(character);
+  const numeralInfo = getNumeralSpellInfo(character, { fusionEnabled: gameState.gameConfig.fusion });
   const monsterEffect = getMonsterEffect(character);
 
   const playerState = gameState[playerKeyOf(playerNumber)];

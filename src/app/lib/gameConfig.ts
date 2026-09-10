@@ -27,7 +27,7 @@
  *   por padrão (é uma variante nova/opcional, diferente de Cartas Monstro
  *   que já é parte histórica do jogo).
  * - fusionLimit: quantas fusões cada jogador pode fazer por turno quando
- *   `fusion` está ligado (1-4, padrão 1). Só tem efeito com `fusion: true` -
+ *   `fusion` está ligado (1-6, padrão 2). Só tem efeito com `fusion: true` -
  *   ver o seletor abaixo do switch "Fusão" em GameConfig.tsx.
  * - drawLimitEnabled/drawLimit: totalmente funcional (pedido do usuário) -
  *   limite opcional de quantas cartas podem ser COMPRADAS (DRAW_CARDS, a
@@ -158,7 +158,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   autoShowEffects: true,
   autoShuffle: true,
   fusion: false,
-  fusionLimit: 1,
+  fusionLimit: 2,
   drawLimitEnabled: false,
   drawLimit: 4,
   discardLimit: MIN_DISCARD_LIMIT,

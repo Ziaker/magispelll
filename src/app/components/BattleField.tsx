@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { getCharacterTheme } from '../lib/characterThemes';
-import type { FieldSlot, CharacterId } from '../lib/gameEngine';
+import { isTowerSlot, type FieldSlot, type CharacterId } from '../lib/gameEngine';
 import type { Card } from '../lib/cardUtils';
 import { FieldSlotView } from './FieldSlotView';
 import type { CombatValueRevealSpec } from './CombatValueReveal';
@@ -319,12 +319,27 @@ export function BattleField({
     if (!selectedForTower || selectedForTower.size === 0) return null;
     if (!selectedSlot || selectedSlot.player !== playerNumber) return null;
     const canForm = Boolean(canFormTower?.(playerNumber, selectedSlot.slot));
+    // FIX (pedido do usuário, achado na investigação do item 2: "botão
+    // desabilitado sem explicação") - não duplica as regras completas de
+    // `canFormOrReinforceTower` (gameEngine.ts) aqui; só cobre o motivo mais
+    // comum/óbvio de rejeição (menos de 2 cartas pra criar uma torre NOVA,
+    // já que reforçar uma torre JÁ ATIVA só precisa de 1+) usando dado que
+    // este componente já tem à mão (`isTowerSlot`, o campo do slot) - pra
+    // qualquer outro motivo (valor incompatível, carta congelada, Broto),
+    // cai num aviso genérico em vez de silêncio total.
+    const targetSlot = (playerNumber === 1 ? player1Field : player2Field)[selectedSlot.slot];
+    const disabledReason = canForm
+      ? undefined
+      : !isTowerSlot(targetSlot) && selectedForTower.size < 2
+      ? 'Formar uma torre nova precisa de 2+ cartas selecionadas'
+      : 'Essa combinação não forma/reforça uma torre aqui (confira se o valor bate com a torre, ou se o slot pode virar uma)';
     return (
       <div className="grid grid-cols-3 gap-6 justify-items-center">
         <div />
         <button
           onClick={() => canForm && onFormTower?.(playerNumber, selectedSlot.slot)}
           disabled={!canForm}
+          title={disabledReason}
           className="w-full px-3 py-1.5 rounded-lg border-2 transition-all hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
           style={{ backgroundColor: '#7AA7C4', borderColor: '#7AA7C4', color: '#0F1113' }}
         >

@@ -18,7 +18,7 @@ Cada jogador escolhe um personagem com um baralho e um estilo de jogo próprios.
 | **Besta** | Agressão e recuperação — recicla o descarte e pressiona o oponente sem parar |
 | **Anjo** | Crescimento e suporte — acumula vantagens permanentes e protege seus recursos |
 | **Mosqueteiro** | Descarte e precisão — troca cartas por reforço de campo e informação |
-| **Coringa** | Armadilhas e sabotagem — planta cartas viradas para baixo que explodem quando o oponente menos espera |
+| **Palhaço** | Armadilhas e sabotagem — planta cartas viradas para baixo que explodem quando o oponente menos espera |
 | **Piromante** | Combustão e dano em área — acumula uma Bola de Fogo queimando cartas como combustível e a lança contra o campo do oponente |
 | **Druida** | Crescimento e simbiose — planta um Broto que cresce sozinho a cada turno e pode ser sacrificado pela metade para marcar cartas em combate |
 | **Glacial** | Congelamento e controle — congela cartas de magia (suas ou do oponente) para travar sua ativação, e o Criogolem cresce em valor conforme mais cartas ficam congeladas em jogo |

@@ -161,7 +161,7 @@ export const characterThemes: Record<Character, CharacterTheme> = {
   // mesmo azul, pra reforçar visualmente "ilusão/dualidade" mesmo antes de
   // qualquer efeito específico entrar em jogo).
   coringa: {
-    name: 'CORINGA',
+    name: 'PALHAÇO',
     primary: '#3B4CCB',      // Azul-arlequim vibrante
     secondary: '#8A1F3D',    // Vermelho-vinho escuro
     accent: '#E23F5C',       // Vermelho vivo (a 2ª cor de verdade, não um tom de azul)

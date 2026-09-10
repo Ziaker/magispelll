@@ -510,23 +510,30 @@ export function FieldSlotView({
   // da horizontal") - `getTowerDropCardIds` (GameBoard.tsx) já devolve os
   // `cardIds` prontos (o GRUPO inteiro, se a carta arrastada fizer parte de
   // um via selectedForTower, ou só ela sozinha) e já revalidados contra
-  // `canFormOrReinforceTower` - null quando não se aplica aqui. Um slot VAZIO
-  // só aceita via este caminho com 2+ cartas (criar torre nova precisa disso;
-  // reforçar 1 card só faz sentido numa torre já ATIVA, que nunca está vazia).
+  // `canFormOrReinforceTower` - null quando não se aplica aqui.
   const getTowerCardIds = (item: CardDragItem): string[] | null => (item.card ? getTowerDropCardIds?.(playerNumber, i, item.card) ?? null : null);
-  const isEmptySlotTowerCreateDrop = (item: CardDragItem) => {
-    if (slot.faceDownCard) return false;
-    const ids = getTowerCardIds(item);
-    return Boolean(ids && ids.length >= 2);
-  };
+  // FIX (pedido do usuário, achado jogando: "não está funcionando
+  // corretamente, ainda é complexo colocar uma torre") - antes só um slot
+  // VAZIO aceitava torre pela área PRINCIPAL; soltar em cima da carta
+  // principal de um slot JÁ OCUPADO (o alvo óbvio pra "empilhar mais uma" -
+  // inclusive numa torre já ativa) sempre virava reforço HORIZONTAL, sem
+  // aviso nenhum, mesmo quando `getTowerCardIds` confirmava que reforçar a
+  // torre ali era válido - o único jeito de reforçar de verdade era acertar
+  // uma caixa de 64×40px no canto inferior-esquerdo. Agora a área principal
+  // aceita torre em QUALQUER estado do slot (vazio OU ocupado) sempre que
+  // `getTowerCardIds` devolver um grupo válido - `canFormOrReinforceTower`
+  // já exige 2+ cartas pra criar uma torre nova (slot vazio ou com 1 carta
+  // avulsa do mesmo valor) e só 1+ pra reforçar uma já ativa, então isto
+  // nunca aceita um drop que o motor rejeitaria.
   const dropOnMain = (item: CardDragItem) => {
     lastDropSpinRef.current = item.spinAngle ?? 0;
     if (isMagicDrop(item)) {
       onMagicCardDrop?.(playerNumber, i, item.cardId);
       return;
     }
-    if (isEmptySlotTowerCreateDrop(item)) {
-      onTowerDrop?.(playerNumber, i, getTowerCardIds(item)!);
+    const towerCardIds = getTowerCardIds(item);
+    if (towerCardIds) {
+      onTowerDrop?.(playerNumber, i, towerCardIds);
       return;
     }
     onCardDrop?.(playerNumber, i, item.cardId, isDruidaBrotoStackDrop(item) ? false : Boolean(slot.faceDownCard));
@@ -562,7 +569,7 @@ export function FieldSlotView({
       // pela IA) e/ou uma fase diferente (Combate) - por isso o OR com
       // `isMagicDrop`, item-aware (react-dnd chama `canDrop` com o item
       // sendo arrastado no momento).
-      canDrop: (item) => (canDropHere && !isRawAceDrop(item)) || isMagicDrop(item) || isGlacialGolemCombatDrop(item) || isEmptySlotTowerCreateDrop(item),
+      canDrop: (item) => (canDropHere && !isRawAceDrop(item)) || isMagicDrop(item) || isGlacialGolemCombatDrop(item) || Boolean(getTowerCardIds(item)),
       // Soltar em cima da carta principal já ocupada vira pedido de reforço
       // horizontal (mesma regra do drag nativo anterior); num slot vazio,
       // vira a carta principal. Uma magia com atalho válido tem prioridade
@@ -589,9 +596,11 @@ export function FieldSlotView({
 
   // FIX (Modo Towers, "opção 5"): alvo dedicado pra formar/reforçar Torre -
   // mesmo padrão estrutural do de Horizontal acima (canto oposto - ver JSX
-  // mais abaixo), só existe pra um slot já ocupado (`Boolean(slot.faceDownCard)`,
-  // igual à Horizontal - um slot vazio cria torre nova pela área PRINCIPAL,
-  // ver isEmptySlotTowerCreateDrop acima).
+  // mais abaixo). FIX (pedido do usuário, achado jogando): a área PRINCIPAL
+  // acima agora TAMBÉM aceita torre num slot já ocupado (não só vazio) - este
+  // cantinho continua existindo como alvo alternativo (útil quando soltar no
+  // centro seria ambíguo com reforço horizontal de um valor diferente), mas
+  // deixou de ser o ÚNICO caminho pra reforçar uma torre já ativa.
   const [{ isOver: isOverTower, canDrop: canDropTower }, dropTowerRef] = useDrop<
     CardDragItem,
     unknown,
@@ -624,7 +633,7 @@ export function FieldSlotView({
         const rect = mainNodeRef.current?.getBoundingClientRect();
         return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
       },
-      canDrop: (item) => (canDropHere && !isRawAceDrop(item)) || isMagicDrop(item) || isGlacialGolemCombatDrop(item) || isEmptySlotTowerCreateDrop(item),
+      canDrop: (item) => (canDropHere && !isRawAceDrop(item)) || isMagicDrop(item) || isGlacialGolemCombatDrop(item) || Boolean(getTowerCardIds(item)),
       onDrop: dropOnMain,
     });
     return () => unregisterDropTarget(mainId);
@@ -672,14 +681,15 @@ export function FieldSlotView({
   const HOLD_MS = 1500;
   // FIX (pedido do usuário, depois de testar ao vivo): "o efeito que surge
   // ao segurar deve só surgir caso o jogador tenha pressionado por no
-  // mínimo .75 segundos" - antes o anel aparecia (vazio) desde o instante 0
-  // do mousedown, então até um clique rápido normal fazia ele "piscar". O
-  // anel agora só MONTA aos 750ms (`ringAppearTimeoutRef` abaixo) - a
-  // duração da própria animação de preenchimento dele (`--hold-duration-ms`,
-  // ver renderHoldProgressRing) é o RESTANTE (HOLD_MS - RING_APPEAR_DELAY_MS),
-  // pra terminar de encher exatamente no mesmo instante em que o hold
-  // completa de verdade - os dois timers correm em paralelo, não em série.
-  const RING_APPEAR_DELAY_MS = 750;
+  // mínimo .75 segundos" (depois revisado pra .55s) - antes o anel aparecia
+  // (vazio) desde o instante 0 do mousedown, então até um clique rápido
+  // normal fazia ele "piscar". O anel agora só MONTA aos 550ms
+  // (`ringAppearTimeoutRef` abaixo) - a duração da própria animação de
+  // preenchimento dele (`--hold-duration-ms`, ver renderHoldProgressRing) é
+  // o RESTANTE (HOLD_MS - RING_APPEAR_DELAY_MS), pra terminar de encher
+  // exatamente no mesmo instante em que o hold completa de verdade - os
+  // dois timers correm em paralelo, não em série.
+  const RING_APPEAR_DELAY_MS = 550;
   const [holdingCardId, setHoldingCardId] = useState<string | null>(null);
   const holdTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ringAppearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -725,6 +735,17 @@ export function FieldSlotView({
       clearTimeout(ringAppearTimeoutRef.current);
       ringAppearTimeoutRef.current = null;
     }
+    // FIX (pedido do usuário, achado jogando: "pode haver erros humanos
+    // quanto a tentativa de inspeção de uma carta durante as disputas,
+    // acabando por disputar uma carta ao invés de inspecionar") - soltar
+    // ANTES de completar o 1,5s não suprimia o `onClick` seguinte, que
+    // disparava normalmente - durante o Combate, isso selecionava o slot
+    // pra disputa sem o jogador querer, só por ter tentado (e não
+    // conseguido) segurar por tempo suficiente. Se o anel já tinha
+    // aparecido (`holdingCardId` setado - passou de RING_APPEAR_DELAY_MS),
+    // o gesto já deixou de ser um clique rápido normal: suprime o próximo
+    // clique de qualquer forma, mesmo sem completar a inspeção.
+    if (holdingCardId) suppressNextClickRef.current = true;
     setHoldingCardId(null);
   };
   /** Selo circular de progresso, desenhado EM CIMA da própria carta no tamanho real dela (pedido explícito do usuário - "no exato meio da carta", não um ícone fixo de canto de tela). */

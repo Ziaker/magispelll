@@ -2221,10 +2221,10 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     // campo"). Monstro (tratado como um "15"): qualquer uma das duas,
     // igual a uma carta numeral comum.
     if (card.value === 'J' && !asHorizontal) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `O Valete do Coringa só pode ser posicionado como carta horizontal!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `O Valete do Palhaço só pode ser posicionado como carta horizontal!`) };
     }
     if ((card.value === 'Q' || card.value === 'K') && asHorizontal) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta do Coringa só pode ser posicionada como carta principal, não horizontal!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta do Palhaço só pode ser posicionada como carta principal, não horizontal!`) };
     }
   } else if (isDruidaBrotoCard) {
     // "Não pode receber horizontais" também vale pra ele MESMO ser

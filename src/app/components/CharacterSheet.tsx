@@ -240,7 +240,7 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
       name: 'CORINGA',
       icon: JesterHatIcon,
       color: '#3B4CCB',
-      profile: 'Trapaceiro que planta armadilhas no próprio campo. As cartas de magia do Coringa não ativam efeito nenhum na mão - elas são posicionadas viradas para baixo e só revelam sua verdadeira natureza quando reveladas, seja por um golpe do oponente na Estratégia ou na hora do Combate.',
+      profile: 'Trapaceiro que planta armadilhas no próprio campo. As cartas de magia do Palhaço não ativam efeito nenhum na mão - elas são posicionadas viradas para baixo e só revelam sua verdadeira natureza quando reveladas, seja por um golpe do oponente na Estratégia ou na hora do Combate.',
       spells: [
         {
           card: 'Valete (J)',
@@ -285,7 +285,7 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
         effect: 'No próximo turno, suas cartas de magia (Valete/Rainha/Rei) podem ser transformadas permanentemente (um botão surge em cada uma) em cartas de número 11, 12 e 13, deixando de agir como armadilhas.',
       },
       monsterEffect: {
-        name: 'Carta Coringa',
+        name: 'Carta Palhaço',
         effect: 'Não usa a Zona Monstro - é posicionada no campo (principal ou horizontal) como uma carta numeral comum, valendo 15 fixo no Combate. Se for revelada pelo oponente ainda na Estratégia, volta oculta pra sua mão, que é embaralhada.',
       },
     },
@@ -553,7 +553,7 @@ export function CharacterSheet({ character, onBack }: CharacterSheetProps) {
             {/* Monster Effect */}
             <div className="space-y-4">
               <h3 className="font-display text-[28px] text-[#C59E4F]">
-                Efeito de Monstro (Coringa)
+                Efeito de Monstro (Palhaço)
               </h3>
               <Card className="border border-[#8F6A30]/30 bg-[#1E1A16]">
                 <CardContent className="p-6 space-y-3">

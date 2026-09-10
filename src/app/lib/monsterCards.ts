@@ -85,7 +85,7 @@ export const MONSTER_EFFECTS: Record<MonsterCharacter, MonsterEffect> = {
   // mesma reação da Rainha armadilha (ver isCoringaRawTrapCard/
   // resolveCoringaFieldTraps, gameEngine.ts).
   coringa: {
-    name: 'Carta Coringa',
+    name: 'Carta Palhaço',
     description: 'Tratada como uma carta de número 15 - posicione normalmente no campo',
     detailedDescription: 'Não usa a Zona Monstro - é posicionada no campo (principal ou horizontal) como uma carta numeral comum, valendo 15 fixo no combate. Se for revelada pelo oponente ainda na Estratégia, volta oculta pra sua mão, que é embaralhada.',
   },

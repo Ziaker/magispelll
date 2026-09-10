@@ -122,7 +122,7 @@ Outras variantes opcionais (Fusão, Towers, Spotlight, Reações) também são e
 • Cada slot aceita 1 carta virada (face down)
 • Pode adicionar 1 carta horizontal por turno (reforço), em qualquer slot
 • Magias de Rainha (Q) e Rei (K do Anjo) podem ser usadas
-• Valete (J) e Rainha (Q) do Mosqueteiro, e as 3 cartas do Coringa (posicionadas, não ativadas - ver seção própria), também são de Estratégia
+• Valete (J) e Rainha (Q) do Mosqueteiro, e as 3 cartas do Palhaço (posicionadas, não ativadas - ver seção própria), também são de Estratégia
 • Magias Numerais podem ser ativadas aqui
 
 ═══════════════════════════════════════
@@ -154,7 +154,7 @@ VALORES DAS CARTAS:
 • Rainha (Q): 12
 • Valete (J): 11
 • 10 a 2: valor nominal
-• Monstro (JOKER): nunca entra em combate diretamente - vira uma carta de valor 15 fixo se for do Coringa (posicionada no campo normal), ou fica na Zona Monstro própria pros outros personagens (ver seção "Cartas Monstro")
+• Monstro (JOKER): nunca entra em combate diretamente - vira uma carta de valor 15 fixo se for do Palhaço (posicionada no campo normal), ou fica na Zona Monstro própria pros outros personagens (ver seção "Cartas Monstro")
 
 EXEMPLO:
 Jogador 1: Carta 10 + horizontal 5 = 15
@@ -193,7 +193,7 @@ Jogador 2: Carta K (13) + horizontal 3 = 16
 ⚙️ GIMMICKS (mecânicas centrais de personagem)
 ═══════════════════════════════════════
 • Marcador — bônus ou penalidade de combate somado ou multiplicado ao valor de uma carta, com origem (quem lançou) e alvo rastreados; pode ser positivo (próprio campo) ou negativo (campo do oponente)
-• Armadilha — carta do Coringa posicionada virada pra baixo no campo; some o efeito real de quem a colocou até ser revelada ou combatida
+• Armadilha — carta do Palhaço posicionada virada pra baixo no campo; some o efeito real de quem a colocou até ser revelada ou combatida
 • Zona Monstro — zona própria de campo (fora dos 3 slots normais) onde a carta Monstro de cada personagem entra; funciona diferente pra cada um (ver seção "Cartas Monstro")
 • Acumulador — recurso permanente do Piromante que cresce ao queimar cartas pequenas, alimentando o valor da Bola de Fogo
 • Torre — empilhamento de mesma valor num slot (Modo Towers); sobrevive entre turnos, mas ERODE carta por carta ao perder um combate
@@ -205,7 +205,7 @@ Ver também "Sistema de Combate" e "Variantes de Jogo" para o funcionamento comp
       id: 'magias',
       title: 'Magias (J, Q, K)',
       characters: ['mago', 'besta', 'anjo', 'mosqueteiro'],
-      content: `Cada personagem tem 3 magias únicas. Ao usar uma magia, descarte a carta e aplique o efeito imediatamente. (Coringa e Piromante funcionam diferente - ver as 2 seções próprias logo abaixo desta.)
+      content: `Cada personagem tem 3 magias únicas. Ao usar uma magia, descarte a carta e aplique o efeito imediatamente. (Palhaço e Piromante funcionam diferente - ver as 2 seções próprias logo abaixo desta.)
 
 ═══════════════════════════════════════
 🔵 MAGO - Controle e Informação
@@ -285,9 +285,9 @@ REI (Fase de Combate):
     },
     {
       id: 'coringa-armadilhas',
-      title: 'Coringa - Cartas-Armadilha',
+      title: 'Palhaço - Cartas-Armadilha',
       characters: ['coringa'],
-      content: `Diferente de todos os outros personagens, as 3 cartas de magia do Coringa NUNCA são ativadas na mão - elas são POSICIONADAS no campo (na Fase de Estratégia, como qualquer carta normal) e ficam disfarçadas entre suas cartas verdadeiras. O efeito só acontece quando a carta é REVELADA, e esse efeito muda dependendo de QUEM revelou e QUANDO.
+      content: `Diferente de todos os outros personagens, as 3 cartas de magia do Palhaço NUNCA são ativadas na mão - elas são POSICIONADAS no campo (na Fase de Estratégia, como qualquer carta normal) e ficam disfarçadas entre suas cartas verdadeiras. O efeito só acontece quando a carta é REVELADA, e esse efeito muda dependendo de QUEM revelou e QUANDO.
 
 ═══════════════════════════════════════
 🟣 VALETE - Isca de Fumaça
@@ -519,11 +519,11 @@ AO ATIVAR:
       id: 'monstro',
       title: 'Cartas Monstro (Coringas)',
       characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida', 'glacial'],
-      content: `Existem 2 Monstros no baralho Comum (4 no Temático). O nome "Coringas" aqui é sobre as cartas físicas JOKER do baralho - não confundir com o personagem CORINGA, que tem seu próprio efeito de Monstro chamado "Carta Coringa" logo abaixo.
+      content: `Existem 2 Monstros no baralho Comum (4 no Temático). O nome "Coringas" aqui é sobre as cartas físicas JOKER do baralho - não confundir com o personagem PALHAÇO, que tem seu próprio efeito de Monstro chamado "Carta Palhaço" logo abaixo.
 
-Cada jogador (exceto o próprio Coringa - ver abaixo) tem uma ZONA PRÓPRIA e separada pro seu Monstro (ao lado do Slot 3) - ele NUNCA entra em disputa de combate sozinho, só fica ali para ativar sua habilidade.
+Cada jogador (exceto o próprio Palhaço - ver abaixo) tem uma ZONA PRÓPRIA e separada pro seu Monstro (ao lado do Slot 3) - ele NUNCA entra em disputa de combate sozinho, só fica ali para ativar sua habilidade.
 
-USOS E DESCARTE (não vale para o Coringa, que não usa a Zona Monstro):
+USOS E DESCARTE (não vale para o Palhaço, que não usa a Zona Monstro):
 • Pode ativar 1 vez por turno
 • NÃO se descarta depois do 1º uso - continua na zona para os turnos seguintes
 • Só se descarta depois de 3 usos NO TOTAL (contador visível ao passar o mouse na carta)
@@ -559,7 +559,7 @@ EFEITOS POR PERSONAGEM:
 • O PRÓXIMO Valete ou Rainha que você ativar neste turno descarta cartas da mão do OPONENTE (escolhidas às cegas por posição) em vez da sua própria mão
 
 ═══════════════════════════════════════
-🟣 CORINGA - Carta Coringa
+🟣 PALHAÇO - Carta Palhaço
 ═══════════════════════════════════════
 • NÃO usa a Zona Monstro - é posicionada no campo (principal ou horizontal) como uma carta numeral comum, valendo 15 fixo no combate
 • Revelada pelo oponente ainda na Estratégia, volta oculta pra sua mão (que é embaralhada) - mesma regra da Rainha (Disfarce Duplo)
@@ -622,7 +622,7 @@ FONTES DE REVELAÇÃO:
 • Besta Q: Carta trocada fica revelada
 • Mago Q: Carta substituída fica revelada
 • Mosqueteiro Q: Revela cartas ocultas do oponente
-• Coringa: uma carta-armadilha revelada no Combate deixa de estar disfarçada, mas o efeito dela é o que importa - ver "Coringa - Cartas-Armadilha"
+• Palhaço: uma carta-armadilha revelada no Combate deixa de estar disfarçada, mas o efeito dela é o que importa - ver "Palhaço - Cartas-Armadilha"
 • Magia Numeral do Mago: Revela cartas compradas`,
     },
     {

@@ -13,7 +13,7 @@ const CHARACTER_LABELS: Record<CharacterId, string> = {
   besta: 'Besta',
   anjo: 'Anjo',
   mosqueteiro: 'Mosqueteiro',
-  coringa: 'Coringa',
+  coringa: 'Palhaço',
   piromante: 'Piromante',
   druida: 'Druida',
   glacial: 'Glacial',

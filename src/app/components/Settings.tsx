@@ -280,6 +280,21 @@ export function Settings({ onBack }: SettingsProps) {
                 />
               </div>
 
+              {/* FIX (pedido do usuário: "quanto à confirmação de troca de
+                  fase, eu quero que isso seja uma opção desligável presente
+                  na interface ao lado dos modos selecionáveis") - mesmo
+                  padrão/posição do switch acima. */}
+              <div className="flex items-center justify-between">
+                <Label htmlFor="confirmBeforePhaseChange" className="text-[#BFB6A6]">
+                  Confirmar Antes de Trocar de Fase
+                </Label>
+                <Switch
+                  id="confirmBeforePhaseChange"
+                  checked={settings.confirmBeforePhaseChange}
+                  onCheckedChange={(checked) => updateSetting('confirmBeforePhaseChange', checked)}
+                />
+              </div>
+
               {/* FIX (pedido do usuário: "desligar tooltips") - só o popup de
                   descrição do efeito de uma carta de magia/armadilha NA MÃO
                   (ver `showHandEffectTooltips`, settings.ts) - não afeta os

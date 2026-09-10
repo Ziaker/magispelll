@@ -43,6 +43,13 @@ import {
  * para o estouro do coração perdido: cresce, gira e desaparece, em vez de só
  * trocar de opacidade instantaneamente.
  */
+/** Texto da próxima fase pro diálogo de "Confirmar Prontidão" (pedido do usuário: "confirmação de troca de fase") - sempre a fase seguinte no ciclo draw -> strategy -> combat -> draw. */
+const NEXT_PHASE_LABEL: Record<'draw' | 'strategy' | 'combat', string> = {
+  draw: 'avançar para a fase de Estratégia',
+  strategy: 'avançar para a fase de Combate',
+  combat: 'encerrar o turno',
+};
+
 const HEART_BREAK_ANIMATE = { scale: [1, 1.7, 0.2], rotate: [0, -25, 30], opacity: [1, 1, 0] };
 const HEART_BREAK_TRANSITION = { duration: 0.65, times: [0, 0.35, 1], ease: 'easeOut' as const };
 const HEART_REST_ANIMATE = { scale: 1, rotate: 0 };
@@ -402,6 +409,9 @@ export function PlayerZone({
   // está ligada, ou direto (sem diálogo nenhum) quando está desligada -
   // ver `handleDiscardClick` logo abaixo de `handleCardClick`.
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  // FIX (pedido do usuário: "confirmação de troca de fase... opção
+  // desligável") - mesmo padrão de `confirmingDiscard` acima.
+  const [confirmingPhaseChange, setConfirmingPhaseChange] = useState(false);
   // FIX (pedido do usuário: "ocultar mão do oponente automaticamente" no
   // Hotseat) - `false` = mão oculta (padrão sempre que `hotseatPrivacyActive`
   // está ligado). Reseta pra oculta a cada troca de FASE (não só de turno -
@@ -507,7 +517,7 @@ export function PlayerZone({
     spotlight ?? null
   );
 
-  const spellInfo = getNumeralSpellInfo(character);
+  const spellInfo = getNumeralSpellInfo(character, { fusionEnabled });
   const discardsThisTurn = playerState.discardsThisTurn;
 
   // FIX (pedido do usuário: "use esses ícones") - ver mesma troca e motivo
@@ -659,6 +669,18 @@ export function PlayerZone({
       setConfirmingDiscard(true);
     } else {
       onDiscardCards();
+    }
+  };
+
+  // FIX (pedido do usuário: "confirmação de troca de fase... opção
+  // desligável") - mesmo padrão de handleDiscardClick acima. Só confirma
+  // quando o jogador ainda NÃO está pronto (marcar "Pronto" é a ação que
+  // pode trocar de fase; desmarcar é sempre seguro, nunca precisa confirmar).
+  const handleToggleReadyClick = () => {
+    if (settings.confirmBeforePhaseChange && !playerState.readyForNextPhase) {
+      setConfirmingPhaseChange(true);
+    } else {
+      onToggleReady();
     }
   };
 
@@ -918,7 +940,7 @@ export function PlayerZone({
               </div>
             ) : (
               <Button
-                onClick={onToggleReady}
+                onClick={handleToggleReadyClick}
                 size="sm"
                 className="transition-all h-auto py-1 px-3"
                 style={{
@@ -1468,13 +1490,20 @@ export function PlayerZone({
           {/* QoL da mão, ideia "torre disponível proativo": aparece SOZINHO
               assim que 2+ cartas do mesmo valor entram na mão, em vez de o
               jogador só descobrir isso ao clicar - ver hasTowerComboAvailable
-              em handQol.ts. */}
-          {hasTowerCombo && (
+              em handQol.ts. FIX (pedido do usuário, achado na investigação do
+              item 2: "nenhuma instrução em tela guia o segundo passo") - o
+              texto agora reflete o progresso real: antes de agrupar, convida
+              a começar; com 2+ cartas já agrupadas (`selectedForTower`), troca
+              pra instrução do PRÓXIMO passo (onde soltar) em vez de continuar
+              repetindo a mesma frase de antes do agrupamento. */}
+          {(hasTowerCombo || selectedForTower.size >= 2) && (
             <div
               className="text-[10px] rounded px-2 py-1 mb-2 animate-pulse"
               style={{ backgroundColor: '#7AA7C420', color: '#7AA7C4', border: '1px solid #7AA7C450' }}
             >
-              🏰 Torre disponível - você tem cartas suficientes pra formar uma
+              {selectedForTower.size >= 2
+                ? `🏰 ${selectedForTower.size} cartas agrupadas - arraste uma delas até o campo, ou toque num slot pra formar a torre`
+                : '🏰 Torre disponível - você tem cartas suficientes pra formar uma'}
             </div>
           )}
           <div className="relative" style={{ zoom: isCompactHand ? 0.82 : 1 } as CSSProperties}>
@@ -1966,6 +1995,39 @@ export function PlayerZone({
             </Button>
             <Button
               onClick={() => setConfirmingDiscard(false)}
+              variant="outline"
+              className="flex-1 border-[#C59E4F] text-[#C59E4F]"
+            >
+              Cancelar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* FIX (pedido do usuário: "confirmação de troca de fase... opção
+          desligável") - mesmo padrão do diálogo de descarte acima, só que
+          pro botão "Pronto" - só existe quando `settings.confirmBeforePhaseChange`
+          está ligado (ver handleToggleReadyClick acima). */}
+      <Dialog open={confirmingPhaseChange} onOpenChange={setConfirmingPhaseChange}>
+        <DialogContent className="bg-[#1E1A16] border-[#C59E4F]">
+          <DialogHeader>
+            <DialogTitle className="text-[#EFE7D6] font-display text-[20px]">Confirmar Prontidão</DialogTitle>
+            <DialogDescription className="text-[#BFB6A6]">
+              Marcar como pronto para {NEXT_PHASE_LABEL[phase]}? Isso avança a fase assim que o outro jogador também estiver pronto.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-4">
+            <Button
+              onClick={() => {
+                setConfirmingPhaseChange(false);
+                onToggleReady();
+              }}
+              className="flex-1 bg-[#6CC47A] hover:bg-[#4E9A5A] text-[#0F1113]"
+            >
+              Pronto
+            </Button>
+            <Button
+              onClick={() => setConfirmingPhaseChange(false)}
               variant="outline"
               className="flex-1 border-[#C59E4F] text-[#C59E4F]"
             >

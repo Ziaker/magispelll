@@ -98,6 +98,16 @@ export interface Settings {
    */
   confirmBeforeDiscard: boolean;
   /**
+   * FIX (pedido do usuário: "quanto à confirmação de troca de fase, eu
+   * quero que isso seja uma opção desligável") - mesmo padrão de
+   * `confirmBeforeDiscard` acima, desligado por padrão: quando ligado, o
+   * botão "Pronto" (PlayerZone.tsx) abre um diálogo de confirmação em vez
+   * de marcar prontidão na hora, só quando o jogador ainda NÃO estava
+   * pronto (clicar de novo pra desmarcar "Pronto" nunca precisa confirmar -
+   * é a direção segura, não a que troca de fase).
+   */
+  confirmBeforePhaseChange: boolean;
+  /**
    * FIX (pedido do usuário: "ocultar mão do oponente automaticamente" no
    * Hotseat) - fora do modo Hotseat isso nunca importa (contra a IA/
    * Espectador já escondem a mão automaticamente, ver isAiControlled em
@@ -205,6 +215,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showActionLog: true,
   interfaceZoom: 85,
   confirmBeforeDiscard: false,
+  confirmBeforePhaseChange: false,
   hotseatPrivacyMode: false,
   spectatorRevealHands: false,
   showFloatingScore: true,

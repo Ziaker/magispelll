@@ -19,8 +19,15 @@
  * EFEITOS POR PERSONAGEM:
  * - MAGO (9,9,9): Visão Arcana - revela cartas compradas pelo oponente no próximo turno
  * - BESTA (6,6,6): Fúria Sanguinária - IMEDIATAMENTE força o oponente a descartar toda a
- *   mão e comprar de volta acima de 6 cartas (efeito único, não é um efeito que dura o
- *   turno inteiro do oponente como os das outras Magias Numerais)
+ *   mão e comprar de volta acima de 6 cartas. FIX (achado testando ao vivo: a descrição
+ *   aqui ficou desatualizada depois do item 16 - "Efeito imediato" não é mais só isso):
+ *   o oponente TAMBÉM fica pelo RESTO DO TURNO incapaz de segurar qualquer carta numeral
+ *   >6 na mão (StatusEffect 'bloodRage', varrido a cada ação por applyBestaBloodRageSweep
+ *   em gameEngine.ts) - isso inclui uma carta que acabou de nascer de uma Fusão (Modo
+ *   Fusão) durante essa janela: se o resultado for >6, ela é descartada assim que a
+ *   fusão acontece. Tratado como comportamento intencional (pedido do usuário) - ver
+ *   `getNumeralSpellInfo` abaixo, que documenta isso na própria descrição quando o Modo
+ *   Fusão está ativo na partida.
  * - ANJO (3,3,3): Benção Eterna - aumenta permanentemente compra de cartas e limite de mão
  *
  * EXTENSÃO: Para adicionar novo personagem, adicione entrada no NUMERAL_SPELLS
@@ -145,9 +152,29 @@ export const NUMERAL_SPELLS: Record<NumeralCharacter, NumeralSpellType> = {
   },
 };
 
-/** Retorna as informações da Magia Numeral de um personagem */
-export function getNumeralSpellInfo(character: NumeralCharacter): NumeralSpellType {
-  return NUMERAL_SPELLS[character];
+/**
+ * Retorna as informações da Magia Numeral de um personagem.
+ *
+ * FIX (pedido do usuário, achado jogando com Fusão + Fúria Sanguinária da
+ * Besta ativas ao mesmo tempo: "está descartando o resultado [de uma
+ * fusão]... trate como feature e documente no efeito apenas quando o modo
+ * fusões tiver ativo") - a Besta já varre (descarta) qualquer carta numeral
+ * >6 da mão do oponente pelo resto do turno depois de ativar Fúria
+ * Sanguinária (`applyBestaBloodRageSweep`, gameEngine.ts) - isso já incluía
+ * o resultado de uma Fusão feita durante essa janela, sem nenhum aviso.
+ * Comportamento mantido como está (decisão do usuário) - só a descrição
+ * ganha uma frase extra, e só quando `opts.fusionEnabled` é true (Modo
+ * Fusão desligado = a frase nunca se aplicaria, ficaria confusa à toa).
+ */
+export function getNumeralSpellInfo(character: NumeralCharacter, opts?: { fusionEnabled?: boolean }): NumeralSpellType {
+  const spell = NUMERAL_SPELLS[character];
+  if (character === 'besta' && opts?.fusionEnabled) {
+    return {
+      ...spell,
+      description: `${spell.description} Com o Modo Fusão ativo, isso vale também para o resultado de fusões feitas durante essa janela: se ultrapassar 6, a carta recém-fundida é descartada.`,
+    };
+  }
+  return spell;
 }
 
 /**
