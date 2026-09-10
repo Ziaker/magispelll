@@ -1575,6 +1575,89 @@ function activateMagoNumeralSpell(state: GameState): GameState {
 })();
 
 // ---------------------------------------------------------------------------
+// FIX (pedido do usuário, QoL: "desfazer posicionamento na Estratégia - só
+// cartas que não receberam ou foram alvo de efeito no campo") -
+// RETURN_CARD_TO_HAND/RETURN_HORIZONTAL_CARD_TO_HAND antes devolviam QUALQUER
+// slot/carta pra mão, mesmo já revelado ou com um StatusEffect aplicado por
+// um efeito do oponente - deixava desfazer um posicionamento DEPOIS de algo
+// já ter reagido a ele. Agora só funciona pra cartas "intocadas".
+// ---------------------------------------------------------------------------
+(function testReturnCardToHandRejectsRevealedSlot() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  const main = makeCard('undo-revealed-main', '5');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, field: [{ faceDownCard: main, revealed: true, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] },
+  };
+  const after = gameReducer(state, { type: 'RETURN_CARD_TO_HAND', player: 1, slotIndex: 0 });
+  assert(after.player1.field[0].faceDownCard?.id === main.id, 'FIX desfazer: um slot já REVELADO não pode ser desfeito');
+  assert(!after.player1.hand.some((c) => c.id === main.id), 'A carta continua fora da mão (ação rejeitada)');
+})();
+
+(function testReturnCardToHandRejectsCardWithStatusEffect() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  const targeted = applyStatus(makeCard('undo-targeted-main', '9'), {
+    kind: 'combatModifier', source: 'druida', label: 'Urtiga', mode: 'add', magnitude: -3, duration: { type: 'untilPhase', phase: 'draw' },
+  });
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, field: [{ faceDownCard: targeted, revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] },
+  };
+  const after = gameReducer(state, { type: 'RETURN_CARD_TO_HAND', player: 1, slotIndex: 0 });
+  assert(after.player1.field[0].faceDownCard?.id === targeted.id, 'FIX desfazer: uma carta com StatusEffect (ex.: Urtiga) não pode ser desfeita, mesmo ainda oculta');
+})();
+
+(function testReturnCardToHandRejectsWhenHorizontalWasTargeted() {
+  // A PRINCIPAL do slot está intacta, mas uma das horizontais empilhadas foi
+  // alvo de um efeito - o slot inteiro fica bloqueado pra desfazer (não dá
+  // pra devolver só a principal e deixar a horizontal "presa" sozinha).
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  const main = makeCard('undo-main-ok', '5');
+  const horiz = applyStatus(makeCard('undo-horiz-targeted', '3'), {
+    kind: 'combatModifier', source: 'mosqueteiro', label: 'Tiro Certeiro', mode: 'add', magnitude: -2, duration: { type: 'untilPhase', phase: 'draw' },
+  });
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, field: [{ faceDownCard: main, revealed: false, horizontalCards: [horiz] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] },
+  };
+  const after = gameReducer(state, { type: 'RETURN_CARD_TO_HAND', player: 1, slotIndex: 0 });
+  assert(after.player1.field[0].faceDownCard?.id === main.id, 'FIX desfazer: slot inteiro fica bloqueado se QUALQUER horizontal empilhada foi alvo de efeito');
+})();
+
+(function testReturnCardToHandAllowsUntouchedSlot() {
+  // Pré-condição/controle: um slot genuinamente intacto (oculto, sem
+  // StatusEffect nenhum) continua podendo ser desfeito normalmente.
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  const main = makeCard('undo-untouched-main', '7');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, field: [{ faceDownCard: main, revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] },
+  };
+  const after = gameReducer(state, { type: 'RETURN_CARD_TO_HAND', player: 1, slotIndex: 0 });
+  assert(!after.player1.field[0].faceDownCard, 'FIX desfazer: um slot intacto (nunca revelado, sem StatusEffect) continua podendo ser desfeito');
+  assert(after.player1.hand.some((c) => c.id === main.id), 'A carta volta pra mão normalmente');
+})();
+
+(function testReturnHorizontalCardToHandRejectsTargetedCard() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  const main = makeCard('undo-h-main', '5');
+  const horiz = applyStatus(makeCard('undo-h-targeted', '3'), {
+    kind: 'combatModifier', source: 'druida', label: 'Simbiose', mode: 'add', magnitude: 2, duration: { type: 'untilPhase', phase: 'draw' },
+  });
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, field: [{ faceDownCard: main, revealed: false, horizontalCards: [horiz] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }] },
+  };
+  const after = gameReducer(state, { type: 'RETURN_HORIZONTAL_CARD_TO_HAND', player: 1, slotIndex: 0, cardId: horiz.id });
+  assert(after.player1.field[0].horizontalCards.some((c) => c.id === horiz.id), 'FIX desfazer: uma carta horizontal com StatusEffect não pode ser devolvida sozinha');
+})();
+
+// ---------------------------------------------------------------------------
 // 17. Modo "Contra a IA" (lib/aiPlayer.ts): simula partidas inteiras IA-vs-IA
 //     puramente pelo reducer (sem React/GameBoard), reproduzindo à mão as
 //     mesmas transições automáticas que os efeitos do GameBoard fariam

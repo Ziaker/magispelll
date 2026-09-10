@@ -175,6 +175,19 @@ export interface Settings {
    * repetitivo pra quem já decorou os efeitos de todo personagem.
    */
   showHandEffectTooltips: boolean;
+  /**
+   * FIX (pedido do usuário, QoL: "opção de desligar tooltips não
+   * relacionados a mudanças numerais") - `showHandEffectTooltips` acima já
+   * cobria só o popup de magia J/Q/K na mão; esta é uma trava separada e
+   * mais ampla, sobre os selos de palavra-chave da carta (CardKeywords.tsx,
+   * CARD_KEYWORDS). Cada entrada ali agora tem `numeralRelated: boolean` -
+   * `true` só pra Ás Transformado/Fusão/Spotlight (+)/Spotlight (-), as 4
+   * que explicam por que o VALOR NUMÉRICO da carta é diferente do que a
+   * face mostra. As outras 4 (Revelada/Proteção Divina/Trancada/Congelada)
+   * são sobre visibilidade/bloqueio, não sobre o número em si. `false` (o
+   * padrão) esconde essas 4 - `true` mostra todas as 8, como sempre foi.
+   */
+  showNonNumeralTooltips: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -199,6 +212,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiThinkSpeed: 100,
   showAiInspector: false,
   showHandEffectTooltips: true,
+  showNonNumeralTooltips: true,
 };
 
 const STORAGE_KEY = 'magispelll:settings';

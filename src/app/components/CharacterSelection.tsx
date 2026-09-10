@@ -12,6 +12,7 @@ import { getNumeralSpellInfo, formatNumeralRequirement, numeralDisplayLabel } fr
 import { PHASE_DISPLAY } from './PlayingCard';
 import type { CharacterId } from '../lib/gameEngine';
 import { PreGameSteps } from './PreGameSteps';
+import { loadRecentCharacters } from '../lib/gamePreferences';
 
 interface CharacterSelectionProps {
   onBack: () => void;
@@ -331,6 +332,14 @@ export function CharacterSelection({ onBack, onSelect, onContinue, selectedChara
   // de 'visão completa das habilidades'") - qual personagem (se algum) tem o
   // diálogo de detalhes aberto agora.
   const [detailsOpenFor, setDetailsOpenFor] = useState<CharacterId | null>(null);
+  /**
+   * FIX (pedido do usuário, QoL: "lembrar personagem(ns) usados recentemente
+   * pra escolha rápida") - lido uma única vez (lazy initializer, não muda
+   * durante a vida desta tela) - a gravação (saveRecentCharacter) só
+   * acontece quando uma partida de verdade COMEÇA (GameBoard.tsx, ao
+   * montar), nunca aqui nesta tela de seleção em si.
+   */
+  const [recentCharacters] = useState<CharacterId[]>(() => loadRecentCharacters());
   // FIX (item 30c do Grupo G, "filtro por mecânica") - 'Todos' (padrão) não
   // esconde ninguém; qualquer outro valor restringe o grid aos personagens
   // daquela categoria (ver CHARACTER_MECHANIC acima).
@@ -432,6 +441,36 @@ export function CharacterSelection({ onBack, onSelect, onContinue, selectedChara
             );
           })}
         </div>
+
+        {/* FIX (pedido do usuário, QoL: "lembrar personagem(ns) usados
+            recentemente pra escolha rápida") - só faz sentido pro slot
+            HUMANO (recentCharacters só grava o Jogador 1 de partidas
+            anteriores de verdade jogadas por um humano - ver
+            saveRecentCharacter, gamePreferences.ts/GameBoard.tsx) - nunca
+            aparece pra um slot de IA. Filtra quem já está no OUTRO slot
+            (mesma regra de `isTakenByOther` usada no grid principal). */}
+        {!isAiSlot(activeSlot) && recentCharacters.filter((id) => !isTakenByOther(id)).length > 0 && (
+          <div className="flex items-center gap-3 flex-wrap">
+            <p className="text-[12px] text-[#8F6A30] uppercase tracking-wide font-semibold">Recentes</p>
+            {recentCharacters
+              .filter((id) => !isTakenByOther(id))
+              .map((id) => {
+                const RecentIcon = CHARACTER_ICONS[id];
+                const recentTheme = getCharacterTheme(id);
+                return (
+                  <button
+                    key={id}
+                    onClick={() => handlePick(id)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors hover:bg-[#C59E4F]/10"
+                    style={{ borderColor: `${recentTheme.primary}60`, color: recentTheme.primary }}
+                  >
+                    <RecentIcon className="w-4 h-4" />
+                    <span className="text-[12px] font-semibold">{recentTheme.name}</span>
+                  </button>
+                );
+              })}
+          </div>
+        )}
 
         {/* FIX (item 30d do Grupo G da lista de afazeres, "estender o
             Sortear personagem também pro jogador humano") - antes só existia

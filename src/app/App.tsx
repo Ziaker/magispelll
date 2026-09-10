@@ -35,6 +35,7 @@ import { Rules } from './components/Rules';
 import { CharactersList } from './components/CharactersList';
 import { CharacterSheet } from './components/CharacterSheet';
 import { Settings } from './components/Settings';
+import { MatchStatsScreen } from './components/MatchStatsScreen';
 import { DebugPanel } from './components/DebugPanel';
 import { SettingsProvider } from './context/SettingsContext';
 
@@ -63,6 +64,7 @@ type Screen =
   | 'characters'          // Lista de personagens disponíveis
   | 'character-sheet'     // Ficha detalhada de um personagem
   | 'settings'            // Configurações do jogo
+  | 'stats'               // FIX (pedido do usuário, QoL: "histórico/estatísticas entre partidas") - MatchStatsScreen.tsx
   | 'debug';              // Modo debug/playtest (semi-escondido, ver DebugPanel.tsx)
 
 export default function App() {
@@ -245,6 +247,7 @@ export default function App() {
             }}
             onCharacters={() => setCurrentScreen('characters')}
             onSettings={() => setCurrentScreen('settings')}
+            onStats={() => setCurrentScreen('stats')}
             onDebugStart={() => setCurrentScreen('debug')}
           />
         );
@@ -355,6 +358,9 @@ export default function App() {
       // CONFIGURAÇÕES
       case 'settings':
         return <Settings onBack={() => setCurrentScreen('home')} />;
+
+      case 'stats':
+        return <MatchStatsScreen onBack={() => setCurrentScreen('home')} />;
 
       // MODO DEBUG/PLAYTEST (semi-escondido, ver DebugPanel.tsx)
       case 'debug':

@@ -2339,6 +2339,27 @@ function handleReturnCardToHand(state: GameState, player: PlayerNumber, slotInde
   const slot = playerState.field[slotIndex];
   if (!slot.faceDownCard) return state;
 
+  // FIX (pedido do usuário, QoL: "desfazer posicionamento - qualquer carta
+  // que não recebeu ou foi alvo de efeito no campo") - antes esta ação
+  // devolvia QUALQUER slot pra mão, mesmo já revelado ou com um
+  // StatusEffect aplicado por um efeito do oponente (ex.: `frozen`,
+  // `magicLocked`, `combatModifier` de Simbiose/Urtiga/Crioescudo/Tiro
+  // Certeiro/escudo do Valete) - deixava desfazer um posicionamento DEPOIS
+  // de algo já ter reagido a ele, escapando de graça de uma interação real
+  // do oponente. Agora só permite quando o slot inteiro (principal + toda
+  // horizontal empilhada, se houver) nunca foi revelado nem recebeu nenhum
+  // StatusEffect - `isTowerSlot`/`isBrotoSlot` também ficam de fora (reserva
+  // empilhada complexa demais pra desfazer com segurança).
+  if (
+    slot.revealed ||
+    isTowerSlot(slot) ||
+    isBrotoSlot(slot) ||
+    (slot.faceDownCard.statusEffects?.length ?? 0) > 0 ||
+    slot.horizontalCards.some((c) => c.revealed || (c.statusEffects?.length ?? 0) > 0)
+  ) {
+    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta já foi revelada ou recebeu um efeito - não é mais possível desfazer o posicionamento.`) };
+  }
+
   // FIX: ao devolver a carta principal do slot para a mão, quaisquer cartas
   // horizontais empilhadas nele também precisam voltar - antes elas ficavam
   // "orfãs" no slot (sem carta principal, mas ainda com horizontalCards),
@@ -2384,6 +2405,14 @@ function handleReturnHorizontalCardToHand(state: GameState, player: PlayerNumber
   const slot = playerState.field[slotIndex];
   const card = slot.horizontalCards.find((c) => c.id === cardId);
   if (!card) return state;
+  // FIX (pedido do usuário, QoL: "desfazer posicionamento - qualquer carta
+  // que não recebeu ou foi alvo de efeito no campo") - mesma regra aplicada
+  // em handleReturnCardToHand acima, só pra ESTA carta horizontal específica
+  // (as outras cartas do mesmo slot não importam aqui - cada horizontal é
+  // independente).
+  if (card.revealed || (card.statusEffects?.length ?? 0) > 0) {
+    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta já foi revelada ou recebeu um efeito - não é mais possível desfazer o posicionamento.`) };
+  }
 
   const newHand = [...playerState.hand, card];
   const newField = updateFieldSlot(playerState.field, slotIndex, (s) => ({ horizontalCards: s.horizontalCards.filter((c) => c.id !== cardId) }));

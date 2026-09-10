@@ -173,6 +173,13 @@ interface PlayerZoneProps {
    */
   unfreezeRelevant: boolean;
   /**
+   * FIX (pedido do usuário, QoL: "tooltip explicando por que um botão está
+   * desabilitado") - motivo específico (ver unfreezeDisabledReason em
+   * GameBoard.tsx) mostrado via `title` nativo quando `canPayToUnfreeze` é
+   * false. `undefined` quando o botão já está habilitado.
+   */
+  unfreezeDisabledReason?: string;
+  /**
    * FIX (pedido do usuário: "permitindo que o jogador arraste sua magia até
    * o campo do alvo... para ativar ela") - `PlayerZone.tsx` só enxerga a
    * própria mão/fase, não o campo do oponente (onde a maioria dos alvos de
@@ -314,6 +321,7 @@ export function PlayerZone({
   canPayToUnfreeze,
   onOpenPayToUnfreeze,
   unfreezeRelevant,
+  unfreezeDisabledReason,
   isMagicCardDraggable,
   isAiControlled = false,
   hotseatPrivacyActive = false,
@@ -1132,6 +1140,7 @@ export function PlayerZone({
           <button
             onClick={canPayToUnfreeze ? onOpenPayToUnfreeze : undefined}
             disabled={!canPayToUnfreeze}
+            title={canPayToUnfreeze ? undefined : unfreezeDisabledReason}
             className={`w-full px-3 py-2 rounded-lg transition-all border-2 flex items-center justify-center gap-2 ${
               canPayToUnfreeze ? 'cursor-pointer hover:scale-105' : 'cursor-not-allowed opacity-40'
             }`}

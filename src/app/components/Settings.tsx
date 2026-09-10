@@ -298,6 +298,29 @@ export function Settings({ onBack }: SettingsProps) {
                 />
               </div>
 
+              {/* FIX (pedido do usuário, QoL: "opção de desligar tooltips não
+                  relacionados a mudanças numerais") - diferente do toggle
+                  acima (só o popup de magia na mão), este esconde os SELOS
+                  de palavra-chave (CardKeywords.tsx) que não explicam o
+                  valor numérico da carta - Revelada/Proteção Divina/
+                  Trancada/Congelada somem; Ás Transformado/Fusão/
+                  Spotlight (+/-) continuam sempre visíveis. */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="showNonNumeralTooltips" className="text-[#BFB6A6]">
+                    Selos Não Relacionados a Valor Numérico
+                  </Label>
+                  <p className="text-[11px] text-[#BFB6A6]/70">
+                    Revelada, Proteção Divina, Trancada e Congelada - desligue pra ver só os selos que mudam o valor da carta (Ás Transformado, Fusão, Spotlight)
+                  </p>
+                </div>
+                <Switch
+                  id="showNonNumeralTooltips"
+                  checked={settings.showNonNumeralTooltips}
+                  onCheckedChange={(checked) => updateSetting('showNonNumeralTooltips', checked)}
+                />
+              </div>
+
               {/* FIX (pedido do usuário: "ocultar mão do oponente
                   automaticamente" no Hotseat) - sempre visível aqui (ao
                   contrário do menu de Pausa, que só mostra durante uma

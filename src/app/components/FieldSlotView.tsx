@@ -693,6 +693,24 @@ export function FieldSlotView({
               onClick={() => canClick && onSlotClick(playerNumber, i)}
               onDoubleClick={() => phase === 'strategy' && onSlotDoubleClick && onSlotDoubleClick(playerNumber, i)}
               className="p-3 -m-3"
+              // FIX (pedido do usuário, QoL: "desfazer posicionamento" -
+              // achado que a ação já existia via duplo clique, mas sem
+              // NENHUMA pista visual disso) - mesma condição exata do guard
+              // novo em handleReturnCardToHand (gameEngine.ts): só mostra a
+              // dica quando o slot de verdade ainda pode ser desfeito
+              // (nunca revelado, sem StatusEffect na principal nem em
+              // nenhuma horizontal, fora de Torre/Broto).
+              title={
+                phase === 'strategy' &&
+                slot.faceDownCard &&
+                !slot.revealed &&
+                !hasTower &&
+                !isBrotoSlot(slot) &&
+                (slot.faceDownCard.statusEffects?.length ?? 0) === 0 &&
+                !slot.horizontalCards.some((c) => c.revealed || (c.statusEffects?.length ?? 0) > 0)
+                  ? 'Duplo clique para desfazer (devolver à mão)'
+                  : undefined
+              }
             >
               <div
                 // FIX (pedido do usuário, item 8): marca este slot como um alvo

@@ -1,7 +1,7 @@
 import { Button } from './ui/button';
 import { RuneParticles } from './RuneParticles';
 import { GameTitle } from './GameTitle';
-import { Play, BookOpen, Users, Settings, Zap } from 'lucide-react';
+import { Play, BookOpen, Users, Settings, Zap, Trophy } from 'lucide-react';
 
 interface HomeProps {
   onNewGame: () => void;
@@ -15,11 +15,13 @@ interface HomeProps {
   onRules: () => void;
   onCharacters: () => void;
   onSettings: () => void;
+  /** FIX (pedido do usuário, QoL: "histórico/estatísticas entre partidas - tela nova no menu principal") - ver MatchStatsScreen.tsx. */
+  onStats: () => void;
   /** Modo de debug/playtest (pedido do usuário) - ver comentário completo em App.tsx (handleDebugQuickStart). */
   onDebugStart?: () => void;
 }
 
-export function Home({ onNewGame, onQuickStart, onRules, onCharacters, onSettings, onDebugStart }: HomeProps) {
+export function Home({ onNewGame, onQuickStart, onRules, onCharacters, onSettings, onStats, onDebugStart }: HomeProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden parchment">
       <RuneParticles />
@@ -103,6 +105,20 @@ export function Home({ onNewGame, onQuickStart, onRules, onCharacters, onSetting
             Configurações
           </Button>
         </div>
+
+        {/* FIX (pedido do usuário, QoL: "histórico/estatísticas entre
+            partidas - tela nova no menu principal") - linha própria, fora
+            da grade 2x2 acima (5 itens quebraria a simetria), largura
+            cheia. */}
+        <Button
+          onClick={onStats}
+          size="lg"
+          variant="outline"
+          className="w-full border-[#C59E4F] text-[#C59E4F] hover:bg-[#C59E4F]/10 h-20 text-[18px] flex items-center justify-center gap-3 group"
+        >
+          <Trophy className="w-5 h-5 group-hover:scale-110 transition-transform" />
+          Estatísticas
+        </Button>
       </div>
 
       {/* Decorative corners */}

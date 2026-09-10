@@ -1,6 +1,7 @@
 import { Eye, Wand2, ShieldCheck, Combine, Box, Lock, Snowflake, type LucideIcon } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { cn } from './ui/utils';
+import { useSettings } from '../context/SettingsContext';
 
 /**
  * CardKeywords.tsx - Sistema de Palavras-chave da carta (pedido do usuário:
@@ -37,6 +38,17 @@ export interface CardKeywordDef {
   description: string;
   /** Canto padrão onde o selo nasce quando nenhum `overrides` é passado. */
   position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  /**
+   * FIX (pedido do usuário, QoL: "opção de desligar tooltips não
+   * relacionados a mudanças numerais") - `true` só quando esta palavra-chave
+   * explica por que o VALOR NUMÉRICO da carta é diferente do que a face
+   * mostra (Ás Transformado, Fusão, Spotlight +/-). `false` = a palavra-chave
+   * é sobre visibilidade/bloqueio (Revelada, Proteção Divina, Trancada,
+   * Congelada), não sobre o número em si - some quando
+   * `settings.showNonNumeralTooltips` está desligado, ver CardKeywords()
+   * abaixo.
+   */
+  numeralRelated: boolean;
 }
 
 export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
@@ -46,6 +58,7 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
     label: 'Revelada',
     description: 'Revelada: o oponente também pode ver o valor desta carta.',
     position: 'top-right',
+    numeralRelated: false,
   },
   transformedAce: {
     icon: Wand2,
@@ -53,6 +66,7 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
     label: 'Ás Transformado',
     description: 'Ás transformado: este valor foi escolhido pelo jogador, não é a face original da carta.',
     position: 'bottom-right',
+    numeralRelated: true,
   },
   divineProtection: {
     icon: ShieldCheck,
@@ -60,6 +74,7 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
     label: 'Proteção Divina',
     description: 'Protegida por Proteção Divina: não pode ser alvo de magias do oponente.',
     position: 'top-left',
+    numeralRelated: false,
   },
   // FIX (pedido do usuário: "adicione uma palavra-chave para mostrar que a
   // carta foi fruto de uma fusão") - ver fusion.ts para a mecânica completa.
@@ -69,6 +84,7 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
     label: 'Fusão',
     description: 'Fruto de Fusão: nasceu da soma de 2 cartas numerais da mão.',
     position: 'bottom-left',
+    numeralRelated: true,
   },
   // FIX (pedido do usuário, Modo Spotlight: "o modo adiciona uma palavra
   // chave com ícone que é um cubo") - ver spotlight.ts para a mecânica
@@ -83,6 +99,7 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
     label: 'Spotlight (+)',
     description: 'Spotlight positivo: o valor desta carta vale 3x mais em tudo (combate, Magia Numeral, Torres).',
     position: 'top-left',
+    numeralRelated: true,
   },
   spotlightNegative: {
     icon: Box,
@@ -90,6 +107,7 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
     label: 'Spotlight (-)',
     description: 'Spotlight negativo: o valor desta carta está fixado em 1 em tudo (combate, Magia Numeral, Torres).',
     position: 'top-left',
+    numeralRelated: true,
   },
   // FIX (pedido do usuário: "a rainha do anjo agora impede a ativação de um
   // efeito caso a carta revelada por ela seja uma carta mágica até o fim do
@@ -107,6 +125,7 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
     label: 'Trancada',
     description: 'Trancada pela Visão Celestial do Anjo: esta magia não pode ser ativada até o fim do turno.',
     position: 'bottom-right',
+    numeralRelated: false,
   },
   // Glacial (personagem novo) - StatusEffect kind 'frozen' (statusEffects.ts):
   // carta congelada nunca revela e não pode ser jogada/ativada (exceto pelo
@@ -118,6 +137,7 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
     label: 'Congelada',
     description: 'Congelada pelo Glacial: nunca pode ser revelada e não pode ser jogada/ativada até alguém pagar (descartando outra carta na Estratégia) para descongelar.',
     position: 'top-left',
+    numeralRelated: false,
   },
 };
 
@@ -148,10 +168,16 @@ interface CardKeywordsProps {
 
 /** Renderiza todos os selos de palavra-chave ATIVOS para este contexto - cada um com seu próprio ícone/cor/tooltip/canto, vindos de CARD_KEYWORDS. */
 export function CardKeywords({ active, overrides, size = 'sm' }: CardKeywordsProps) {
-  if (active.length === 0) return null;
+  const { settings } = useSettings();
+  // FIX (pedido do usuário, QoL: "opção de desligar tooltips não
+  // relacionados a mudanças numerais") - com a preferência desligada, some
+  // o SELO INTEIRO (não só o tooltip) de qualquer palavra-chave que não seja
+  // `numeralRelated` - ver o comentário completo em CardKeywordDef acima.
+  const visible = settings.showNonNumeralTooltips ? active : active.filter((id) => CARD_KEYWORDS[id].numeralRelated);
+  if (visible.length === 0) return null;
   return (
     <>
-      {active.map((id) => (
+      {visible.map((id) => (
         <KeywordBadge key={id} id={id} position={overrides?.[id]} size={size} />
       ))}
     </>

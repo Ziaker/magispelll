@@ -7,6 +7,7 @@ import { getDisplayValue, getDisplaySuit, type Card } from '../lib/cardUtils';
 import { getMonsterEffect } from '../lib/monsterCards';
 import { getSpotlightEntry, type SpotlightState } from '../lib/spotlight';
 import { CardKeywords, type CardKeywordId } from './CardKeywords';
+import { CombatModifierBadge } from './CombatModifierBadge';
 import { IceShatterBurst } from './IceShatterBurst';
 import type { CharacterId } from '../lib/gameEngine';
 import { useSettings } from '../context/SettingsContext';
@@ -268,6 +269,7 @@ export function PlayingCard({
           {horizontalDisplayValue}
           <span className="ml-0.5">{suit}</span>
         </span>
+        <CombatModifierBadge card={card} />
         {renderFrozenOverlay('w-6 h-6', 'rounded-md')}
       </div>
     );
@@ -530,6 +532,7 @@ export function PlayingCard({
                   quando há uma carta horizontal empilhada em cima (evita
                   sobrepor o valor dela). */}
               <CardKeywords active={aceKeywords} overrides={hasHorizontalOverlay ? { revealed: 'top-left' } : undefined} />
+              <CombatModifierBadge card={card} />
               {renderFrozenOverlay('w-16 h-16', 'rounded-lg')}
 
               <div className={cn("text-[18px] font-bold", isRed ? "text-[#D45D4A]" : "text-[#0F1113]")}>
@@ -584,6 +587,7 @@ export function PlayingCard({
           palavra-chave (Revelada/Ás Transformado/Fusão) - ver
           CardKeywords.tsx e normalKeywords acima. */}
       <CardKeywords active={normalKeywords} overrides={hasHorizontalOverlay ? { revealed: 'top-left' } : undefined} />
+      <CombatModifierBadge card={card} />
       {renderFrozenOverlay('w-16 h-16', 'rounded-lg')}
 
       <div className={cn("text-[18px] font-bold", isRed ? "text-[#D45D4A]" : "text-[#0F1113]")}>

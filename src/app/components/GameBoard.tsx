@@ -29,7 +29,7 @@ import { Badge } from './ui/badge';
 import { Switch } from './ui/switch';
 import { Slider } from './ui/slider';
 import { Label } from './ui/label';
-import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box, Settings as SettingsIcon, Sparkles, ScrollText, Brain, Snowflake } from 'lucide-react';
+import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box, Settings as SettingsIcon, Sparkles, ScrollText, Brain, Snowflake, Zap } from 'lucide-react';
 import { PlayerZone } from './PlayerZone';
 import { BattleField } from './BattleField';
 import { CharacterMagicReference } from './CharacterMagicReference';
@@ -60,6 +60,8 @@ import { isUntransformedAce } from '../lib/fusion';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { getNumeralSpellInfo } from '../lib/numeralSpells';
 import { ZoomContainerContext } from '../lib/zoomContainerContext';
+import { saveRecentCharacter } from '../lib/gamePreferences';
+import { recordMatchResult } from '../lib/matchStats';
 import { getMagicCardInfo, canActivateMagic, type MagicCardType } from '../lib/magicCards';
 import { getDragActivationRule } from '../lib/dragActivation';
 import { MONSTER_ACTIVATION_MODE } from '../lib/activationModes';
@@ -284,7 +286,19 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
 
   const { settings, updateSetting } = useSettings();
   const animScale = getAnimationDurationScale(settings);
-  const aiThinkScale = getAiThinkTimeScale(settings);
+  /**
+   * FIX (pedido do usuário, QoL: "botão de acelerar pontual durante a vez da
+   * IA, sem mexer na preferência global") - `getAiThinkTimeScale(settings)`
+   * sozinho é a preferência PERSISTIDA (Configurações -> "Velocidade de
+   * Pensamento da IA"), vale a partida inteira. Este estado é só desta
+   * sessão de jogo (nunca gravado em `settings`) - `true` reescala pra 0
+   * (ainda passa pelo piso de 150ms de `delay()` logo abaixo, nunca
+   * literalmente instantâneo) só enquanto o botão "Acelerar" (ver o painel
+   * de IA em PlayerZone.tsx) está ligado, voltando pra preferência normal
+   * assim que desligado - não precisa lembrar de desfazer nada depois.
+   */
+  const [aiSpeedBoost, setAiSpeedBoost] = useState(false);
+  const aiThinkScale = aiSpeedBoost ? 0 : getAiThinkTimeScale(settings);
   // FIX (checagem extensa por bugs): `animScale || 0.35` tratava o `0`
   // devolvido de propósito por getAnimationDurationScale (settings.ts:
   // "efetivamente instantâneo" quando `settings.animations` está desligado)
@@ -607,6 +621,41 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    * de Pausa e o novo Dialog de confirmação logo abaixo dele.
    */
   const [showRestartConfirmDialog, setShowRestartConfirmDialog] = useState(false);
+  /**
+   * FIX (pedido do usuário, QoL: "confirmação antes de Sair do Jogo") -
+   * "Sair do Jogo" chamava `onBack` direto, sem nenhuma confirmação, mesmo
+   * abandonando o progresso da partida inteira - "Reiniciar Partida" (uma
+   * ação MENOS destrutiva, fica na mesma partida) já pedia confirmação, essa
+   * assimetria era o próprio bug de UX. Mesmo padrão do Dialog acima.
+   */
+  const [showExitConfirmDialog, setShowExitConfirmDialog] = useState(false);
+  /**
+   * FIX (pedido do usuário, QoL: "aviso de magia/Monstro não usado antes de
+   * avançar de fase - só avisa, não bloqueia") - guarda qual jogador clicou
+   * "Pronto" (Estratégia, virando pronto pela 1ª vez, não desmarcando) tendo
+   * uma magia J/Q/K ou efeito de Monstro ainda ativável agora - ver
+   * hasUnusedActivatableResource/handleToggleReady mais abaixo. `null` =
+   * nenhum aviso pendente. Sempre um CONFIRM, nunca um bloqueio de verdade -
+   * "Confirmar mesmo assim" despacha TOGGLE_READY normalmente.
+   */
+  const [pendingReadyWarning, setPendingReadyWarning] = useState<1 | 2 | null>(null);
+  /**
+   * FIX (checagem extensa por bugs - achado ao vivo testando este recurso
+   * via window.__debug.forceState): em fluxo normal a fase NUNCA deveria
+   * avançar enquanto este aviso está aberto (Estratégia só passa pra
+   * Combate quando os DOIS lados ficam prontos, e o jogador 1 só fica
+   * pronto de verdade DEPOIS de fechar este diálogo - ver
+   * handleToggleReady) - mas nada garante isso pra sempre (um forceState de
+   * debug, uma revanche, um `restart()` no meio do caminho). Rede de
+   * segurança: se a fase mudar por QUALQUER motivo enquanto o aviso está
+   * aberto, fecha ele sozinho - nunca deixa um aviso "órfão" preso na tela,
+   * bloqueando o resto da interface por cima de um estado que já não faz
+   * mais sentido.
+   */
+  useEffect(() => {
+    setPendingReadyWarning(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState.phase, gameState.turn]);
   const [showNumeralSpellPopup, setShowNumeralSpellPopup] = useState(false);
   const [pendingMagic, setPendingMagic] = useState<PendingMagic | null>(null);
   const [pendingUnfreeze, setPendingUnfreeze] = useState<PendingUnfreeze | null>(null);
@@ -824,6 +873,23 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     return [];
   }, [gameConfig.mode]);
   const isAi = (player: PlayerNumber) => aiPlayers.includes(player);
+
+  /**
+   * FIX (pedido do usuário, QoL: "lembrar personagem(ns) usados recentemente
+   * pra escolha rápida") - grava só o personagem do Jogador 1 quando ele é
+   * de verdade controlado por um humano (`!isAi(1)` - nunca no Modo
+   * Espectador, onde os dois lados são IA e "lembrar" não faria sentido
+   * nenhum). Dispara uma única vez quando este componente monta (uma
+   * partida nova de verdade começou) - REMATCH despacha uma action e reusa
+   * a MESMA instância de GameBoard, nunca remonta, então uma revanche não
+   * grava de novo à toa (o personagem já é o mesmo). Ver
+   * saveRecentCharacter/loadRecentCharacters em gamePreferences.ts e o uso
+   * em CharacterSelection.tsx.
+   */
+  useEffect(() => {
+    if (!isAi(1)) saveRecentCharacter(player1Character);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Item 39 do Grupo J ("inspetor de IA ao vivo") - só recalcula o trace
   // (decideAiActionTraced, aiPlayer.ts) quando o painel está de fato aberto
@@ -1484,6 +1550,28 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       clearTimeout(t);
       if (innerTimer) clearTimeout(innerTimer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState.gameOver]);
+
+  /**
+   * FIX (pedido do usuário, QoL: "histórico/estatísticas entre partidas") -
+   * grava 1 MatchRecord (matchStats.ts) por partida terminada, só no modo
+   * "Contra a IA" (`gameConfig.mode === 'vsAI'`) - Hotseat tem 2 humanos
+   * (de quem seria a estatística?) e Espectador não tem humano nenhum
+   * jogando, os dois ficam de fora, mesmo critério de escopo já usado pra
+   * `saveRecentCharacter` acima. Dispara uma única vez por transição
+   * null->objeto de `gameState.gameOver` (mesma dependência do efeito de
+   * vitória logo acima - REMATCH zera `gameOver` de volta pra null, então
+   * a PRÓXIMA vitória dispara de novo normalmente).
+   */
+  useEffect(() => {
+    if (!gameState.gameOver || gameConfig.mode !== 'vsAI') return;
+    recordMatchResult({
+      character: player1Character,
+      opponentCharacter: player2Character,
+      won: gameState.gameOver.winner === 1,
+      timestamp: Date.now(),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.gameOver]);
 
@@ -2869,6 +2957,20 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     gameState[playerKeyOf(playerNumber)].hand.some((c) => !hasStatus(c, 'frozen')) &&
     findFrozenTargets(gameState, playerNumber).length > 0;
 
+  /**
+   * FIX (pedido do usuário, QoL: "tooltip explicando por que um botão está
+   * desabilitado") - mesmas 3 sub-checagens de `canPayToUnfreeze` acima, mas
+   * devolvendo o MOTIVO específico em vez de só true/false, pro botão em
+   * PlayerZone.tsx mostrar via `title` quando desabilitado. `undefined`
+   * quando habilitado (nenhum motivo pra mostrar).
+   */
+  const unfreezeDisabledReason = (playerNumber: 1 | 2): string | undefined => {
+    if (gameState.phase !== 'strategy') return 'Só disponível na fase de Estratégia';
+    if (!gameState[playerKeyOf(playerNumber)].hand.some((c) => !hasStatus(c, 'frozen'))) return 'Sem carta na mão pra usar como pagamento';
+    if (findFrozenTargets(gameState, playerNumber).length === 0) return 'Nenhuma carta sua está congelada agora';
+    return undefined;
+  };
+
   // FIX (item 8 da 6ª rodada): "os efeitos de magia mal são perceptíveis...
   // as que não possuem, adicione" - as 3 Magias Numerais (Mago/Besta/Anjo)
   // não tinham NENHUM efeito visual ao ativar. O próprio mecanismo (ver
@@ -3003,9 +3105,100 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     soundManager.play('card-play');
   };
 
+  /**
+   * FIX (pedido do usuário, QoL: "aviso de magia/Monstro não usado antes de
+   * avançar de fase") - verdade quando `playerNumber` tem, AGORA, uma magia
+   * J/Q/K na mão ativável (mesma checagem que já habilita o botão de
+   * ativação na própria carta, `canActivateMagic`+`getMagicActivationContext`)
+   * OU um efeito de Monstro já posicionado pronto pra ativar
+   * (`canActivateMonsterEffect`, a mesma função que PlayerZone.tsx usa).
+   * Só verificado ao clicar "Pronto" na Estratégia - ver handleToggleReady.
+   */
+  const hasUnusedActivatableResource = (playerNumber: 1 | 2): boolean => {
+    const player = gameState[playerKeyOf(playerNumber)];
+    const character = characterOf(gameState, playerNumber);
+    const hasActivatableMagic = player.hand.some((c) => {
+      if (c.value !== 'J' && c.value !== 'Q' && c.value !== 'K') return false;
+      return canActivateMagic(gameState.phase, character, c.value, getMagicActivationContext(gameState, playerNumber));
+    });
+    return hasActivatableMagic || canActivateMonsterEffect(gameState, playerNumber);
+  };
+
   const handleToggleReady = (playerNumber: 1 | 2) => {
+    // FIX (pedido do usuário, QoL): só intercepta ao FICAR pronto (nunca ao
+    // desmarcar) na Estratégia, pra um humano (nunca a IA, que decide sozinha
+    // via aiPlayer.ts) - "só avisa, não bloqueia": o aviso em si é só um
+    // Confirm extra, nunca impede de verdade avançar se o jogador confirmar.
+    if (
+      !isAi(playerNumber) &&
+      gameState.phase === 'strategy' &&
+      !gameState[playerKeyOf(playerNumber)].readyForNextPhase &&
+      hasUnusedActivatableResource(playerNumber)
+    ) {
+      setPendingReadyWarning(playerNumber);
+      return;
+    }
     dispatch({ type: 'TOGGLE_READY', player: playerNumber });
   };
+
+  /**
+   * FIX (pedido do usuário, QoL: "atalhos de teclado pra ações comuns") -
+   * Espaço confirma "Pronto" pelo jogador HUMANO, só quando inequívoco de
+   * quem é (`aiPlayers.length === 1` - o modo "Contra a IA"; Hotseat/
+   * Espectador ficam de fora, "de quem é o Espaço" seria ambíguo ali) e
+   * nenhum diálogo pendente está aberto (nesse caso o Espaço já ativa
+   * nativamente o que estiver com foco ali, sem `preventDefault` nenhum
+   * daqui - nunca double-dispara). Esc já fecha qualquer `<Dialog>` sozinho
+   * (Radix trata isso nativamente via `onOpenChange` - conferido em
+   * ui/dialog.tsx - nenhum código novo precisa existir aqui pra isso).
+   */
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (
+        pendingMagic ||
+        pendingUnfreeze ||
+        pendingAceTransform ||
+        pendingMonsterEffect ||
+        pendingMonsterTarget ||
+        pendingBestaMonsterTarget ||
+        pendingCoringaQChoice ||
+        pendingReadyWarning !== null ||
+        showQuickSettings ||
+        showRestartConfirmDialog ||
+        showExitConfirmDialog ||
+        showRematchDialog
+      ) {
+        return;
+      }
+      if (aiPlayers.length !== 1) return;
+      const humanPlayer: 1 | 2 = isAi(1) ? 2 : 1;
+      if (gameState[playerKeyOf(humanPlayer)].readyForNextPhase) return;
+      if (gameState.phase !== 'strategy' && gameState.phase !== 'combat') return;
+      e.preventDefault();
+      handleToggleReady(humanPlayer);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    gameState,
+    aiPlayers,
+    pendingMagic,
+    pendingUnfreeze,
+    pendingAceTransform,
+    pendingMonsterEffect,
+    pendingMonsterTarget,
+    pendingBestaMonsterTarget,
+    pendingCoringaQChoice,
+    pendingReadyWarning,
+    showQuickSettings,
+    showRestartConfirmDialog,
+    showExitConfirmDialog,
+    showRematchDialog,
+  ]);
 
   const handleRematch = () => {
     dispatch({ type: 'REMATCH' });
@@ -3014,6 +3207,30 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     setSelectedSlot(null);
     setSelectedForDiscard(new Set());
     setShowDiscardPile(false);
+  };
+
+  /**
+   * FIX (pedido do usuário, QoL: "exportar/compartilhar replay da partida -
+   * baixar arquivo .json") - `initialStateRef`/`recordedActionsRef` (topo
+   * deste componente) já gravam a partida INTEIRA o tempo todo, em qualquer
+   * build (dev ou produção) - só a exposição via `window.__debug.getReplayLog`
+   * era `import.meta.env.DEV`-only (ver o useEffect logo abaixo). Esta função
+   * reaproveita as MESMAS duas refs, sem depender daquele efeito - baixa um
+   * `.json` (mesmo formato que `window.__debug.loadReplayLog` já sabe ler)
+   * que pode ser recarregado depois (no console, em dev) ou só guardado/
+   * compartilhado como relato reproduzível de uma partida.
+   */
+  const handleExportReplay = () => {
+    const replay = { initialState: initialStateRef.current!, actions: [...recordedActionsRef.current] };
+    const blob = new Blob([JSON.stringify(replay)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `magispelll-replay-${gameState.turn}-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const isSlotProtectedFor = (playerNumber: 1 | 2, slotIndex: number) => isSlotProtected(gameState, playerNumber, slotIndex);
@@ -3274,6 +3491,25 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
           </div>
 
           <div className="flex items-center gap-4">
+            {/* FIX (pedido do usuário, QoL: "botão de acelerar pontual
+                durante a vez da IA, sem mexer na preferência global") - só
+                aparece quando existe pelo menos 1 lado de IA nesta partida
+                (Contra a IA ou Espectador) - liga/desliga `aiSpeedBoost`
+                (estado local desta sessão, nunca grava em `settings` - ver
+                comentário completo perto de onde `aiThinkScale` é calculado
+                mais acima). */}
+            {aiPlayers.length > 0 && (
+              <button
+                onClick={() => setAiSpeedBoost((prev) => !prev)}
+                title="Acelera só as próximas decisões da IA nesta partida, sem mudar a preferência de velocidade nas Configurações"
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border-2 transition-all text-[11px] font-semibold ${
+                  aiSpeedBoost ? 'bg-[#F2C94C]/20 border-[#F2C94C] text-[#F2C94C]' : 'border-[#BFB6A6]/30 text-[#BFB6A6] hover:border-[#F2C94C]/50'
+                }`}
+              >
+                <Zap className={`w-3.5 h-3.5 ${aiSpeedBoost ? 'fill-current' : ''}`} />
+                Acelerar IA
+              </button>
+            )}
             {/* Indicadores de Pronto */}
             <div className="flex items-center gap-2">
               <div className={`flex items-center gap-1 px-2 py-1 rounded border ${
@@ -3490,6 +3726,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 canPayToUnfreeze={canPayToUnfreeze(2)}
                 onOpenPayToUnfreeze={() => setPendingUnfreeze({ playerNumber: 2 })}
                 unfreezeRelevant={glacialInMatch}
+                unfreezeDisabledReason={unfreezeDisabledReason(2)}
                 // FIX (item 8 da 2ª rodada): ver gameEngine.ts (handleActivateNumeralSpell)
                 // - o bloqueio de "já tem uma ativa" precisa ser por jogador, não global,
                 // senão a Magia Numeral do Mago (a única que fica "pendurada" durante o
@@ -3603,6 +3840,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 canPayToUnfreeze={canPayToUnfreeze(1)}
                 onOpenPayToUnfreeze={() => setPendingUnfreeze({ playerNumber: 1 })}
                 unfreezeRelevant={glacialInMatch}
+                unfreezeDisabledReason={unfreezeDisabledReason(1)}
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[1] !== undefined}
                 isAiControlled={isAi(1)}
                 hotseatPrivacyActive={hotseatPrivacyActive}
@@ -5862,13 +6100,25 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               {gameState.paused ? 'Retomar' : 'Fechar'}
             </Button>
             <Button
-              onClick={onBack}
+              onClick={() => setShowExitConfirmDialog(true)}
               variant="outline"
               className="flex-1 border-[#C59E4F] text-[#C59E4F]"
             >
               Sair do Jogo
             </Button>
           </div>
+          {/* FIX (pedido do usuário, QoL: "exportar/compartilhar replay da
+              partida") - baixa um .json com a gravação completa desta
+              partida (ver handleExportReplay acima). Ação neutra/não
+              destrutiva - fica numa linha própria, fora do par
+              Retomar/Sair, sem o tom de aviso do Reiniciar logo abaixo. */}
+          <Button
+            onClick={handleExportReplay}
+            variant="outline"
+            className="w-full border-[#C59E4F] text-[#C59E4F] hover:bg-[#C59E4F]/10"
+          >
+            Baixar Replay da Partida
+          </Button>
           {/* FIX (pedido do usuário: "reiniciar um jogo nas opções in-game") -
               linha separada dos 2 botões principais acima, cor de aviso
               (mesmo tom avermelhado usado em ações destrutivas do jogo) já
@@ -5910,6 +6160,66 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               className="flex-1 bg-[#C4574A] hover:bg-[#A8493D] text-[#EFE7D6]"
             >
               Reiniciar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmação de Sair do Jogo - ver showExitConfirmDialog */}
+      <Dialog open={showExitConfirmDialog} onOpenChange={setShowExitConfirmDialog}>
+        <DialogContent className="bg-[#1E1A16] border-[#C59E4F]">
+          <DialogHeader>
+            <DialogTitle className="text-[#EFE7D6] font-display text-[24px]">Sair do Jogo?</DialogTitle>
+            <DialogDescription className="text-[#BFB6A6]">O progresso da partida atual será perdido.</DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-4 pt-2">
+            <Button
+              onClick={() => setShowExitConfirmDialog(false)}
+              variant="outline"
+              className="flex-1 border-[#C59E4F] text-[#C59E4F]"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                setShowExitConfirmDialog(false);
+                onBack();
+              }}
+              className="flex-1 bg-[#C4574A] hover:bg-[#A8493D] text-[#EFE7D6]"
+            >
+              Sair
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Aviso de recurso não usado antes de avançar de fase - ver
+          pendingReadyWarning/hasUnusedActivatableResource. Só um Confirm
+          extra, nunca um bloqueio de verdade. */}
+      <Dialog open={pendingReadyWarning !== null} onOpenChange={(open) => !open && setPendingReadyWarning(null)}>
+        <DialogContent className="bg-[#1E1A16] border-[#C59E4F]">
+          <DialogHeader>
+            <DialogTitle className="text-[#EFE7D6] font-display text-[24px]">Ainda tem algo disponível</DialogTitle>
+            <DialogDescription className="text-[#BFB6A6]">
+              Você tem uma magia ou efeito de Monstro que ainda pode ser ativado neste turno. Confirmar mesmo assim?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-4 pt-2">
+            <Button
+              onClick={() => setPendingReadyWarning(null)}
+              variant="outline"
+              className="flex-1 border-[#C59E4F] text-[#C59E4F]"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                if (pendingReadyWarning !== null) dispatch({ type: 'TOGGLE_READY', player: pendingReadyWarning });
+                setPendingReadyWarning(null);
+              }}
+              className="flex-1 bg-[#C59E4F] hover:bg-[#8F6A30] text-[#0F1113]"
+            >
+              Confirmar mesmo assim
             </Button>
           </div>
         </DialogContent>
