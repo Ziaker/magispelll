@@ -1617,6 +1617,44 @@ function activateMagoNumeralSpell(state: GameState): GameState {
   assert(after.player1.hand.length === 2, 'Os dois Áses crus continuam na mão após a tentativa rejeitada');
 })();
 
+(function testMultipleTowersSameTurn() {
+  // FIX (pedido do usuário: "a IA está conseguindo fazer mais do que uma
+  // torre por turno, o que teoricamente era incorreto, mas volto atrás com
+  // isso, permita que os jogadores coloquem até 3 torres no campo") -
+  // reversão da regra anterior de 1 torre só por turno. `towerSlotsThisTurn`
+  // (PlayerState, gameEngine.ts) virou uma lista - os 3 slots do campo agora
+  // podem virar torre no mesmo turno.
+  const config: GameConfig = { ...DEFAULT_GAME_CONFIG, towersMode: true };
+  let state = createInitialState('mago', 'besta', config);
+  const a1 = makeCard('multi-tower-a1', '5');
+  const a2 = makeCard('multi-tower-a2', '5');
+  const b1 = makeCard('multi-tower-b1', '7');
+  const b2 = makeCard('multi-tower-b2', '7');
+  const c1 = makeCard('multi-tower-c1', '9');
+  const c2 = makeCard('multi-tower-c2', '9');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [a1, a2, b1, b2, c1, c2] } };
+
+  state = gameReducer(state, { type: 'FORM_OR_REINFORCE_TOWER', player: 1, slotIndex: 0, cardIds: [a1.id, a2.id] });
+  assert(state.player1.field[0].faceDownCard?.value === '5', 'FIX Multi-Torres: a 1ª torre (slot 0) formou normalmente');
+
+  state = gameReducer(state, { type: 'FORM_OR_REINFORCE_TOWER', player: 1, slotIndex: 1, cardIds: [b1.id, b2.id] });
+  assert(state.player1.field[1].faceDownCard?.value === '7', 'FIX Multi-Torres: uma 2ª torre (slot 1) TAMBÉM forma no mesmo turno - a regra de 1 por turno foi revertida');
+
+  state = gameReducer(state, { type: 'FORM_OR_REINFORCE_TOWER', player: 1, slotIndex: 2, cardIds: [c1.id, c2.id] });
+  assert(state.player1.field[2].faceDownCard?.value === '9', 'FIX Multi-Torres: uma 3ª torre (slot 2) também forma - os 3 slots do campo podem virar torre no mesmo turno');
+
+  assert(
+    state.player1.towerSlotsThisTurn.length === 3 && [0, 1, 2].every((i) => state.player1.towerSlotsThisTurn.includes(i)),
+    `towerSlotsThisTurn rastreia as 3 torres formadas neste turno (recebido: ${JSON.stringify(state.player1.towerSlotsThisTurn)})`
+  );
+
+  // Reforçar qualquer uma das 3 continua funcionando normalmente.
+  const extra = makeCard('multi-tower-a3', '5');
+  state = { ...state, player1: { ...state.player1, hand: [extra] } };
+  state = gameReducer(state, { type: 'FORM_OR_REINFORCE_TOWER', player: 1, slotIndex: 0, cardIds: [extra.id] });
+  assert(state.player1.field[0].towerReserve?.length === 2, 'FIX Multi-Torres: reforçar uma das 3 torres já formadas neste turno continua funcionando');
+})();
+
 // 32. Item 9 da 6ª rodada: RETURN_HORIZONTAL_CARD_TO_HAND remove só a carta
 //     horizontal indicada, preservando a carta principal e a OUTRA
 //     horizontal (quando há 2 empilhadas, via Reforço Angelical do Anjo).

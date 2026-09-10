@@ -230,16 +230,25 @@ export interface PlayerState {
    */
   statusEffects?: import('./statusEffects').StatusEffect[];
   /**
-   * Modo Towers: qual slot (0-2) do PRÓPRIO campo este jogador já escolheu
-   * como sua torre NESTE turno - só um slot pode virar torre por turno
-   * (pedido do usuário), mas pode ser reforçado quantas vezes o jogador
-   * quiser dentro do mesmo turno (ver FORM_OR_REINFORCE_TOWER). undefined =
-   * ainda não formou nenhuma torre neste turno. Zerado a cada turno junto
-   * com `discardsThisTurn` (ver `resetForNewTurn`) - o campo inteiro é
+   * Modo Towers: quais slots (0-2) do PRÓPRIO campo este jogador já formou
+   * como torre NESTE turno.
+   *
+   * FIX (pedido do usuário: "a IA está conseguindo fazer mais do que uma
+   * torre por turno, o que teoricamente era incorreto, mas volto atrás com
+   * isso, permita que os jogadores coloquem até 3 torres no campo") -
+   * reversão de uma regra anterior que limitava a 1 slot só por turno
+   * (`towerSlotThisTurn?: number`, singular). Agora é uma lista - até os 3
+   * slots do campo podem virar torre no mesmo turno, cada um pode ser
+   * reforçado quantas vezes o jogador quiser dentro do mesmo turno (ver
+   * FORM_OR_REINFORCE_TOWER), mas só um slot que JÁ está nesta lista pode
+   * ser reforçado - formar uma torre NOVA num slot que ainda não está aqui
+   * sempre precisa de 2+ cartas (ver canFormOrReinforceTower). Lista vazia =
+   * nenhuma torre formada ainda neste turno. Zerada a cada turno junto com
+   * `discardsThisTurn` (ver `resetForNewTurn`) - o campo inteiro é
    * descartado a cada fim de turno de qualquer forma, então uma torre nunca
    * sobrevive de um turno pro outro.
    */
-  towerSlotThisTurn?: number;
+  towerSlotsThisTurn: number[];
   /**
    * Mosqueteiro (personagem novo, foco em descarte) - contador PRÓPRIO de
    * quantas cartas suas magias (Valete/Rainha) descartaram NESTE turno (só a
@@ -675,7 +684,7 @@ function createPlayerState(hand: Card[], handLimit: number): PlayerState {
     monsterCard: undefined,
     monsterTargetSlot: undefined,
     monsterProtectedSlots: [],
-    towerSlotThisTurn: undefined,
+    towerSlotsThisTurn: [],
     mosqueteiroDiscardsThisTurn: 0,
     mosqueteiroDiscardsTurnMinus1: 0,
     mosqueteiroDiscardsTurnMinus2: 0,
@@ -2467,7 +2476,7 @@ function handleReturnCardToHand(state: GameState, player: PlayerNumber, slotInde
       field: newField,
       // A torre deste jogador (se era esta) deixou de existir - libera o
       // slot pra poder virar uma torre nova neste mesmo turno, se quiser.
-      towerSlotThisTurn: playerState.towerSlotThisTurn === slotIndex ? undefined : playerState.towerSlotThisTurn,
+      towerSlotsThisTurn: playerState.towerSlotsThisTurn.filter((s) => s !== slotIndex),
     },
   };
 }
@@ -2703,19 +2712,21 @@ export function towerEligibleValue(card: Card): number | null {
  * FieldSlotView.tsx/GameBoard.tsx pra mostrar o botão "Towers" só quando faz
  * sentido, e por aiPlayer.ts pra decidir a mesma coisa pela IA.
  *
- * Regras (pedido do usuário, "recapitulando o Towers"):
+ * Regras (pedido do usuário, "recapitulando o Towers"; FIX posterior: "volto
+ * atrás [na regra de 1 por turno], permita que os jogadores coloquem até 3
+ * torres no campo"):
  * - Só na fase de Estratégia, com o Modo Towers ligado nesta partida.
  * - Todas as cartas selecionadas precisam existir na mão do jogador, ser
  *   elegíveis (numeral 2-10 ou Ás) e ter o MESMO valor efetivo entre si.
  * - CRIAR uma torre nova (o slot ainda não é torre neste turno): precisa de
  *   2+ cartas selecionadas, e o slot precisa estar vazio OU já ter uma carta
  *   comum (não torre) de valor igual (ela é absorvida) - sem nenhuma carta
- *   horizontal already ali. Também precisa ser o PRIMEIRO slot que este
- *   jogador tenta virar torre neste turno (towerSlotThisTurn ainda não
- *   aponta pra outro slot).
+ *   horizontal already ali. Qualquer slot ainda livre serve - sem limite de
+ *   1 por turno, até os 3 slots do campo podem virar torre no mesmo turno
+ *   (ver `towerSlotsThisTurn`, PlayerState).
  * - REFORÇAR uma torre já formada por este jogador neste turno (o slot já É
- *   torre e `towerSlotThisTurn` já aponta pra ele): basta 1+ carta
- *   selecionada, valor igual ao topo atual da torre.
+ *   torre e já está em `towerSlotsThisTurn`): basta 1+ carta selecionada,
+ *   valor igual ao topo atual da torre.
  */
 export function canFormOrReinforceTower(state: GameState, player: PlayerNumber, slotIndex: number, cardIds: string[]): boolean {
   if (state.phase !== 'strategy' || !state.gameConfig.towersMode) return false;
@@ -2738,14 +2749,15 @@ export function canFormOrReinforceTower(state: GameState, player: PlayerNumber, 
   const targetValue = values[0];
   if (!values.every((v) => v === targetValue)) return false;
 
-  const alreadyMyTower = playerState.towerSlotThisTurn === slotIndex && isTowerSlot(slot);
+  const alreadyMyTower = playerState.towerSlotsThisTurn.includes(slotIndex) && isTowerSlot(slot);
   if (alreadyMyTower) {
     return getEffectiveCardValue(slot.faceDownCard!) === targetValue;
   }
 
-  // Ainda não é minha torre neste turno - só pode CRIAR se eu não tiver
-  // comprometido outro slot como torre ainda neste turno.
-  if (playerState.towerSlotThisTurn !== undefined && playerState.towerSlotThisTurn !== slotIndex) return false;
+  // Ainda não é uma torre minha neste turno - CRIAR uma torre nova aqui
+  // (pedido do usuário: "permita que os jogadores coloquem até 3 torres no
+  // campo") - qualquer slot ainda livre pode virar torre, sem limite de 1
+  // por turno (o campo só tem 3 slots de qualquer forma).
   if (cardIds.length < 2) return false;
   if (slot.horizontalCards.length > 0) return false;
   if (!slot.faceDownCard) return true; // slot vazio
@@ -2811,7 +2823,9 @@ function handleFormOrReinforceTower(state: GameState, player: PlayerNumber, slot
       ...playerState,
       hand: newHand,
       field: newField,
-      towerSlotThisTurn: slotIndex,
+      towerSlotsThisTurn: playerState.towerSlotsThisTurn.includes(slotIndex)
+        ? playerState.towerSlotsThisTurn
+        : [...playerState.towerSlotsThisTurn, slotIndex],
     },
   };
 }
@@ -6307,7 +6321,7 @@ function advancePhaseState(state: GameState): GameState {
       discardsThisTurn: newPhase === 'draw' ? 0 : p.discardsThisTurn,
       drawsThisTurn: newPhase === 'draw' ? 0 : p.drawsThisTurn,
       fusesThisTurn: newPhase === 'draw' ? 0 : p.fusesThisTurn,
-      towerSlotThisTurn: newPhase === 'draw' ? undefined : p.towerSlotThisTurn,
+      towerSlotsThisTurn: newPhase === 'draw' ? [] : p.towerSlotsThisTurn,
       // Mosqueteiro (personagem novo) - janela deslizante de 3 turnos (ver
       // comentário completo em `mosqueteiroDiscardsThisTurn`, PlayerState): a
       // cada nova virada de turno, T-1 vira T-2 e o valor final do turno que
