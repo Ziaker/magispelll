@@ -669,6 +669,84 @@ export function GameConfig({ onBack, onStartGame, showSteps = true }: GameConfig
                 </Select>
               </div>
             )}
+
+            {/* Inspeção de Carta (pedido do usuário: "pressionar e segurar o
+                MEIO de uma carta no campo por 1,5 segundo mostra uma
+                interface... com caixas de texto explicando cada efeito
+                ativo") - mesmo padrão toggle+Select do bloco acima. Ao
+                contrário de "Pausa após magias" (0 = desligado por padrão),
+                esta nasce LIGADA - decisão do usuário: não muda regra
+                nenhuma do jogo, só comunica informação que já existe, então
+                é tratada como mecânica padrão em vez de variante opcional. */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="cardInspectionEnabled" className="text-[#BFB6A6]">
+                  Inspeção de Carta
+                </Label>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="w-4 h-4 text-[#C59E4F] cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[300px] bg-[#1E1A16] border-[#C59E4F]">
+                      <p className="text-[#EFE7D6] text-[12px]">
+                        Pressionar e segurar o meio de uma carta no campo por 1,5s abre uma tela ampliada mostrando cada
+                        efeito ativo nela. Enquanto aberta, o jogo pausa (nenhum lado pode agir).
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <Switch
+                id="cardInspectionEnabled"
+                checked={config.cardInspectionEnabled}
+                onCheckedChange={(checked) => setConfig({ ...config, cardInspectionEnabled: checked })}
+              />
+            </div>
+            {config.cardInspectionEnabled && (
+              <div className="flex items-center justify-between pl-4">
+                <Label htmlFor="cardInspectionTimeoutMs" className="text-[#BFB6A6]">
+                  Fecha sozinha após
+                </Label>
+                <Select
+                  value={config.cardInspectionTimeoutMs.toString()}
+                  onValueChange={(val) => setConfig({ ...config, cardInspectionTimeoutMs: parseInt(val, 10) })}
+                >
+                  <SelectTrigger id="cardInspectionTimeoutMs" className="h-auto py-1 px-2 w-[110px] bg-[#0F1113] border-[#C59E4F]/50 text-[#EFE7D6]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1E1A16] border-[#C59E4F]">
+                    {[0, 8000, 10000, 15000, 20000, 30000].map((ms) => (
+                      <SelectItem key={ms} value={ms.toString()} className="text-[#EFE7D6]">
+                        {ms === 0 ? 'Sem timer' : `${(ms / 1000).toString().replace('.0', '')}s`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {config.cardInspectionEnabled && config.cardInspectionTimeoutMs > 0 && (
+              <div className="flex items-center justify-between pl-8">
+                <Label htmlFor="cardInspectionCooldownMs" className="text-[#BFB6A6]">
+                  Cooldown pós-fechamento automático
+                </Label>
+                <Select
+                  value={config.cardInspectionCooldownMs.toString()}
+                  onValueChange={(val) => setConfig({ ...config, cardInspectionCooldownMs: parseInt(val, 10) })}
+                >
+                  <SelectTrigger id="cardInspectionCooldownMs" className="h-auto py-1 px-2 w-[90px] bg-[#0F1113] border-[#C59E4F]/50 text-[#EFE7D6]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1E1A16] border-[#C59E4F]">
+                    {[5000, 8000, 10000, 15000, 20000].map((ms) => (
+                      <SelectItem key={ms} value={ms.toString()} className="text-[#EFE7D6]">
+                        {(ms / 1000).toString().replace('.0', '')}s
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
 

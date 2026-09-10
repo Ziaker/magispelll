@@ -486,6 +486,23 @@ textarea {
   pointer-events: none;
 }
 
+/* Interface de Inspeção de Carta (pedido do usuário: "pressionar e segurar o
+   MEIO de uma carta no campo por 1,5 segundo") - anel de progresso que
+   preenche EM CIMA da própria carta, no tamanho real dela no campo, enquanto
+   o jogador segura. Precisa ser `@keyframes` (não `transition`) porque o
+   elemento nasce e é destruído a cada hold (React só o monta quando
+   `holdingCardId` bate) - uma `transition` não anima sozinha no primeiro
+   frame após montar, só `@keyframes` toca de verdade desde o instante 0.
+   `--hold-circumference`/`--hold-duration-ms` vêm de FieldSlotView.tsx
+   (tamanho muda entre carta principal e horizontal). */
+@keyframes card-hold-progress {
+  from { stroke-dashoffset: var(--hold-circumference); }
+  to { stroke-dashoffset: 0; }
+}
+.card-hold-progress-fill {
+  animation: card-hold-progress var(--hold-duration-ms, 1500ms) linear forwards;
+}
+
 @keyframes status-particle-drift {
   0% { transform: translateY(6px) scale(0.5); opacity: 0; }
   20% { opacity: 1; }

@@ -44,6 +44,8 @@ import { SpeedlinesBackground } from './SpeedlinesBackground';
 import { SpotlightSidebar } from './SpotlightSidebar';
 import { ReactionAlertBanner } from './ReactionAlertBanner';
 import { MagicPauseSpotlight } from './MagicPauseSpotlight';
+import { CardInspectionOverlay, type CardInspectionSpec } from './CardInspectionOverlay';
+import { getCardStatusSummaries, getCardTypeInfo, getCardValueBreakdown } from '../lib/cardEffectSummary';
 import { ReactionNegatedBurst, type ReactionNegatedBurstSpec } from './ReactionNegatedBurst';
 import { BulletImpactBurst, type BulletImpactSpec } from './BulletImpactBurst';
 import { FireballProjectile, type FireballProjectileSpec } from './FireballProjectile';
@@ -361,6 +363,78 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    */
   const [postMagicPause, setPostMagicPause] = useState<{ title: string; detail: string; character: CharacterId; rect: DOMRect | null } | null>(null);
   /**
+   * Interface de Inspeção de Carta (pedido do usuário: "pressionar e segurar
+   * o MEIO de uma carta no campo por 1,5 segundo... enquanto essa interface
+   * de inspeção estiver aberta, o JOGO PAUSA"). Estado LOCAL, independente de
+   * `gameState.paused` (a pausa "de verdade" do botão de pause) - mesmo
+   * padrão já usado por `postMagicPause`/`showPhaseTransition`: um novo
+   * "motivo de pausa" que entra na mesma lista de guards que já protege os
+   * useEffects de IA/combate automático, sem tocar em `TOGGLE_PAUSE` nem
+   * abrir o diálogo "Jogo Pausado" por engano.
+   */
+  const [cardInspection, setCardInspection] = useState<CardInspectionSpec | null>(null);
+  const cardInspectionAutoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Cooldown pós-fechamento AUTOMÁTICO (pedido do usuário: "depois desse
+   * timer estourar e a interface fechar sozinha, o jogador NÃO pode abrir a
+   * interface de novo por [cardInspectionCooldownMs]") - `null` = sem
+   * cooldown ativo. Nunca setado num fechamento MANUAL (botão/Esc/clique
+   * fora) - só quando o próprio timer de `gameConfig.cardInspectionTimeoutMs`
+   * dispara o fechamento.
+   */
+  const [cardInspectionCooldownActive, setCardInspectionCooldownActive] = useState(false);
+  const cardInspectionCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (cardInspectionAutoCloseTimerRef.current) clearTimeout(cardInspectionAutoCloseTimerRef.current);
+      if (cardInspectionCooldownTimerRef.current) clearTimeout(cardInspectionCooldownTimerRef.current);
+    };
+  }, []);
+
+  /** Fechamento MANUAL (botão/Esc/clique fora) - nunca inicia cooldown. */
+  const closeCardInspection = () => {
+    if (cardInspectionAutoCloseTimerRef.current) {
+      clearTimeout(cardInspectionAutoCloseTimerRef.current);
+      cardInspectionAutoCloseTimerRef.current = null;
+    }
+    setCardInspection(null);
+  };
+
+  const openCardInspection = (playerNumber: PlayerNumber, slotIndex: number, cardId: string) => {
+    if (!gameConfig.cardInspectionEnabled || cardInspectionCooldownActive) return;
+    const ownerState = gameState[playerKeyOf(playerNumber)];
+    const slot = ownerState.field[slotIndex];
+    const isHorizontal = slot.horizontalCards.some((c) => c.id === cardId);
+    const card = isHorizontal ? slot.horizontalCards.find((c) => c.id === cardId) : slot.faceDownCard?.id === cardId ? slot.faceDownCard : undefined;
+    if (!card) return;
+    const character = characterOf(gameState, playerNumber);
+    const effectCtx = { state: gameState, owner: playerNumber, spotlight: gameState.spotlight, isOwnOrRevealed: true, slot };
+    const rect = cardPositionsRef.current.get(cardId) ?? null;
+    setCardInspection({
+      card,
+      character,
+      rect,
+      isHorizontal,
+      type: getCardTypeInfo(card, effectCtx),
+      statuses: getCardStatusSummaries(card, effectCtx),
+      valueBreakdown: getCardValueBreakdown(card, effectCtx),
+    });
+    if (cardInspectionAutoCloseTimerRef.current) clearTimeout(cardInspectionAutoCloseTimerRef.current);
+    if (gameConfig.cardInspectionTimeoutMs > 0) {
+      cardInspectionAutoCloseTimerRef.current = setTimeout(() => {
+        cardInspectionAutoCloseTimerRef.current = null;
+        setCardInspection(null);
+        setCardInspectionCooldownActive(true);
+        if (cardInspectionCooldownTimerRef.current) clearTimeout(cardInspectionCooldownTimerRef.current);
+        cardInspectionCooldownTimerRef.current = setTimeout(() => {
+          cardInspectionCooldownTimerRef.current = null;
+          setCardInspectionCooldownActive(false);
+        }, gameConfig.cardInspectionCooldownMs);
+      }, gameConfig.cardInspectionTimeoutMs);
+    }
+  };
+  /**
    * FIX (pedido do usuário: "só permita movimento de cartas ou efeitos após
    * o fim da notificação [de troca de fase], não durante") - o popup de
    * transição (PhaseTransition.tsx) é puramente visual (`pointer-events-none`),
@@ -377,6 +451,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const dispatch = (action: GameAction) => {
     if (showPhaseTransition) return;
     if (postMagicPause) return;
+    // Interface de Inspeção de Carta (pedido do usuário: "enquanto essa
+    // interface de inspeção estiver aberta, o jogo PAUSA... impede ações do
+    // oponente") - mesmo ponto de estrangulamento único que já bloqueia
+    // showPhaseTransition/postMagicPause, cobre de graça toda ação (humana
+    // OU da IA) enquanto a inspeção estiver aberta.
+    if (cardInspection) return;
     rawDispatch(action);
   };
   /**
@@ -1518,7 +1598,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   useEffect(() => {
     if (gameState.phase !== 'combat') return;
     if (gameState.paused || gameState.gameOver || gameState.combatResolution) return;
-    if (showPhaseTransition) return;
+    if (showPhaseTransition || cardInspection) return;
     if (pendingMagic || pendingAceTransform || pendingMonsterEffect || pendingMonsterTarget || pendingBestaMonsterTarget || pendingCoringaQChoice) return;
 
     for (const player of [1, 2] as PlayerNumber[]) {
@@ -1570,7 +1650,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       dispatch({ type: 'SELECT_COMBAT_SLOT', player, slotIndex });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, showPhaseTransition, pendingMagic, pendingAceTransform, pendingMonsterEffect, pendingMonsterTarget, pendingBestaMonsterTarget, pendingCoringaQChoice]);
+  }, [gameState, showPhaseTransition, cardInspection, pendingMagic, pendingAceTransform, pendingMonsterEffect, pendingMonsterTarget, pendingBestaMonsterTarget, pendingCoringaQChoice]);
 
   // Fim de jogo -> mostra vitória, depois oferece revanche.
   useEffect(() => {
@@ -1737,6 +1817,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     if (pendingMagic || pendingAceTransform || pendingMonsterEffect || pendingMonsterTarget || pendingBestaMonsterTarget || pendingCoringaQChoice || pendingUnfreeze) return;
     if (showPhaseTransition) return; // ver comentário do `dispatch` guardado acima
     if (postMagicPause) return; // idem - ver comentário do `dispatch` guardado acima
+    if (cardInspection) return; // idem - ver comentário do `dispatch` guardado acima
 
     const timers: ReturnType<typeof setTimeout>[] = [];
     for (const ai of aiPlayers) {
@@ -1821,7 +1902,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // Agora, ao voltar a `false`, este efeito roda de novo e agenda a próxima
     // decisão normalmente.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, aiPlayers, pendingMagic, pendingAceTransform, pendingMonsterEffect, pendingMonsterTarget, pendingBestaMonsterTarget, pendingCoringaQChoice, pendingUnfreeze, showPhaseTransition, postMagicPause]);
+  }, [gameState, aiPlayers, pendingMagic, pendingAceTransform, pendingMonsterEffect, pendingMonsterTarget, pendingBestaMonsterTarget, pendingCoringaQChoice, pendingUnfreeze, showPhaseTransition, postMagicPause, cardInspection]);
 
   // FIX (pedido do usuário: "ainda ocorre softlocks no espectador... adicione
   // um timer de 10 segundos pra IA rever o que está ou deveria fazer, caso
@@ -1853,6 +1934,10 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   useEffect(() => {
     if (aiPlayers.length !== 2) return;
     if (gameState.paused || gameState.gameOver) return;
+    // Interface de Inspeção de Carta: uma partida IA vs IA parada porque o
+    // ESPECTADOR está inspecionando uma carta não é um travamento - nunca
+    // deveria forçar TOGGLE_READY nas duas IAs só por causa disso.
+    if (cardInspection) return;
 
     const t = setTimeout(() => {
       for (const ai of aiPlayers) {
@@ -1863,7 +1948,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     }, 10000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, aiPlayers]);
+  }, [gameState, aiPlayers, cardInspection]);
 
   // ----- Handlers: traduzem interação do usuário em dispatch() -----
 
@@ -3918,6 +4003,9 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     player2Field={gameState.player2.field}
                     onSlotClick={handleFieldSlotClick}
                     onSlotDoubleClick={handleFieldSlotDoubleClick}
+                    onInspectCard={openCardInspection}
+                    cardInspectionEnabled={gameConfig.cardInspectionEnabled}
+                    cardInspectionOnCooldown={cardInspectionCooldownActive}
                     selectedSlot={selectedSlot}
                     phase={gameState.phase}
                     combatSelection={gameState.combatSelection}
@@ -5723,7 +5811,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                       // simplesmente não fecha o diálogo - a seleção fica
                       // intacta e o jogador só precisa clicar de novo depois
                       // que a pausa/transição terminar.
-                      if (showPhaseTransition || postMagicPause) return;
+                      if (showPhaseTransition || postMagicPause || cardInspection) return;
                       // FIX (pedido do usuário: "sons relacionados a gelo
                       // quando uma carta é descongelada/gelo quebrar") - o
                       // efeito VISUAL de estilhaçamento (IceShatterBurst)
@@ -6479,6 +6567,11 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         ativada. Mesmo motivo de viver fora da árvore com `zoom` que a
         Pontuação flutuante/CardDragLayer/BulletImpactBurst logo acima. */}
     <MagicPauseSpotlight spec={postMagicPause} />
+    {/* Interface de Inspeção de Carta (pedido do usuário) - mesmo motivo de
+        viver AQUI, fora da árvore com `zoom`, que MagicPauseSpotlight acima:
+        cobre a tela inteira, posicionada via coordenadas reais de viewport
+        (cardPositionsRef), não relativas a nenhum container com zoom. */}
+    <CardInspectionOverlay spec={cardInspection} onClose={closeCardInspection} />
     {/* Item 39 do Grupo J ("inspetor de IA ao vivo no navegador") - mesmo
         motivo de viver AQUI, fora da árvore com `zoom`, que a Pontuação
         flutuante/CardDragLayer acima. Um bloco por IA em `aiPlayers`, sempre

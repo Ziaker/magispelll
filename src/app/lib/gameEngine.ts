@@ -2307,7 +2307,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     // agora elas são aceitas normalmente e continuam mostrando a face para
     // cima (ver BattleField.tsx, que respeita o `revealed` de cada carta
     // individualmente, não só o do slot).
-    newField[slotIndex] = { ...newField[slotIndex], horizontalCards: [...newField[slotIndex].horizontalCards, card] };
+    newField[slotIndex] = { ...newField[slotIndex], horizontalCards: [...newField[slotIndex].horizontalCards, { ...card, placedOnTurn: state.turn }] };
     log = appendLog(state, log, 'field', `Jogador ${player} posicionou uma carta ${card.revealed ? 'revelada ' : ''}horizontal no slot ${slotIndex + 1}`, { player });
   } else if (isDruidaBrotoCard) {
     // Druida - plantar (sem Broto ativo em nenhum slot do próprio campo
@@ -2324,7 +2324,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
       const newValue = (oldTop.transformedValue ?? 1) + 1;
       newField[slotIndex] = {
         ...brotoSlot,
-        faceDownCard: { ...card, revealed: true, transformedValue: newValue },
+        faceDownCard: { ...card, revealed: true, transformedValue: newValue, placedOnTurn: state.turn },
         brotoReserve: [...(brotoSlot.brotoReserve ?? []), { ...oldTop, revealed: true }],
         revealed: true,
       };
@@ -2333,7 +2333,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
       if (newField[slotIndex].faceDownCard) return state;
       newField[slotIndex] = {
         ...newField[slotIndex],
-        faceDownCard: { ...card, revealed: true, transformedValue: 1 },
+        faceDownCard: { ...card, revealed: true, transformedValue: 1, placedOnTurn: state.turn },
         brotoReserve: [],
         revealed: true,
       };
@@ -2350,7 +2350,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     const brotoValue = brotoTop?.transformedValue ?? 1;
     newField[slotIndex] = {
       ...newField[slotIndex],
-      faceDownCard: { ...card, revealed: true, transformedValue: brotoValue },
+      faceDownCard: { ...card, revealed: true, transformedValue: brotoValue, placedOnTurn: state.turn },
       revealed: true,
     };
     log = appendLog(state, log, 'monster', `Jogador ${player} posicionou o Monstro no slot ${slotIndex + 1} (valendo ${brotoValue}, como o Broto)`, { player, cardValue: '🃏' });
@@ -2372,7 +2372,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     const wasFrozen = hasStatus(card, 'frozen');
     newField[slotIndex] = {
       ...newField[slotIndex],
-      faceDownCard: { ...card, revealed: true, transformedValue: golemValue },
+      faceDownCard: { ...card, revealed: true, transformedValue: golemValue, placedOnTurn: state.turn },
       revealed: true,
     };
     // FIX (pedido do usuário: "efeitos... para o golem") - `slotIndex` no
@@ -2432,7 +2432,7 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     const shouldReveal = card.transformedValue !== undefined || card.revealed === true;
     newField[slotIndex] = {
       ...newField[slotIndex],
-      faceDownCard: shouldReveal ? revealCard(card) : card,
+      faceDownCard: { ...(shouldReveal ? revealCard(card) : card), placedOnTurn: state.turn },
       revealed: shouldReveal,
     };
     log = appendLog(state, log, 'field', `Jogador ${player} posicionou uma carta ${shouldReveal ? 'revelada ' : ''}no slot ${slotIndex + 1}`, { player });
@@ -2818,11 +2818,17 @@ function handleFormOrReinforceTower(state: GameState, player: PlayerNumber, slot
   // (`faceDownCard`); todo o resto vira a reserva por baixo dele - a ordem
   // entre cartas de mesmo valor não importa em nada (todas são
   // intercambiáveis pro valor de combate).
+  // FIX (pedido do usuário, interface de inspeção: "mostre o turno em que a
+  // carta foi posicionada") - só as cartas que estão CHEGANDO agora
+  // (`selectedCards`, vindas da mão) recebem um carimbo novo de
+  // `placedOnTurn`; as que já estavam no slot (reserva + topo antigo) mantêm
+  // o carimbo que já tinham - `handleFormOrReinforceTower` não é o
+  // "nascimento" delas, só uma reorganização da pilha.
   const combined = [
-    ...(slot.towerReserve ?? []),
-    ...(slot.faceDownCard ? [slot.faceDownCard] : []),
-    ...selectedCards,
-  ].map((c) => ({ ...c, revealed: true }));
+    ...(slot.towerReserve ?? []).map((c) => ({ ...c, revealed: true })),
+    ...(slot.faceDownCard ? [{ ...slot.faceDownCard, revealed: true }] : []),
+    ...selectedCards.map((c) => ({ ...c, revealed: true, placedOnTurn: state.turn })),
+  ];
   const newTop = combined[combined.length - 1];
   const newReserve = combined.slice(0, -1);
 
@@ -3340,7 +3346,7 @@ function handleExecuteMagic(
       if (incomingValue === topValue) {
         newTargetField[selectedSlot] = {
           ...targetSlot,
-          faceDownCard: { ...cardToPlace, revealed: true },
+          faceDownCard: { ...cardToPlace, revealed: true, placedOnTurn: state.turn },
           towerReserve: [...reserve, { ...targetSlot.faceDownCard!, revealed: true }],
           revealed: true,
         };
@@ -3362,7 +3368,7 @@ function handleExecuteMagic(
 
     const oldCard = targetSlot.faceDownCard;
     const newTargetField = [...targetState.field] as [FieldSlot, FieldSlot, FieldSlot];
-    newTargetField[selectedSlot] = { ...newTargetField[selectedSlot], faceDownCard: { ...cardToPlace, revealed: true }, revealed: true };
+    newTargetField[selectedSlot] = { ...newTargetField[selectedSlot], faceDownCard: { ...cardToPlace, revealed: true, placedOnTurn: state.turn }, revealed: true };
 
     const { deck, discardPile } = pushToDiscard(state, [card]);
     const log = appendLog(
@@ -3477,7 +3483,7 @@ function handleExecuteMagic(
       if (incomingValue === topValue) {
         newTargetField[selectedSlot] = {
           ...targetSlot,
-          faceDownCard: { ...cardFromDiscard, revealed: true },
+          faceDownCard: { ...cardFromDiscard, revealed: true, placedOnTurn: state.turn },
           towerReserve: [...reserve, { ...targetSlot.faceDownCard!, revealed: true }],
           revealed: true,
         };
@@ -3510,7 +3516,7 @@ function handleExecuteMagic(
     // revelar algo que só ele veria de qualquer forma). Agora entra oculta,
     // com a chance normal de ser revelada mais tarde como qualquer carta em
     // campo.
-    newTargetField[selectedSlot] = { ...newTargetField[selectedSlot], faceDownCard: { ...cardFromDiscard, revealed: false }, revealed: false };
+    newTargetField[selectedSlot] = { ...newTargetField[selectedSlot], faceDownCard: { ...cardFromDiscard, revealed: false, placedOnTurn: state.turn }, revealed: false };
 
     const discardWithoutTaken = state.discardPile.filter((c) => c.id !== selectedCards[0]);
     // A carta removida do slot alvo vai para o descarte (mesmo quando o alvo

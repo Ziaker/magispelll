@@ -269,6 +269,18 @@ interface FieldSlotViewProps {
    * spotlight.ts.
    */
   spotlight?: SpotlightState | null;
+  /**
+   * Interface de Inspeção de Carta (pedido do usuário: "pressionar e segurar
+   * o MEIO de uma carta no campo por 1,5 segundo") - chamado quando o hold
+   * completa numa carta elegível (ver `canInspect` abaixo). `cardId` é
+   * suficiente pra GameBoard.tsx: ele já tem `playerNumber`+`slotIndex` pra
+   * achar `slot` de novo e montar o contexto completo (getCardEffectSummary).
+   */
+  onInspectCard?: (playerNumber: 1 | 2, slotIndex: number, cardId: string) => void;
+  /** `gameConfig.cardInspectionEnabled` - `false`/`undefined` = o gesto nem é anexado (pedido explícito do usuário: "nem aparece o gesto"). */
+  cardInspectionEnabled?: boolean;
+  /** Janela de cooldown pós-fechamento automático (GameBoard.tsx) - gesto anexado mas não completa enquanto true. */
+  cardInspectionOnCooldown?: boolean;
 }
 
 /**
@@ -322,6 +334,9 @@ export function FieldSlotView({
   effectFlashCardIds,
   doubledCardId,
   spotlight,
+  onInspectCard,
+  cardInspectionEnabled,
+  cardInspectionOnCooldown,
 }: FieldSlotViewProps) {
   const canClick = phase === 'strategy' || phase === 'combat';
   const hasHorizontal = slot.horizontalCards.length > 0;
@@ -646,6 +661,85 @@ export function FieldSlotView({
 
   const canRemoveHorizontal = Boolean(onRemoveHorizontalCard) && phase === 'strategy' && !isAiField;
 
+  // Interface de Inspeção de Carta (pedido do usuário: "pressionar e segurar
+  // o MEIO de uma carta no campo por 1,5 segundo"). `holdingCardId` é o id
+  // da carta (principal OU uma horizontal específica) atualmente sob o hold -
+  // controla qual anel de progresso aparece (CardHoldRing abaixo). Timeout
+  // (não `requestAnimationFrame`) porque só precisamos saber QUANDO os
+  // 1,5s completam, nunca o progresso intermediário via JS - o anel em si
+  // anima via CSS puro (`card-hold-progress-fill`, globals.css), sem
+  // re-render nenhum durante o próprio hold.
+  const HOLD_MS = 1500;
+  const [holdingCardId, setHoldingCardId] = useState<string | null>(null);
+  const holdTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Um long-press completo dispara `onInspectCard` DURANTE o `mousedown`
+  // (antes do `mouseup`/`click` seguinte) - sem isso, o `onClick` do wrapper
+  // (seleciona o slot pra combate) ou o `onClick` da horizontal (devolve pra
+  // mão) disparariam também, logo depois, como side-effect indesejado do
+  // mesmo gesto físico.
+  const suppressNextClickRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
+    };
+  }, []);
+
+  /** Própria carta (`!isAiField`): sempre inspecionável, revelada ou não - pedido explícito do usuário. Carta do oponente: só se já revelada (senão o próprio gesto vazaria o valor). */
+  const canInspectCard = (card: Card | undefined): card is Card =>
+    Boolean(card) && Boolean(cardInspectionEnabled) && !cardInspectionOnCooldown && (!isAiField || card!.revealed === true);
+
+  const startHold = (card: Card | undefined) => {
+    if (!canInspectCard(card)) return;
+    if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
+    setHoldingCardId(card.id);
+    holdTimeoutRef.current = setTimeout(() => {
+      holdTimeoutRef.current = null;
+      setHoldingCardId(null);
+      suppressNextClickRef.current = true;
+      onInspectCard?.(playerNumber, i, card.id);
+    }, HOLD_MS);
+  };
+  const cancelHold = () => {
+    if (holdTimeoutRef.current) {
+      clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+    setHoldingCardId(null);
+  };
+  /** Selo circular de progresso, desenhado EM CIMA da própria carta no tamanho real dela (pedido explícito do usuário - "no exato meio da carta", não um ícone fixo de canto de tela). */
+  const renderHoldProgressRing = (cardId: string, sizePx: number) => {
+    if (holdingCardId !== cardId) return null;
+    const radius = sizePx / 2 - 4;
+    const circumference = 2 * Math.PI * radius;
+    return (
+      <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
+        <svg width={sizePx} height={sizePx} viewBox={`0 0 ${sizePx} ${sizePx}`}>
+          <circle cx={sizePx / 2} cy={sizePx / 2} r={radius} fill="rgba(15,17,19,0.5)" stroke="#8F6A30" strokeWidth={3} opacity={0.6} />
+          <circle
+            className="card-hold-progress-fill"
+            cx={sizePx / 2}
+            cy={sizePx / 2}
+            r={radius}
+            fill="none"
+            stroke="#C59E4F"
+            strokeWidth={4}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            style={
+              {
+                transformOrigin: '50% 50%',
+                transform: 'rotate(-90deg)',
+                '--hold-circumference': circumference,
+                '--hold-duration-ms': `${HOLD_MS}ms`,
+              } as CSSProperties
+            }
+          />
+        </svg>
+      </div>
+    );
+  };
+
   // FIX (pedido do usuário: "adicione este som quando a carta aterrisa no
   // campo" + "efeitos de impacto quando a carta é posicionada, embaixo
   // dela"; revisado depois: "remova o efeito para cartas horizontais") -
@@ -802,7 +896,13 @@ export function FieldSlotView({
               // visual (versão anterior) fazia a área extra de padding não
               // responder a clique nenhum, só a soltura de arraste (que já
               // funciona via `ref`, independente de bubbling de evento React).
-              onClick={() => canClick && onSlotClick(playerNumber, i)}
+              onClick={() => {
+                if (suppressNextClickRef.current) {
+                  suppressNextClickRef.current = false;
+                  return;
+                }
+                canClick && onSlotClick(playerNumber, i);
+              }}
               onDoubleClick={() => phase === 'strategy' && onSlotDoubleClick && onSlotDoubleClick(playerNumber, i)}
               className="p-3 -m-3"
               // FIX (pedido do usuário, QoL: "desfazer posicionamento" -
@@ -858,6 +958,20 @@ export function FieldSlotView({
                     ? '#C59E4F'
                     : undefined,
                 } as CSSProperties}
+                // Interface de Inspeção de Carta (pedido do usuário:
+                // "pressionar e segurar o MEIO de uma carta no campo por 1,5
+                // segundo") - anexado neste div (o corpo visual da carta
+                // principal/topo da Torre), nunca no wrapper com padding
+                // (`p-3 -m-3` acima) - segurar na área de margem extra não
+                // deveria contar como "segurar a carta". `onMouseUp` cobre o
+                // caso comum (solta antes de completar); `onMouseLeave`
+                // cobre arrastar o cursor pra fora sem soltar.
+                onMouseDown={(e) => e.button === 0 && startHold(slot.faceDownCard)}
+                onMouseUp={cancelHold}
+                onMouseLeave={cancelHold}
+                onTouchStart={() => startHold(slot.faceDownCard)}
+                onTouchEnd={cancelHold}
+                onTouchCancel={cancelHold}
               >
               {/* Modo Towers (pedido do usuário: "deixe visualmente mais
                   destacado as torres") - silhuetas de carta em LEQUE atrás
@@ -891,6 +1005,7 @@ export function FieldSlotView({
                     style={{ left: p.left, animationDelay: p.delay, zIndex: 5 }}
                   />
                 ))}
+              {slot.faceDownCard && renderHoldProgressRing(slot.faceDownCard.id, 112)}
               {/* Fúria Selvagem da Besta / Ilusão Arcana do Mago (pedido do
                   usuário: "mais efeitos visuais nas magias... auras e
                   efeitos como você fez nas torres") - aura + partículas
@@ -1337,10 +1452,20 @@ export function FieldSlotView({
                     } as CSSProperties
                   }
                   onClick={(e) => {
+                    if (suppressNextClickRef.current) {
+                      suppressNextClickRef.current = false;
+                      return;
+                    }
                     if (!canRemoveHorizontal) return;
                     e.stopPropagation();
                     onRemoveHorizontalCard!(playerNumber, i, hCard.id);
                   }}
+                  onMouseDown={(e) => e.button === 0 && startHold(hCard)}
+                  onMouseUp={cancelHold}
+                  onMouseLeave={cancelHold}
+                  onTouchStart={() => startHold(hCard)}
+                  onTouchEnd={cancelHold}
+                  onTouchCancel={cancelHold}
                   aria-label={canRemoveHorizontal ? 'Clique para devolver esta carta de reforço para a mão' : undefined}
                 >
                   {/* FIX (pedido do usuário: "quando uma carta é selecionada
@@ -1377,6 +1502,12 @@ export function FieldSlotView({
                       visual ao ser queimada (effectFlashCardIds nunca
                       chegava até aqui). */}
                   <CharacterMagicBurst active={Boolean(effectFlashCardIds?.includes(hCard.id))} character={activeMagicCaster ?? 'mago'} />
+                  {/* 40, não 64: a horizontal é 64×40 (retangular, não
+                      quadrada) - um anel de 64px de diâmetro estouraria os
+                      40px de altura disponíveis. Usa a MENOR dimensão pra
+                      caber inteiro, centralizado, mesmo critério da carta
+                      principal (112px, que também é só a largura dela). */}
+                  {renderHoldProgressRing(hCard.id, 40)}
                   {/* Fúria Selvagem da Besta mirando uma horizontal
                       específica (em vez da carta principal do slot).
                       FIX (pedido do usuário: "o X2 fica encima da carta

@@ -109,7 +109,37 @@ export interface GameConfig {
    * intervalo bloqueando por vez).
    */
   postMagicPauseMs: number;
+  /**
+   * Inspeção de Carta (pedido do usuário: "pressionar e segurar o MEIO de
+   * uma carta no campo por 1,5 segundo mostra uma interface... com caixas de
+   * texto explicando cada efeito ativo") - `true` = o gesto de segurar
+   * existe no jogo; `false` = a feature inteira desliga (nem o gesto
+   * aparece). Ao contrário das outras variantes desta tela (Fusão/Towers/
+   * Spotlight/Reações, todas desligadas por padrão por mudarem regra do
+   * jogo), esta não muda regra nenhuma - só comunica informação que já
+   * existe. Nasce LIGADA por padrão (decisão explícita do usuário: "é pra
+   * ser uma mecânica obrigatória do jogo").
+   */
+  cardInspectionEnabled: boolean;
+  /**
+   * Quanto tempo (ms) a interface de inspeção fica aberta (pausando o jogo)
+   * antes de fechar sozinha - `0` = "sem timer" (fica aberta até o jogador
+   * sair manualmente, sem cooldown nenhum depois). Mínimo permitido quando
+   * ligado: 8000 (pedido explícito do usuário).
+   */
+  cardInspectionTimeoutMs: number;
+  /**
+   * Depois do timer acima estourar e a interface fechar sozinha, quanto
+   * tempo (ms) o jogador fica impedido de abrir a interface de novo -
+   * decisão confirmada com o usuário: CONFIGURÁVEL (não fixo). Só tem efeito
+   * quando `cardInspectionTimeoutMs > 0` (o modo "sem timer" nunca fecha
+   * sozinho, então nunca há cooldown a aplicar).
+   */
+  cardInspectionCooldownMs: number;
 }
+
+/** Mínimo permitido para `cardInspectionTimeoutMs` quando > 0 (pedido explícito do usuário). */
+export const MIN_CARD_INSPECTION_TIMEOUT_MS = 8000;
 
 /** Mínimo permitido para `discardLimit` - "como no jogo normal" (pedido do usuário). */
 export const MIN_DISCARD_LIMIT = 4;
@@ -140,4 +170,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   reactionsMode: false,
   reactionsLimit: 1,
   postMagicPauseMs: 0,
+  cardInspectionEnabled: true,
+  cardInspectionTimeoutMs: 15000,
+  cardInspectionCooldownMs: 10000,
 };

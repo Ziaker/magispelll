@@ -6,8 +6,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/t
 import { getDisplayValue, getDisplaySuit, type Card } from '../lib/cardUtils';
 import { getMonsterEffect } from '../lib/monsterCards';
 import { getSpotlightEntry, type SpotlightState } from '../lib/spotlight';
+import { getCardValueBreakdown } from '../lib/cardEffectSummary';
 import { CardKeywords, type CardKeywordId } from './CardKeywords';
-import { CombatModifierBadge } from './CombatModifierBadge';
 import { IceShatterBurst } from './IceShatterBurst';
 import type { CharacterId } from '../lib/gameEngine';
 import { useSettings } from '../context/SettingsContext';
@@ -256,7 +256,7 @@ export function PlayingCard({
     const horizontalHasTransformedValue = card?.transformedValue !== undefined;
     const horizontalDisplayValue = card ? getDisplayValue(card) : value;
 
-    return (
+    const horizontalBody = (
       <div className={cn(
         "w-16 h-10 rounded-md flex items-center justify-center border shadow-md relative",
         isMagic
@@ -269,10 +269,57 @@ export function PlayingCard({
           {horizontalDisplayValue}
           <span className="ml-0.5">{suit}</span>
         </span>
-        <CombatModifierBadge card={card} />
         {renderFrozenOverlay('w-6 h-6', 'rounded-md')}
       </div>
     );
+
+    // FIX (pedido do usuário, item 1): mesmo tooltip de valor da carta
+    // principal (ver `valueBreakdown` mais abaixo, calculado só pra ela) -
+    // aqui repetido pra esta variante porque `card` é uma referência
+    // DIFERENTE quando é a horizontal (nunca a mesma carta do slot
+    // principal). `!isMagic` de propósito: uma carta mágica crua do Coringa
+    // (armadilha, só o Valete pode ser horizontal) vale 1 fixo em combate
+    // por uma regra própria (`applyCoringaTrapCombatValue`, gameEngine.ts)
+    // que este cálculo genérico não conhece - mostrar aqui seria enganoso.
+    if (!isMagic && card) {
+      const horizontalBreakdown = getCardValueBreakdown(card, { spotlight, isOwnOrRevealed: true });
+      if (horizontalHasTransformedValue || horizontalBreakdown.adjustments.length > 0) {
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>{horizontalBody}</TooltipTrigger>
+              <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[220px]">
+                {horizontalHasTransformedValue && (
+                  <p className="text-[#EFE7D6] text-[11px] mb-1">
+                    Valor base transformado: <span className="font-semibold">{horizontalDisplayValue}</span>.
+                  </p>
+                )}
+                {horizontalBreakdown.adjustments.length > 0 && (
+                  <div className="space-y-0.5">
+                    {horizontalBreakdown.adjustments.map((adj, i) => (
+                      <p key={i} className="text-[#EFE7D6] text-[11px]">
+                        <span className="font-semibold">{adj.label}:</span> {adj.text}
+                      </p>
+                    ))}
+                    <p
+                      className="text-[12px] font-bold pt-0.5"
+                      style={{
+                        color:
+                          horizontalBreakdown.polarity === 'higher' ? '#6CC47A' : horizontalBreakdown.polarity === 'lower' ? '#D45D4A' : '#EFE7D6',
+                      }}
+                    >
+                      Total no combate: {horizontalBreakdown.total}
+                    </p>
+                  </div>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        );
+      }
+    }
+
+    return horizontalBody;
   }
 
   if (faceDown) {
@@ -320,6 +367,18 @@ export function PlayingCard({
 
   // Mostrar valor transformado se existir
   const displayValue = card ? getDisplayValue(card) : value;
+
+  // FIX (pedido do usuário: "melhorar a visualização dos tooltips dos
+  // números... com o total, as somas, as subtrações e as multiplicações
+  // presentes quando tiverem") - reaproveita getCardValueBreakdown
+  // (cardEffectSummary.ts), a MESMA função usada pela futura interface de
+  // inspeção - nunca recalculado aqui. `isOwnOrRevealed: true` porque este
+  // componente só desenha a face "de frente" da carta (onde este tooltip
+  // vive) depois que FlipCard já decidiu mostrá-la - ou seja, já revelada
+  // (ou é a própria mão do jogador vendo a própria carta) - ver o comentário
+  // completo em CardValueContext, cardEffectSummary.ts.
+  const valueBreakdown = card ? getCardValueBreakdown(card, { spotlight, isOwnOrRevealed: true }) : null;
+  const hasValueAdjustments = Boolean(valueBreakdown && valueBreakdown.adjustments.length > 0);
 
   // FIX (pedido do usuário: "re-faça do zero o sistema de palavras-chave") -
   // cada ramificação abaixo (magia, Ás na mão, carta normal) monta sua
@@ -532,7 +591,6 @@ export function PlayingCard({
                   quando há uma carta horizontal empilhada em cima (evita
                   sobrepor o valor dela). */}
               <CardKeywords active={aceKeywords} overrides={hasHorizontalOverlay ? { revealed: 'top-left' } : undefined} />
-              <CombatModifierBadge card={card} />
               {renderFrozenOverlay('w-16 h-16', 'rounded-lg')}
 
               <div className={cn("text-[18px] font-bold", isRed ? "text-[#D45D4A]" : "text-[#0F1113]")}>
@@ -587,7 +645,6 @@ export function PlayingCard({
           palavra-chave (Revelada/Ás Transformado/Fusão) - ver
           CardKeywords.tsx e normalKeywords acima. */}
       <CardKeywords active={normalKeywords} overrides={hasHorizontalOverlay ? { revealed: 'top-left' } : undefined} />
-      <CombatModifierBadge card={card} />
       {renderFrozenOverlay('w-16 h-16', 'rounded-lg')}
 
       <div className={cn("text-[18px] font-bold", isRed ? "text-[#D45D4A]" : "text-[#0F1113]")}>
@@ -650,17 +707,43 @@ export function PlayingCard({
   // um valor copiado pela Ilusão Arcana do Mago. `value` aqui ainda é o valor
   // ORIGINAL da carta (só `displayValue` usa o transformado), então dá para
   // distinguir os dois casos e mostrar o valor original certo em cada um.
-  if (hasTransformedValue) {
+  // FIX (pedido do usuário, item 1): o tooltip acima já existia só pra
+  // cartas com `transformedValue` (Ás transformado / Ilusão Arcana do Mago) -
+  // agora TAMBÉM cobre qualquer carta numeral comum com marcador de combate
+  // e/ou Spotlight ativos (`hasValueAdjustments`), o caso mais comum que
+  // antes não tinha tooltip nenhum. A cor do total segue o pedido: vermelho
+  // quando ficou MENOR que o valor base, verde quando ficou MAIOR.
+  if (hasTransformedValue || hasValueAdjustments) {
     return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>{normalCardBody}</TooltipTrigger>
           <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[220px]">
-            <p className="text-[#EFE7D6] text-[11px]">
-              {isAce
-                ? <>Ás transformado: vale <span className="text-[#6CC47A] font-semibold">{displayValue}</span> no combate.</>
-                : <>Transformada pela Ilusão Arcana do Mago: valor original <span className="font-semibold">{value}</span>, agora vale <span className="text-[#6CC47A] font-semibold">{displayValue}</span> no combate.</>}
-            </p>
+            {hasTransformedValue && (
+              <p className="text-[#EFE7D6] text-[11px] mb-1">
+                {isAce
+                  ? <>Ás transformado: valor base <span className="font-semibold">{displayValue}</span>.</>
+                  : <>Transformada pela Ilusão Arcana do Mago: valor original <span className="font-semibold">{value}</span>, valor base agora <span className="font-semibold">{displayValue}</span>.</>}
+              </p>
+            )}
+            {hasValueAdjustments && valueBreakdown && (
+              <div className="space-y-0.5">
+                {valueBreakdown.adjustments.map((adj, i) => (
+                  <p key={i} className="text-[#EFE7D6] text-[11px]">
+                    <span className="font-semibold">{adj.label}:</span> {adj.text}
+                  </p>
+                ))}
+                <p
+                  className="text-[12px] font-bold pt-0.5"
+                  style={{
+                    color:
+                      valueBreakdown.polarity === 'higher' ? '#6CC47A' : valueBreakdown.polarity === 'lower' ? '#D45D4A' : '#EFE7D6',
+                  }}
+                >
+                  Total no combate: {valueBreakdown.total}
+                </p>
+              </div>
+            )}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

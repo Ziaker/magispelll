@@ -14,6 +14,10 @@ interface BattleFieldProps {
   player2Field: [FieldSlot, FieldSlot, FieldSlot];
   onSlotClick: (playerNumber: 1 | 2, slotIndex: number) => void;
   onSlotDoubleClick?: (playerNumber: 1 | 2, slotIndex: number) => void;
+  /** Interface de Inspeção de Carta (pedido do usuário) - ver comentário completo em FieldSlotView.tsx. */
+  onInspectCard?: (playerNumber: 1 | 2, slotIndex: number, cardId: string) => void;
+  cardInspectionEnabled?: boolean;
+  cardInspectionOnCooldown?: boolean;
   selectedSlot: { player: 1 | 2; slot: number } | null;
   phase: 'draw' | 'strategy' | 'combat';
   combatSelection: {
@@ -199,6 +203,9 @@ export function BattleField({
   player2Field,
   onSlotClick,
   onSlotDoubleClick,
+  onInspectCard,
+  cardInspectionEnabled,
+  cardInspectionOnCooldown,
   selectedSlot,
   phase,
   combatSelection,
@@ -294,6 +301,9 @@ export function BattleField({
             isBurning={Boolean(burningSlots?.some((s) => s.player === playerNumber && s.slotIndex === i))}
             doubledCardId={doubledCardId}
             spotlight={spotlight}
+            onInspectCard={onInspectCard}
+            cardInspectionEnabled={cardInspectionEnabled}
+            cardInspectionOnCooldown={cardInspectionOnCooldown}
           />
         ))}
       </div>
