@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import angelHaloSrc from '../../assets/icons/angel-halo.png';
 import beastFaceSrc from '../../assets/icons/beast-face.png';
 import jesterHatSrc from '../../assets/icons/jester-hat.png';
@@ -24,15 +25,22 @@ import jesterHatSrc from '../../assets/icons/jester-hat.png';
  * contraste; esse comportamento para de fazer efeito nestes 3 ícones
  * especificamente, e não há como preservá-lo sem reintroduzir um desenho à
  * mão em vez da imagem de verdade).
+ *
+ * `style` (opcional) SEMPRE passa por cima do `style` que o próprio
+ * componente já aplicaria - só usado hoje por CharacterMagicBurst.tsx/
+ * ArenaMagicBurst.tsx (Besta) pra aplicar um `filter: drop-shadow(...)` na
+ * cor do tema, criando um BRILHO ao redor do rosto dourado fixo - não pinta
+ * o ícone em si (impossível, ver comentário acima), só a sombra projetada
+ * por fora dele, que qualquer cor de `filter` consegue mesmo num PNG.
  */
-export function AngelHaloIcon({ className }: { className?: string }) {
-  return <img src={angelHaloSrc} className={className} alt="" />;
+export function AngelHaloIcon({ className, style }: { className?: string; style?: CSSProperties }) {
+  return <img src={angelHaloSrc} className={className} style={style} alt="" />;
 }
 
-export function BeastFaceIcon({ className }: { className?: string }) {
-  return <img src={beastFaceSrc} className={className} alt="" />;
+export function BeastFaceIcon({ className, style }: { className?: string; style?: CSSProperties }) {
+  return <img src={beastFaceSrc} className={className} style={style} alt="" />;
 }
 
-export function JesterHatIcon({ className }: { className?: string }) {
-  return <img src={jesterHatSrc} className={className} alt="" />;
+export function JesterHatIcon({ className, style }: { className?: string; style?: CSSProperties }) {
+  return <img src={jesterHatSrc} className={className} style={style} alt="" />;
 }

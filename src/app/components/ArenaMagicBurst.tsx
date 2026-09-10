@@ -1,7 +1,9 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Orbit, Feather, Zap, Sparkles } from 'lucide-react';
+import { Orbit, Feather, Sparkles } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import type { CharacterId } from '../lib/gameEngine';
+import { BeastFaceIcon } from './CharacterGlyphIcons';
+import { BeastClawBurst } from './BeastClawBurst';
 
 /**
  * ArenaMagicBurst - versão "por toda a arena" do CharacterMagicBurst.tsx.
@@ -130,25 +132,22 @@ export function ArenaMagicBurst({ active, character }: { active: boolean; charac
 
             {resolvedCharacter === 'besta' && (
               <>
-                {/* Rasgos de garra atravessando a LARGURA da tela inteira. */}
-                {[-24, -8, 8, 24].map((offset, idx) => (
-                  <motion.div
-                    key={idx}
-                    className="absolute rounded-full"
-                    style={{
-                      width: '160vw',
-                      height: 12,
-                      background: `linear-gradient(90deg, transparent, ${color}, transparent)`,
-                      top: `${50 + offset}%`,
-                      left: '-30vw',
-                      rotate: '-22deg',
-                      boxShadow: `0 0 14px ${color}`,
-                    }}
-                    initial={{ scaleX: 0, opacity: 0 }}
-                    animate={{ scaleX: [0, 1.1, 1], opacity: [0, 1, 0] }}
-                    transition={{ duration: 0.75, ease: 'easeOut', delay: idx * 0.08 }}
-                  />
-                ))}
+                {/* Vinheta vermelho-sangue pulsando nas bordas - reforça a
+                    "fúria" da Fúria Sanguinária além do flash/garras que os
+                    outros motivos já têm (mesma técnica de
+                    ReactionAlertBanner.tsx: radial-gradient com centro
+                    transparente, nunca esconde o jogo por trás). Pulsa 2x
+                    (a fúria "lateja") e some junto com o resto do burst. */}
+                <motion.div
+                  className="absolute inset-0"
+                  style={{
+                    background: `radial-gradient(circle at center, transparent 35%, ${theme.dark}70 85%, ${theme.dark}A0 100%)`,
+                  }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: [0, 0.9, 0.4, 0.9, 0] }}
+                  transition={{ duration: 1.1, ease: 'easeInOut', times: [0, 0.25, 0.5, 0.75, 1] }}
+                />
+                <BeastClawBurst color={color} size="large" />
                 {/* Pulso de impacto (era 2 sobrepostos - 1 já lê bem e é a
                     metade do custo: um box-shadow `inset` cobrindo a tela
                     inteira é a única sombra deste componente que precisa
@@ -165,7 +164,7 @@ export function ArenaMagicBurst({ active, character }: { active: boolean; charac
                   animate={{ opacity: [0, 1, 0], scale: [0.5, 5, 3.5], rotate: 20 }}
                   transition={{ duration: 1, ease: 'easeOut' }}
                 >
-                  <Zap className="w-24 h-24" style={{ color, filter: `drop-shadow(0 0 10px ${color})` }} />
+                  <BeastFaceIcon className="w-24 h-24" style={{ filter: `drop-shadow(0 0 10px ${color})` }} />
                 </motion.div>
               </>
             )}

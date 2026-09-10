@@ -1,6 +1,8 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Orbit, Feather, Sparkles, Zap, Flame, Sprout, Leaf, Snowflake } from 'lucide-react';
+import { Orbit, Feather, Sparkles, Flame, Sprout, Leaf, Snowflake } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
+import { BeastFaceIcon } from './CharacterGlyphIcons';
+import { BeastClawBurst } from './BeastClawBurst';
 import type { CharacterId } from '../lib/gameEngine';
 
 /**
@@ -119,26 +121,21 @@ export function CharacterMagicBurst({ active, character }: { active: boolean; ch
               </>
             )}
 
+            {/* FIX (pedido do usuário, overhaul visual da Besta: "o ícone
+                central... mal tem a ver, parece elétrico, não fera") - antes
+                usava `Zap` (lucide), igual a qualquer outro personagem
+                "genérico"; agora usa o próprio retrato/emblema da Besta
+                (BeastFaceIcon, CharacterGlyphIcons.tsx - o mesmo já usado na
+                Seleção de Personagem) - é um PNG de cor fixa dourada (não
+                recolore via `style.color`, ver o comentário completo em
+                CharacterGlyphIcons.tsx), então o `drop-shadow` na cor do
+                tema vira um brilho vermelho AO REDOR do rosto dourado, em
+                vez de tentar (sem sucesso) pintar o próprio ícone. Rasgos de
+                garra extraídos pra BeastClawBurst.tsx (compartilhado com
+                ArenaMagicBurst.tsx, com jitter aleatório por ativação). */}
             {character === 'besta' && (
               <>
-                {/* Rasgos de garra. */}
-                {[-20, 0, 20].map((offset, idx) => (
-                  <motion.div
-                    key={idx}
-                    className="absolute rounded-full"
-                    style={{
-                      width: '200%',
-                      height: 9,
-                      background: `linear-gradient(90deg, transparent, ${color}, transparent)`,
-                      top: `${50 + offset}%`,
-                      rotate: '-28deg',
-                      boxShadow: `0 0 8px ${color}`,
-                    }}
-                    initial={{ scaleX: 0, opacity: 0 }}
-                    animate={{ scaleX: [0, 1.2, 1], opacity: [0, 1, 0] }}
-                    transition={{ duration: 0.65, ease: 'easeOut', delay: idx * 0.07 }}
-                  />
-                ))}
+                <BeastClawBurst color={color} />
                 {/* Pulso de impacto bruto (era 2 sobrepostos - 1 já lê bem). */}
                 <motion.div
                   className="absolute inset-0 rounded-lg"
@@ -152,7 +149,7 @@ export function CharacterMagicBurst({ active, character }: { active: boolean; ch
                   animate={{ opacity: [0, 1, 0], scale: [0.4, 2.4, 1.6], rotate: 15 }}
                   transition={{ duration: 0.85, ease: 'easeOut' }}
                 >
-                  <Zap className="w-14 h-14" style={{ color, filter: `drop-shadow(0 0 8px ${color})` }} />
+                  <BeastFaceIcon className="w-14 h-14" style={{ filter: `drop-shadow(0 0 10px ${color})` }} />
                 </motion.div>
               </>
             )}

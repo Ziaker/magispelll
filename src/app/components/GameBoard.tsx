@@ -593,8 +593,21 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    * resultado (CombatResult.tsx) assume a cena - ver CombatValueReveal.tsx.
    */
   const [combatValueReveal, setCombatValueReveal] = useState<CombatValueRevealSpec | null>(null);
-  /** FIX (pedido do usuário, item 4): true por ~0.5s quando uma disputa de combate é fechada (o perdedor perde 1 vida) - sacode a tela inteira (ver .animate-screen-shake em globals.css). */
-  const [screenShake, setScreenShake] = useState(false);
+  /**
+   * FIX (pedido do usuário, item 4): 'default' por ~0.5s quando uma disputa
+   * de combate é fechada (o perdedor perde 1 vida) ou uma Magia Numeral é
+   * ativada - sacode a tela inteira (ver .animate-screen-shake em
+   * globals.css).
+   *
+   * FIX (pedido do usuário, overhaul visual da Besta: "tremor de tela mais
+   * errático" pra ela) - 'besta' usa uma variante própria e mais brusca do
+   * mesmo tremor (.animate-screen-shake-fury, globals.css) - só na Magia
+   * Numeral dela (Fúria Sanguinária, o "maior momento" que já dispara este
+   * mesmo tremor hoje, ver o useEffect de numeralSpellPending mais abaixo);
+   * o golpe decisivo de combate continua sempre 'default', não importa o
+   * personagem (esse momento não é exclusivo de ninguém).
+   */
+  const [screenShake, setScreenShake] = useState<'none' | 'default' | 'besta'>('none');
   /** FIX (pedido do usuário: "desligar flashes de tela cheia" separado do Tremor de Tela) - antes ChromaticFlash usava o MESMO `screenShake` acima; agora tem seu próprio estado/gatilho, controlado por `settings.screenFlashEnabled` independente de `settings.screenShakeEnabled`. */
   const [screenFlash, setScreenFlash] = useState(false);
   /**
@@ -755,6 +768,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [aceTransformFlashCardId, setAceTransformFlashCardId] = useState<string | null>(null);
   /** FIX (pedido do usuário, item 5): slot que acabou de ser destruído pela Destruição de Reforço do Mago - dispara CardShatterBurst.tsx nele, ver executeMagicEffect. */
   const [shatteringSlot, setShatteringSlot] = useState<{ player: 1 | 2; slotIndex: number } | null>(null);
+  /** Besta (overhaul visual, "todos" - item 5): slot do OPONENTE que acabou de ser roubado pelo Roubo Brutal (Besta K) - dispara BeastBiteBurst.tsx nele, ver applyMagicEffectPresentation. */
+  const [bitingSlot, setBitingSlot] = useState<{ player: 1 | 2; slotIndex: number } | null>(null);
   /** Coringa (redesenho completo, "armadilhas"): slot que acabou de ter um Valete/Rei armadilha reagindo (dissipando em fumaça) - dispara CoringaSmokeBurst.tsx nele. Ver o useEffect de log logo abaixo (Estratégia) e o de combatResolution (Combate). */
   const [smokingSlot, setSmokingSlot] = useState<{ player: 1 | 2; slotIndex: number } | null>(null);
   /** Piromante (personagem novo, pedido explícito do usuário: "carta pegando fogo e se despedaçando") - slot(s) do oponente que acabaram de ser atingidos por um lançamento da Bola de Fogo - dispara FireShatterBurst.tsx neles. Ver applyMagicEffectPresentation. */
@@ -1438,8 +1453,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // momento que de fato pesa na partida.
       if (resolution.disputeWinner && settings.animations) {
         if (settings.screenShakeEnabled) {
-          setScreenShake(true);
-          setTimeout(() => setScreenShake(false), delay(650));
+          setScreenShake('default');
+          setTimeout(() => setScreenShake('none'), delay(650));
         }
         if (settings.screenFlashEnabled) {
           setScreenFlash(true);
@@ -1635,8 +1650,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     soundManager.play(numeralSoundFor(gameState.numeralSpellPending.character));
     if (settings.animations) {
       if (settings.screenShakeEnabled) {
-        setScreenShake(true);
-        setTimeout(() => setScreenShake(false), delay(650));
+        // FIX (pedido do usuário, overhaul visual da Besta: "tremor de tela
+        // mais errático") - Fúria Sanguinária (a Magia Numeral dela) usa a
+        // variante própria; qualquer outro personagem continua com o tremor
+        // padrão de sempre.
+        setScreenShake(gameState.numeralSpellPending.character === 'besta' ? 'besta' : 'default');
+        setTimeout(() => setScreenShake('none'), delay(650));
       }
       if (settings.screenFlashEnabled) {
         setScreenFlash(true);
@@ -2295,6 +2314,18 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       const shatterTarget = targets.slots[0];
       setShatteringSlot(shatterTarget);
       setTimeout(() => setShatteringSlot((prev) => (prev === shatterTarget ? null : prev)), delay(EFFECT_FLASH_DURATION_MS));
+    }
+    // Besta (overhaul visual, "todos" - item 5): Roubo Brutal (K) troca a
+    // carta do slot-alvo do OPONENTE pela própria (não destrói nada, ver
+    // handleExecuteMagic em gameEngine.ts) - dispara a "mordida"
+    // (BeastBiteBurst.tsx) só nesse slot roubado, nunca no próprio slot do
+    // jogador (esse já recebe o burst normal de flashEffectTargets acima).
+    if (character === 'besta' && type === 'K') {
+      const biteTarget = targets.slots.find((s) => s.player !== pm.playerNumber);
+      if (biteTarget) {
+        setBitingSlot(biteTarget);
+        setTimeout(() => setBitingSlot((prev) => (prev === biteTarget ? null : prev)), delay(EFFECT_FLASH_DURATION_MS));
+      }
     }
     // Piromante (pedido explícito do usuário: "projéteis visualmente indo em
     // direção aos seus alvos" + "carta pegando fogo e se despedaçando") - a
@@ -3336,7 +3367,9 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // pra nascer AQUI DENTRO em vez de escaparem pro `document.body` e
       // ignorarem o zoom.
       ref={setZoomContainerEl}
-      className={`relative flex flex-col bg-[#0F1113] overflow-hidden ${screenShake ? 'animate-screen-shake' : ''}`}
+      className={`relative flex flex-col bg-[#0F1113] overflow-hidden ${
+        screenShake === 'besta' ? 'animate-screen-shake-fury' : screenShake === 'default' ? 'animate-screen-shake' : ''
+      }`}
       // FIX (pedido do usuário: "de mais dois zoom out no jogo") - `zoom`
       // (não padrão, mas suportado pelo Chromium/Edge do WebView2 que
       // empacota este jogo - já usado com segurança no modo compacto da mão,
@@ -3793,6 +3826,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     activeMagicCaster={activeMagicCaster}
                     activeMagicLabel={activeMagicLabel}
                     shatteringSlot={shatteringSlot}
+                    bitingSlot={bitingSlot}
                     smokingSlot={smokingSlot}
                     burningSlots={burningSlots}
                     player1DoubledCardId={findFieldCardWithStatus(gameState.player1.field, 'combatModifier', { mode: 'multiply' })?.card.id}

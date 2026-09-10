@@ -110,6 +110,8 @@ interface BattleFieldProps {
   activeMagicLabel?: string | null;
   /** FIX (pedido do usuário, item 5): slot que acabou de ser destruído pela Destruição de Reforço do Mago - repassado para FieldSlotView.tsx (CardShatterBurst.tsx) em vez do burst normal. */
   shatteringSlot?: { player: 1 | 2; slotIndex: number } | null;
+  /** Besta (overhaul visual, "todos" - item 5): slot do OPONENTE que acabou de ser roubado pelo Roubo Brutal (Besta K) - repassado para FieldSlotView.tsx (BeastBiteBurst.tsx) em vez do burst normal. */
+  bitingSlot?: { player: 1 | 2; slotIndex: number } | null;
   /** Coringa (redesenho completo, "armadilhas"): slot que acabou de ter um Valete/Rei armadilha reagindo (dissipando em fumaça) - repassado para FieldSlotView.tsx (CoringaSmokeBurst.tsx) em vez do burst normal. */
   smokingSlot?: { player: 1 | 2; slotIndex: number } | null;
   /**
@@ -200,6 +202,7 @@ export function BattleField({
   activeMagicCaster,
   activeMagicLabel,
   shatteringSlot,
+  bitingSlot,
   smokingSlot,
   burningSlots,
   player1DoubledCardId,
@@ -267,6 +270,7 @@ export function BattleField({
             activeMagicCaster={activeMagicCaster}
             activeMagicLabel={activeMagicLabel}
             isShattering={Boolean(shatteringSlot && shatteringSlot.player === playerNumber && shatteringSlot.slotIndex === i)}
+            isBiting={Boolean(bitingSlot && bitingSlot.player === playerNumber && bitingSlot.slotIndex === i)}
             isSmoking={Boolean(smokingSlot && smokingSlot.player === playerNumber && smokingSlot.slotIndex === i)}
             isBurning={Boolean(burningSlots?.some((s) => s.player === playerNumber && s.slotIndex === i))}
             doubledCardId={doubledCardId}
