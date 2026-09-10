@@ -69,7 +69,22 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
+          // FIX (pedido do usuário: "quando as mãos e campos estão muito
+          // grandes não há barra de rolagem... o jogo simplesmente dá
+          // softlock por que você não consegue apertar o botão") - sem
+          // `max-h`/`overflow-y` nenhum aqui, um diálogo com conteúdo alto o
+          // bastante (ex.: o de ativação de magia, com a mão INTEIRA de um
+          // personagem em modo "revelar/congelar carta da mão" - Glacial J,
+          // Anjo J, etc.) cresce além da viewport pros dois lados (é
+          // centralizado via `translate(-50%, -50%)`, então metade do
+          // excesso fica acima do topo E metade abaixo do fundo) sem NENHUM
+          // jeito de rolar até o resto - incluindo o botão "Confirmar", que
+          // fica preso fora de alcance. `max-h-[85vh] overflow-y-auto` aqui
+          // no componente BASE conserta isso pra TODO diálogo do jogo de
+          // uma vez (nunca afeta um diálogo curto o bastante pra caber
+          // normalmente - o limite só entra em ação quando o conteúdo
+          // realmente excede 85% da altura da tela).
+          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] max-h-[85vh] overflow-y-auto translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
           className,
         )}
         {...props}
