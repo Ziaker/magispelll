@@ -142,13 +142,29 @@ export function applyStatus<T extends WithStatusEffects>(
  * (ex.: os dois jogadores agindo na mesma fase de Estratégia) ainda soma.
  * Cobre os casos citados (mudança de fase, novo turno) sem precisar de um
  * contador de sequência global novo no GameState inteiro.
+ *
+ * `ownership.isOwnBuff` (pedido do usuário, mecânica do Glacial: "faça com
+ * que uma carta congelada destrua todo buff que receber também, com a ideia
+ * de que seu valor está congelado e não pode aumentar") - um AUMENTO
+ * (`mode: 'add'` com `magnitude > 0`, ou `mode: 'multiply'` com
+ * `magnitude > 1`) num alvo já congelado só é aplicado quando vem do PRÓPRIO
+ * dono da carta (`isOwnBuff: true`) - decisão confirmada com o usuário
+ * (AskUserQuestion: "Só bloqueia buffs de OUTRO jogador"), justamente para
+ * preservar o combo do próprio Crioescudo/Crioespinho do Glacial (+N nas
+ * cartas que ele mesmo congelou). Uma REDUÇÃO (debuff) sempre passa, congelada
+ * ou não, já que reduzir não viola "não pode aumentar".
  */
 export function applyTimedCombatModifier<T extends WithStatusEffects>(
   entity: T,
   effect: Omit<StatusEffect, 'appliedAt'>,
   now: { turn: number; phase: Phase },
-  sumMerge: (existing: StatusEffect, incoming: StatusEffect) => StatusEffect
+  sumMerge: (existing: StatusEffect, incoming: StatusEffect) => StatusEffect,
+  ownership: { isOwnBuff: boolean }
 ): T {
+  if (!ownership.isOwnBuff && effect.kind === 'combatModifier' && hasStatus(entity, 'frozen')) {
+    const isIncrease = effect.mode === 'multiply' ? (effect.magnitude ?? 1) > 1 : (effect.magnitude ?? 0) > 0;
+    if (isIncrease) return entity;
+  }
   const existing = getStatus(entity, effect.kind, { source: effect.source });
   const isImmediateReactivation = Boolean(
     existing?.appliedAt && existing.appliedAt.turn === now.turn && existing.appliedAt.phase === now.phase

@@ -13,7 +13,7 @@ import { MagicCalloutLabel } from './MagicCalloutLabel';
 import { HandCardView } from './HandCardView';
 import { getCharacterTheme, getCharacterIconBackground, getCharacterPanelBackground } from '../lib/characterThemes';
 import type { PlayerState, CharacterId, Phase, PendingReaction } from '../lib/gameEngine';
-import { getEffectiveDiscardLimit, getEffectiveDrawLimit, isBrotoSlot, towerEligibleValue } from '../lib/gameEngine';
+import { getEffectiveDiscardLimit, getEffectiveDrawLimit, isBrotoSlot, isFrozenMagicActivationBlocked, towerEligibleValue } from '../lib/gameEngine';
 import { hasStatus } from '../lib/statusEffects';
 import { useEffect, useRef, useState } from 'react';
 import { canActivateMagic, getMagicCardInfo, type MagicActivationContext } from '../lib/magicCards';
@@ -1841,7 +1841,20 @@ export function PlayerZone({
                               // cópias do mesmo valor podem coexistir na mão; só
                               // a cópia TRANCADA fica desabilitada, a outra
                               // continua normal (ver statusEffects.ts).
-                              isMagic && !hasStatus(card, 'magicLocked') && canActivateMagic(phase, character, card.value as 'J' | 'Q' | 'K', magicContext)
+                              // FIX (pedido do usuário: "o congelamento de uma
+                              // carta mágica causada pelo oponente glacial não
+                              // devia permitir nem mesmo o anúncio da ativação
+                              // da magia... no momento está ocorrendo até a
+                              // parte dos alvos, mas o efeito não ativa") - o
+                              // motor (handleExecuteMagic, isFrozenMagicActivationBlocked)
+                              // já rejeitava a ativação de verdade, mas o botão
+                              // continuava clicável, deixando o jogador abrir o
+                              // diálogo de alvos pra nada - falta aqui era a
+                              // MESMA checagem, ANTES de abrir qualquer diálogo.
+                              isMagic &&
+                              !hasStatus(card, 'magicLocked') &&
+                              !isFrozenMagicActivationBlocked(character, card) &&
+                              canActivateMagic(phase, character, card.value as 'J' | 'Q' | 'K', magicContext)
                         }
                         // FIX (pedido do usuário: "os botões e o tooltip do
                         // botão ainda aparecem pra ele mesmo sem a magia

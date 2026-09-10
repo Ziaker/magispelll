@@ -23,7 +23,7 @@ import {
   type GameAction,
 } from '../src/app/lib/gameEngine';
 import { getDisplayValue, resetCardForDiscard, revealCard, type Card } from '../src/app/lib/cardUtils';
-import { applyStatus, getCombatModifierStatuses, getStatus, getStatusMagnitude, hasStatus } from '../src/app/lib/statusEffects';
+import { applyStatus, applyTimedCombatModifier, getCombatModifierStatuses, getStatus, getStatusMagnitude, hasStatus } from '../src/app/lib/statusEffects';
 import { DEFAULT_GAME_CONFIG, MIN_DISCARD_LIMIT, type GameConfig } from '../src/app/lib/gameConfig';
 import { getLogEffectInfo } from '../src/app/lib/logFormat';
 import { decideAiAction, decideReactionToMagic } from '../src/app/lib/aiPlayer';
@@ -5527,7 +5527,13 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(revealCard(normalCard).revealed, 'Pré-condição: revealCard revela normalmente uma carta NÃO congelada');
 })();
 
-(function testFrozenCardCannotBePlayed() {
+(function testFrozenCardCanNowBePlayed() {
+  // FIX (mudança de regra pedida pelo usuário: "permita que o jogador
+  // oponente ao Glacial consiga jogar suas cartas congeladas") - jogar
+  // (PLAY_CARD) uma carta numeral congelada não é mais bloqueado, não
+  // importa o dono nem quem congelou - só a ATIVAÇÃO de MAGIA congelada
+  // continua proibida pra quem não é o Glacial (ver
+  // testFrozenMagicCannotBeActivatedEvenAfterPlayBecomesAllowed abaixo).
   let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
   const frozenCard = applyStatus(makeCard('glacial-frozen-play', '7'), {
     kind: 'frozen',
@@ -5537,8 +5543,8 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   });
   state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [frozenCard] } };
   const after = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: frozenCard.id, slotIndex: 0, asHorizontal: false });
-  assert(!after.player1.field[0].faceDownCard, 'FIX Glacial: uma carta congelada por outro personagem não pode ser jogada por ninguém');
-  assert(after.player1.hand.some((c) => c.id === frozenCard.id), 'A carta congelada permanece na mão após a tentativa rejeitada');
+  assert(after.player1.field[0].faceDownCard?.id === frozenCard.id, 'FIX Glacial: uma carta numeral congelada pelo Glacial adversário agora PODE ser jogada pelo dono');
+  assert(hasStatus(after.player1.field[0].faceDownCard, 'frozen'), 'A carta jogada continua congelada (jogar não descongela sozinho)');
 })();
 
 (function testGlacialCanPlayOwnFrozenCard() {
@@ -5554,20 +5560,105 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(after.player1.field[0].faceDownCard?.id === ownFrozenCard.id, 'FIX Glacial: o próprio Glacial PODE jogar uma carta que ele mesmo congelou');
 })();
 
-(function testGlacialCannotPlayOpponentFrozenCard() {
-  // Mesmo sendo o Glacial, uma carta congelada por OUTRO personagem (source
-  // diferente de 'glacial') continua travada - a exceção é só pra cartas que
-  // ELE MESMO congelou.
+(function testAnyFrozenCardCanBePlayedRegardlessOfSource() {
+  // FIX (mesma mudança de regra acima): jogar uma carta congelada nunca mais
+  // depende de QUEM a congelou (`source`) nem de quem é o dono - a distinção
+  // de `source: 'glacial'` que `isFrozenPlayBlocked` fazia só importava
+  // enquanto jogar uma congelada era bloqueado por padrão; hoje a função
+  // sempre devolve `false` (ver comentário completo em gameEngine.ts).
   let state = createInitialState('glacial', 'besta', DEFAULT_GAME_CONFIG);
   const foreignFrozenCard = applyStatus(makeCard('glacial-foreign-frozen-play', '7'), {
     kind: 'frozen',
-    source: 'besta', // hipotético - nenhum personagem além do Glacial congela hoje, mas testa a checagem de `source`
+    source: 'besta', // hipotético - nenhum personagem além do Glacial congela hoje, mas confirma que `source` não importa mais aqui
     label: 'Efeito de outro personagem',
     duration: { type: 'permanent' },
   });
   state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [foreignFrozenCard] } };
   const after = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: foreignFrozenCard.id, slotIndex: 0, asHorizontal: false });
-  assert(!after.player1.field[0].faceDownCard, 'FIX Glacial: mesmo sendo o Glacial, uma carta congelada por OUTRO source continua travada');
+  assert(after.player1.field[0].faceDownCard?.id === foreignFrozenCard.id, 'FIX Glacial: uma carta congelada por qualquer `source` pode ser jogada, não importa o dono');
+})();
+
+(function testFrozenMagicStillCannotBeActivatedByNonGlacial() {
+  // FIX (pedido do usuário: "o congelamento de uma carta mágica causada pelo
+  // oponente glacial não devia permitir nem mesmo o anúncio da ativação da
+  // magia... mantenha a proibição de magias congeladas de serem ativadas
+  // para quem está jogando contra o GLACIAL") - jogar (teste acima) e ATIVAR
+  // MAGIA continuam duas regras separadas: só a de jogar relaxou.
+  // handleExecuteMagic (isFrozenMagicActivationBlocked) continua rejeitando
+  // em silêncio (com aviso) - este teste cobre o motor; a UI (canActivateMagicNow,
+  // PlayerZone.tsx) agora desabilita o botão antes mesmo de chegar aqui.
+  let state = createInitialState('mosqueteiro', 'glacial', DEFAULT_GAME_CONFIG);
+  const frozenK = applyStatus(makeCard('mosq-frozen-k', 'K'), {
+    kind: 'frozen',
+    source: 'glacial',
+    label: 'Criogenar',
+    duration: { type: 'permanent' },
+  });
+  state = { ...state, phase: 'combat', player1: { ...state.player1, hand: [frozenK] } };
+  const after = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: frozenK.id,
+    character: 'mosqueteiro',
+    magicType: 'K',
+    selection: { selectedCards: ['whatever'] },
+  });
+  assert(after.player1.hand.some((c) => c.id === frozenK.id), 'FIX: uma magia congelada de um personagem que não é o Glacial continua rejeitada pelo motor, mesmo com alvo selecionado');
+  assert(after === state || after.log.length > state.log.length, 'A rejeição gera um aviso de log (ou o estado é idêntico)');
+})();
+
+(function testFrozenBuffFromOtherOwnerIsBlocked() {
+  // FIX (pedido do usuário: "faça com que uma carta congelada destrua todo
+  // buff que receber também, com a ideia de que seu valor está congelado e
+  // não pode aumentar") - decisão confirmada com o usuário (AskUserQuestion):
+  // só bloqueia um AUMENTO vindo de um dono DIFERENTE do dono da carta -
+  // preserva o próprio combo do Crioescudo/Crioespinho do Glacial (+N na
+  // carta que ele mesmo congelou), testado nos blocos de Crioescudo/Crioespinho
+  // acima (continuam passando sem alteração nenhuma).
+  const frozenCard = applyStatus(makeCard('frozen-buff-target', '5'), {
+    kind: 'frozen',
+    source: 'glacial',
+    label: 'Criogenar',
+    duration: { type: 'permanent' },
+  });
+  const now = { turn: 1, phase: 'combat' as const };
+  const sumMerge = (existing: any, incoming: any) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) });
+
+  const blockedBuff = applyTimedCombatModifier(
+    frozenCard,
+    { kind: 'combatModifier', source: 'besta', label: 'Buff de outro dono', mode: 'add', magnitude: 3, duration: { type: 'untilPhase', phase: 'draw' } },
+    now,
+    sumMerge,
+    { isOwnBuff: false }
+  );
+  assert(!hasStatus(blockedBuff, 'combatModifier', { source: 'besta' }), 'FIX: um AUMENTO de um dono diferente é totalmente ignorado numa carta congelada');
+
+  const allowedDebuff = applyTimedCombatModifier(
+    frozenCard,
+    { kind: 'combatModifier', source: 'besta', label: 'Debuff de outro dono', mode: 'add', magnitude: -3, duration: { type: 'untilPhase', phase: 'draw' } },
+    now,
+    sumMerge,
+    { isOwnBuff: false }
+  );
+  assert(getStatusMagnitude(allowedDebuff, 'combatModifier', { source: 'besta' }) === -3, 'FIX: um DEBUFF de outro dono continua aplicado normalmente numa carta congelada (reduzir não viola "não pode aumentar")');
+
+  const allowedOwnBuff = applyTimedCombatModifier(
+    frozenCard,
+    { kind: 'combatModifier', source: 'glacial', label: 'Crioescudo', mode: 'add', magnitude: 3, duration: { type: 'untilPhase', phase: 'draw' } },
+    now,
+    sumMerge,
+    { isOwnBuff: true }
+  );
+  assert(getStatusMagnitude(allowedOwnBuff, 'combatModifier', { source: 'glacial' }) === 3, 'FIX: um AUMENTO do PRÓPRIO dono continua aplicado numa carta congelada (preserva o combo do Crioescudo)');
+
+  const blockedMultiply = applyTimedCombatModifier(
+    frozenCard,
+    { kind: 'combatModifier', source: 'besta', label: 'Fúria Selvagem de outro dono', mode: 'multiply', magnitude: 2, duration: { type: 'untilPhase', phase: 'draw' } },
+    now,
+    sumMerge,
+    { isOwnBuff: false }
+  );
+  assert(!hasStatus(blockedMultiply, 'combatModifier', { source: 'besta' }), 'FIX: um multiplicador > 1 de outro dono também é bloqueado (é um aumento)');
 })();
 
 (function testResetCardForDiscardClearsFrozen() {

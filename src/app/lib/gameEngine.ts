@@ -1190,7 +1190,8 @@ function applyCoringaTrapReaction(
           hostCard,
           { kind: 'combatModifier', source: 'coringa', label: 'Valete - Escudo', mode: 'add', magnitude: 5, duration: { type: 'untilPhase', phase: 'draw' } },
           { turn: state.turn, phase: state.phase },
-          (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+          (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) }),
+          { isOwnBuff: true } // Escudo sempre protege uma carta do PRÓPRIO dono da armadilha.
         ),
       };
     }
@@ -2061,24 +2062,24 @@ function handleFuseCards(state: GameState, player: PlayerNumber, cardId1: string
 // Posicionar / recolher cartas do campo
 // ---------------------------------------------------------------------------
 
-// FIX (achado ao vivo - softlock real: a IA do Glacial descartava suas
-// PRÓPRIAS cartas congeladas achando que não tinha nada jogável, e outras
-// funções de decisão chegaram a excluir cartas congeladas do Glacial em
-// bloco): esta é a MESMA regra usada pelo guard de handlePlayCard logo
-// abaixo, extraída pra função exportada - qualquer código que precise saber
-// "esta carta pode ir pro campo agora?" (a IA em aiPlayer.ts, em vários
-// pontos) usa ESTA função em vez de reimplementar `hasStatus(card,'frozen')`
-// sozinho, senão qualquer um desses lugares corre o risco de tratar uma
-// carta congelada do próprio Glacial (que ELE PODE jogar normalmente, ver
-// comentário abaixo) como se fosse permanentemente inútil - fazendo a IA
-// nunca tentar jogá-la e, pior, descartá-la achando que não tem escolha.
-export function isFrozenPlayBlocked(character: CharacterId, card: Card): boolean {
-  // Glacial (personagem novo) - uma carta congelada não pode ser jogada,
-  // EXCETO se o dono é o próprio Glacial E foi ele mesmo quem a congelou
-  // (source: 'glacial') - aí joga normalmente, sem nenhum tratamento
-  // especial além de destravar (não há gimmick aqui, só pra magias
-  // ativadas - ver handleExecuteMagic/isFrozenMagicActivationBlocked).
-  return hasStatus(card, 'frozen') && !(character === 'glacial' && hasStatus(card, 'frozen', { source: 'glacial' }));
+// FIX (pedido do usuário, mudança de regra: "permita que o jogador oponente
+// ao Glacial consiga jogar suas cartas congeladas, porém tendo a noção dos
+// malefícios dela estar congelada") - o motor NÃO bloqueia mais posicionar
+// (PLAY_CARD) uma carta congelada, não importa o dono - só a ATIVAÇÃO de
+// MAGIA congelada continua proibida pra quem não é o Glacial (função irmã
+// isFrozenMagicActivationBlocked, único guard de verdade agora). "Noção dos
+// malefícios": o floco de gelo grande (PlayingCard.tsx, renderFrozenOverlay)
+// e o tooltip da palavra-chave 'frozen' (CardKeywords.tsx) já aparecem em
+// QUALQUER contexto de renderização da carta, incluindo na mão - jogar uma
+// congelada deixa claro visualmente que seu valor está preso e não pode ser
+// aumentado por buffs de outro jogador (ver applyTimedCombatModifier,
+// statusEffects.ts).
+//
+// A função continua existindo (sempre `false` agora) porque a IA
+// (aiPlayer.ts) ainda a usa como heurística de planejamento - "vale a pena
+// tentar jogar/reativar esta carta agora" -, não como regra do motor.
+export function isFrozenPlayBlocked(_character: CharacterId, _card: Card): boolean {
+  return false;
 }
 
 // FIX (mesmo motivo de isFrozenPlayBlocked acima, achado ao vivo depois -
@@ -2403,7 +2404,8 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
                 slot.faceDownCard,
                 { kind: 'combatModifier', source: 'glacial', label: 'Criogolem Congelado', mode: 'add', magnitude: -2, duration: { type: 'untilPhase', phase: 'draw' } },
                 { turn: state.turn, phase: state.phase },
-                (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+                (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) }),
+                { isOwnBuff: false } // Sempre mira o campo do OPONENTE (debuff -2, nunca bloqueado por congelamento mesmo assim).
               )
             : slot.faceDownCard,
           horizontalCards: slot.horizontalCards.map((c) =>
@@ -2411,7 +2413,8 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
               c,
               { kind: 'combatModifier', source: 'glacial', label: 'Criogolem Congelado', mode: 'add', magnitude: -2, duration: { type: 'untilPhase', phase: 'draw' } },
               { turn: state.turn, phase: state.phase },
-              (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+              (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) }),
+              { isOwnBuff: false }
             )
           ),
         };
@@ -2594,15 +2597,15 @@ function handleSwapFieldCard(state: GameState, player: PlayerNumber, cardId: str
   // PLAY_CARD (plantar/empilhar) ou encolhe via Simbiose/Urtiga, nunca por
   // esta troca genérica.
   if (isTowerSlot(slot) || isBrotoSlot(slot)) return state;
-  // FIX (bug real achado por auditoria - mesma classe de "carta congelada
-  // entra em campo por um caminho que não é handlePlayCard", que já tem a
-  // guarda): esta troca é uma ação DIFERENTE de PLAY_CARD (SWAP_FIELD_CARD),
-  // com sua própria validação aqui - sem esta checagem, uma carta congelada
-  // da mão podia ser colocada em campo por este caminho irmão. A carta JÁ no
-  // slot também não pode ser removida/substituída se estiver congelada -
-  // mesma regra "não recebe efeitos transformadores de terceiros" já
-  // aplicada à Substituição Arcana do Mago (Q).
-  if (hasStatus(card, 'frozen') || hasStatus(slot.faceDownCard, 'frozen')) return state;
+  // FIX (mudança de regra pedida pelo usuário - ver isFrozenPlayBlocked): a
+  // carta DA MÃO entrando aqui pode estar congelada agora (mesma liberação
+  // de PLAY_CARD, "jogar carta congelada" não é mais bloqueado pra ninguém).
+  // A carta JÁ no slot, porém, continua protegida - não pode ser
+  // removida/substituída se estiver congelada, mesma regra "não recebe
+  // efeitos transformadores de terceiros" já aplicada à Substituição Arcana
+  // do Mago (Q); isso é sobre PROTEGER a carta congelada existente, não
+  // sobre bloquear a que está sendo jogada.
+  if (hasStatus(slot.faceDownCard, 'frozen')) return state;
 
   const oldCard = slot.faceDownCard;
   const newHand = [...playerState.hand.filter((c) => c.id !== cardId), oldCard];
@@ -3308,9 +3311,11 @@ function handleExecuteMagic(
         cardToPlace = opponentCard;
       }
     }
-    // Glacial (personagem novo): uma carta congelada não pode ser usada como
-    // peça de troca (equivale a "jogá-la" no campo por outro caminho).
-    if (!cardToPlace || !isNumeralCard(cardToPlace) || hasStatus(cardToPlace, 'frozen')) return state;
+    // FIX (mudança de regra pedida pelo usuário - ver isFrozenPlayBlocked):
+    // usar uma carta congelada como peça de troca equivale a "jogá-la" no
+    // campo por outro caminho - mesma liberação de PLAY_CARD, não bloqueia
+    // mais por causa do congelamento.
+    if (!cardToPlace || !isNumeralCard(cardToPlace)) return state;
     const sourceKey = playerKeyOf(sourceOwner);
 
     // FIX (Modo Towers, pedido do usuário: "Substituição Arcana vira uma
@@ -3976,7 +3981,8 @@ function handleExecuteMagic(
       targetCard,
       { kind: 'combatModifier', source: 'mosqueteiro', label: 'Tiro Certeiro', mode: 'add', magnitude: -boostAmount, duration: { type: 'untilPhase', phase: 'draw' } },
       { turn: state.turn, phase: state.phase },
-      (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+      (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) }),
+      { isOwnBuff: false } // Sempre mira o campo do OPONENTE (debuff, nunca bloqueado por congelamento mesmo assim).
     );
     const newAmount = getStatusMagnitude(markedCard, 'combatModifier', { source: 'mosqueteiro' });
     const newField = [...opponentState.field] as [FieldSlot, FieldSlot, FieldSlot];
@@ -4465,7 +4471,7 @@ function handleExecuteMagic(
       const opponentFrozenCards = fieldCards(opponentState.field).filter((c) => hasStatus(c, 'frozen'));
       if (ownFrozenCards.length === 0 && opponentFrozenCards.length === 0) return state;
 
-      const applyCrioescudoMarker = (field: [FieldSlot, FieldSlot, FieldSlot], magnitude: number): [FieldSlot, FieldSlot, FieldSlot] =>
+      const applyCrioescudoMarker = (field: [FieldSlot, FieldSlot, FieldSlot], magnitude: number, isOwnField: boolean): [FieldSlot, FieldSlot, FieldSlot] =>
         field.map((slot) => ({
           ...slot,
           faceDownCard:
@@ -4474,7 +4480,8 @@ function handleExecuteMagic(
                   slot.faceDownCard,
                   { kind: 'combatModifier', source: 'glacial', label: 'Crioescudo', mode: 'add', magnitude, duration: { type: 'untilPhase', phase: 'draw' } },
                   { turn: state.turn, phase: state.phase },
-                  (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+                  (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) }),
+                  { isOwnBuff: isOwnField }
                 )
               : slot.faceDownCard,
           horizontalCards: slot.horizontalCards.map((c) =>
@@ -4483,14 +4490,20 @@ function handleExecuteMagic(
                   c,
                   { kind: 'combatModifier', source: 'glacial', label: 'Crioescudo', mode: 'add', magnitude, duration: { type: 'untilPhase', phase: 'draw' } },
                   { turn: state.turn, phase: state.phase },
-                  (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) })
+                  (existing, incoming) => ({ ...incoming, magnitude: (existing.magnitude ?? 0) + (incoming.magnitude ?? 0) }),
+                  { isOwnBuff: isOwnField }
                 )
               : c
           ),
         })) as [FieldSlot, FieldSlot, FieldSlot];
 
-      const newField = applyCrioescudoMarker(playerState.field, 1);
-      const newOpponentField = applyCrioescudoMarker(opponentState.field, -1);
+      // FIX (mecânica nova, "frozen destrói buff de outro jogador"): o +1
+      // aqui é o próprio Glacial reforçando cartas que ELE MESMO congelou
+      // (isOwnField: true, sempre aplicado) - o -1 no campo do oponente é um
+      // debuff (nunca bloqueado por congelamento de qualquer forma), mas
+      // marcado isOwnField: false por honestidade/consistência.
+      const newField = applyCrioescudoMarker(playerState.field, 1, true);
+      const newOpponentField = applyCrioescudoMarker(opponentState.field, -1, false);
 
       const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption(playerState, card, cardId);
       const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);

@@ -2,7 +2,7 @@
 
 Um jogo de cartas estratégico 1x1, para 2 jogadores (ou contra a IA), onde armar o campo de batalha certo importa tanto quanto saber a hora de usar a magia certa.
 
-**🎮 Jogue agora no navegador:** **[ziaker.github.io/magispelll](https://ziaker.github.io/magispelll/)** (v0.8888888.31)
+**🎮 Jogue agora no navegador:** **[ziaker.github.io/magispelll](https://ziaker.github.io/magispelll/)** (v0.8888888.32)
 
 Também disponível como aplicativo de desktop para Windows (veja [Baixar](#baixar-para-windows) abaixo).
 

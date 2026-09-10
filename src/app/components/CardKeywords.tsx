@@ -128,14 +128,16 @@ export const CARD_KEYWORDS: Record<CardKeywordId, CardKeywordDef> = {
     numeralRelated: false,
   },
   // Glacial (personagem novo) - StatusEffect kind 'frozen' (statusEffects.ts):
-  // carta congelada nunca revela e não pode ser jogada/ativada (exceto pelo
-  // próprio Glacial sobre uma carta que ele mesmo congelou - ver guards em
-  // handlePlayCard/handleExecuteMagic, gameEngine.ts).
+  // carta congelada nunca revela; MAGIA (J/Q/K) congelada não pode ser
+  // ativada (exceto pelo próprio Glacial - ver isFrozenMagicActivationBlocked,
+  // gameEngine.ts); CARTA NUMERAL congelada pode ser jogada normalmente,
+  // porém não pode receber buff de outro jogador (ver applyTimedCombatModifier,
+  // statusEffects.ts) - "seu valor está congelado e não pode aumentar".
   frozen: {
     icon: Snowflake,
     color: '#0ADEFF',
     label: 'Congelada',
-    description: 'Congelada pelo Glacial: nunca pode ser revelada e não pode ser jogada/ativada até alguém pagar (descartando outra carta na Estratégia) para descongelar.',
+    description: 'Congelada pelo Glacial: nunca pode ser revelada, e seu valor não pode ser aumentado por buff de outro jogador. Magia congelada não pode ser ativada. Descongela pagando (descartando outra carta na Estratégia).',
     position: 'top-left',
     numeralRelated: false,
   },

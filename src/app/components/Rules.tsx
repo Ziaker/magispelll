@@ -402,7 +402,7 @@ FOTOSSÍNTESE (Magia Numeral, A, 3, 7):
       id: 'glacial-congelamento',
       title: 'Glacial - Congelamento',
       characters: ['glacial'],
-      content: `O Glacial congela cartas - da mão OU do campo, suas OU do oponente. Uma carta congelada NUNCA pode ser revelada e não pode ser jogada nem ter sua magia ativada, até alguém pagar pra descongelá-la. Mesmo assim, uma carta congelada pode ser descartada normalmente na Fase de Compra (sai do jogo já descongelada).
+      content: `O Glacial congela cartas - da mão OU do campo, suas OU do oponente. Uma carta congelada NUNCA pode ser revelada, e seu valor está travado: não pode receber buff de outro jogador, só do próprio dono. Uma carta numeral congelada pode ser jogada normalmente; já uma MAGIA (Valete/Rainha/Rei) congelada não pode ser ativada, até alguém pagar pra descongelá-la. Mesmo assim, uma carta congelada pode ser descartada normalmente na Fase de Compra (sai do jogo já descongelada).
 
 ═══════════════════════════════════════
 🔵 VALETE - Criogenar (Fase de Estratégia)
