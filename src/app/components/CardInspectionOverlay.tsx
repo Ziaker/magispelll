@@ -1,6 +1,6 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { X } from 'lucide-react';
+import { Clock, X } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { getDisplayValue, getDisplaySuit, type Card } from '../lib/cardUtils';
 import type { CharacterId } from '../lib/gameEngine';
@@ -16,6 +16,10 @@ export interface CardInspectionSpec {
   type: CardTypeInfo;
   statuses: CardStatusSummary[];
   valueBreakdown: CardValueBreakdown;
+  /** `gameConfig.cardInspectionTimeoutMs` no instante em que ESTA inspeção abriu - `0` = sem timer (nenhum contador é mostrado). */
+  timeoutMs: number;
+  /** `Date.now()` no instante em que abriu - junto com `timeoutMs`, dá o restante em tempo real (nunca um valor estático parado na tela). */
+  openedAt: number;
 }
 
 interface CardInspectionOverlayProps {
@@ -23,12 +27,21 @@ interface CardInspectionOverlayProps {
   onClose: () => void;
 }
 
-const SPOTLIGHT_PADDING = 14;
+// FIX (pedido do usuário, depois de testar ao vivo: "o espaçamento das
+// coisas na inspeção deveria ser relativamente mais espaçado, está muito
+// perto da carta") - aumentado o respiro entre a carta ampliada e tudo ao
+// redor dela (anel de brilho, selo de tipo, contador, callouts).
+const SPOTLIGHT_PADDING = 20;
 /** Fator de ampliação da carta dentro do recorte - grande o bastante pra ler à distância, sem estourar telas menores. */
 const ZOOM_SCALE = 2.1;
 const CALLOUT_WIDTH = 220;
-const CALLOUT_GAP = 28;
+const CALLOUT_GAP = 52;
 const MAX_VISIBLE_CALLOUTS = 6;
+/** Distância (px, acima de `cutout.top`) do selo de tipo e do contador - o contador fica BEM acima do selo (pedido explícito do usuário), nunca colado nele. */
+const TYPE_PILL_OFFSET = 70;
+const COUNTDOWN_OFFSET = 140;
+/** Distância (px, abaixo de `cutout.top + cutout.height`) da linha de valor total. */
+const VALUE_LINE_OFFSET = 32;
 
 type AnchorSide = 'topLeft' | 'topRight' | 'right' | 'bottomRight' | 'bottomLeft' | 'left';
 const ANCHOR_ORDER: AnchorSide[] = ['topLeft', 'topRight', 'right', 'bottomRight', 'bottomLeft', 'left'];
@@ -63,6 +76,26 @@ export function CardInspectionOverlay({ spec, onClose }: CardInspectionOverlayPr
 
   const theme = spec ? getCharacterTheme(spec.character) : null;
   const rect = spec?.rect ?? null;
+
+  // FIX (pedido do usuário: "quanto ao timer, é necessário ele existir em
+  // um tooltip bem acima do texto que fala o tipo da carta em um tamanho
+  // bem notável") - contagem em tempo real (não um valor estático) via
+  // Date.now(), só quando esta inspeção abriu com timer ativo
+  // (`spec.timeoutMs > 0`). `spec` só troca de referência quando uma NOVA
+  // inspeção abre/fecha (GameBoard.tsx só chama `setCardInspection` nesses
+  // dois momentos), então este efeito não reinicia à toa em re-renders.
+  const [remainingMs, setRemainingMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (!spec || spec.timeoutMs <= 0) {
+      setRemainingMs(null);
+      return;
+    }
+    const update = () => setRemainingMs(Math.max(0, spec.timeoutMs - (Date.now() - spec.openedAt)));
+    update();
+    const interval = window.setInterval(update, 200);
+    return () => window.clearInterval(interval);
+  }, [spec]);
+  const remainingSeconds = remainingMs !== null ? Math.ceil(remainingMs / 1000) : null;
 
   // Recorte já ampliado, centrado no MESMO centro do rect real (a carta
   // "cresce" a partir da própria posição, nunca salta pra outro lugar da tela).
@@ -183,14 +216,30 @@ export function CardInspectionOverlay({ spec, onClose }: CardInspectionOverlayPr
             </svg>
           )}
 
+          {cutout && remainingSeconds !== null && (
+            <div
+              className="absolute flex items-center gap-2 whitespace-nowrap"
+              style={{ left: cutout.cx, top: cutout.top - COUNTDOWN_OFFSET, transform: 'translateX(-50%)' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Clock className="w-7 h-7 flex-shrink-0" style={{ color: theme.primary }} />
+              <span
+                className="text-[34px] font-black tabular-nums leading-none"
+                style={{ color: theme.primary, textShadow: `0 0 18px ${theme.primary}90` }}
+              >
+                {remainingSeconds}s
+              </span>
+            </div>
+          )}
+
           {cutout && (
             <div
               className="absolute flex flex-col items-center gap-2"
-              style={{ left: cutout.cx, top: cutout.top - 46, transform: 'translateX(-50%)' }}
+              style={{ left: cutout.cx, top: cutout.top - TYPE_PILL_OFFSET, transform: 'translateX(-50%)' }}
               onClick={(e) => e.stopPropagation()}
             >
               <div
-                className="px-4 py-1.5 rounded-full border-2 text-[13px] font-bold tracking-wide"
+                className="px-4 py-1.5 rounded-full border-2 text-[13px] font-bold tracking-wide whitespace-nowrap"
                 style={{ backgroundColor: '#1E1A16', borderColor: theme.primary, color: theme.primary }}
               >
                 {spec.type.label}
@@ -217,7 +266,7 @@ export function CardInspectionOverlay({ spec, onClose }: CardInspectionOverlayPr
           {cutout && spec.valueBreakdown.adjustments.length > 0 && (
             <div
               className="absolute text-center"
-              style={{ left: cutout.cx, top: cutout.top + cutout.height + 14, transform: 'translateX(-50%)' }}
+              style={{ left: cutout.cx, top: cutout.top + cutout.height + VALUE_LINE_OFFSET, transform: 'translateX(-50%)' }}
               onClick={(e) => e.stopPropagation()}
             >
               <p
@@ -267,7 +316,7 @@ export function CardInspectionOverlay({ spec, onClose }: CardInspectionOverlayPr
               className="absolute px-3 py-1 rounded-lg text-[12px] font-semibold"
               style={{
                 left: cutout.cx,
-                top: cutout.top + cutout.height + (spec.valueBreakdown.adjustments.length > 0 ? 48 : 14),
+                top: cutout.top + cutout.height + (spec.valueBreakdown.adjustments.length > 0 ? VALUE_LINE_OFFSET + 42 : VALUE_LINE_OFFSET),
                 transform: 'translateX(-50%)',
                 backgroundColor: '#1E1A16F2',
                 border: `1.5px solid ${theme.primary}`,

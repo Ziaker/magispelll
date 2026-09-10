@@ -670,8 +670,19 @@ export function FieldSlotView({
   // anima via CSS puro (`card-hold-progress-fill`, globals.css), sem
   // re-render nenhum durante o próprio hold.
   const HOLD_MS = 1500;
+  // FIX (pedido do usuário, depois de testar ao vivo): "o efeito que surge
+  // ao segurar deve só surgir caso o jogador tenha pressionado por no
+  // mínimo .75 segundos" - antes o anel aparecia (vazio) desde o instante 0
+  // do mousedown, então até um clique rápido normal fazia ele "piscar". O
+  // anel agora só MONTA aos 750ms (`ringAppearTimeoutRef` abaixo) - a
+  // duração da própria animação de preenchimento dele (`--hold-duration-ms`,
+  // ver renderHoldProgressRing) é o RESTANTE (HOLD_MS - RING_APPEAR_DELAY_MS),
+  // pra terminar de encher exatamente no mesmo instante em que o hold
+  // completa de verdade - os dois timers correm em paralelo, não em série.
+  const RING_APPEAR_DELAY_MS = 750;
   const [holdingCardId, setHoldingCardId] = useState<string | null>(null);
   const holdTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ringAppearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Um long-press completo dispara `onInspectCard` DURANTE o `mousedown`
   // (antes do `mouseup`/`click` seguinte) - sem isso, o `onClick` do wrapper
   // (seleciona o slot pra combate) ou o `onClick` da horizontal (devolve pra
@@ -682,6 +693,7 @@ export function FieldSlotView({
   useEffect(() => {
     return () => {
       if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
+      if (ringAppearTimeoutRef.current) clearTimeout(ringAppearTimeoutRef.current);
     };
   }, []);
 
@@ -692,7 +704,11 @@ export function FieldSlotView({
   const startHold = (card: Card | undefined) => {
     if (!canInspectCard(card)) return;
     if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
-    setHoldingCardId(card.id);
+    if (ringAppearTimeoutRef.current) clearTimeout(ringAppearTimeoutRef.current);
+    ringAppearTimeoutRef.current = setTimeout(() => {
+      ringAppearTimeoutRef.current = null;
+      setHoldingCardId(card.id);
+    }, RING_APPEAR_DELAY_MS);
     holdTimeoutRef.current = setTimeout(() => {
       holdTimeoutRef.current = null;
       setHoldingCardId(null);
@@ -704,6 +720,10 @@ export function FieldSlotView({
     if (holdTimeoutRef.current) {
       clearTimeout(holdTimeoutRef.current);
       holdTimeoutRef.current = null;
+    }
+    if (ringAppearTimeoutRef.current) {
+      clearTimeout(ringAppearTimeoutRef.current);
+      ringAppearTimeoutRef.current = null;
     }
     setHoldingCardId(null);
   };
@@ -731,7 +751,7 @@ export function FieldSlotView({
                 transformOrigin: '50% 50%',
                 transform: 'rotate(-90deg)',
                 '--hold-circumference': circumference,
-                '--hold-duration-ms': `${HOLD_MS}ms`,
+                '--hold-duration-ms': `${HOLD_MS - RING_APPEAR_DELAY_MS}ms`,
               } as CSSProperties
             }
           />

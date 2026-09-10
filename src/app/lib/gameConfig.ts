@@ -171,6 +171,9 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   reactionsLimit: 1,
   postMagicPauseMs: 0,
   cardInspectionEnabled: true,
-  cardInspectionTimeoutMs: 15000,
+  // FIX (pedido do usuário, depois de testar ao vivo): "deixe-o desativado
+  // por padrão... deixando a visão permanente" - 0 = sem timer (a interface
+  // fica aberta até o jogador sair manualmente), o padrão de fábrica agora.
+  cardInspectionTimeoutMs: 0,
   cardInspectionCooldownMs: 10000,
 };

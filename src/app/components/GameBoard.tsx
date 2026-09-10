@@ -419,6 +419,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       type: getCardTypeInfo(card, effectCtx),
       statuses: getCardStatusSummaries(card, effectCtx),
       valueBreakdown: getCardValueBreakdown(card, effectCtx),
+      // Pedido do usuário: contador visível na própria interface quando o
+      // timer de fechar-sozinho está ativo - `openedAt` + `timeoutMs` deixam
+      // o overlay calcular o restante sozinho (contagem em tempo real via
+      // Date.now(), não um valor estático que ficaria parado na tela).
+      timeoutMs: gameConfig.cardInspectionTimeoutMs,
+      openedAt: Date.now(),
     });
     if (cardInspectionAutoCloseTimerRef.current) clearTimeout(cardInspectionAutoCloseTimerRef.current);
     if (gameConfig.cardInspectionTimeoutMs > 0) {
