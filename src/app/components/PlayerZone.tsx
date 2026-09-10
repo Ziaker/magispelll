@@ -105,6 +105,18 @@ interface PlayerZoneProps {
   selectedForTower: Set<string>;
   onSelectCardForField: (cardId: string) => void;
   /**
+   * QoL (item 7, pedido do usuário: "para personagens que possuem o campo do
+   * monstro presente, permita que o monstro seja automaticamente posicionado
+   * ao clicar nele duas vezes na mão") - duplo clique na carta Monstro na
+   * mão. Só chamado quando ESTA carta é a carta Monstro (`card.isMonster`);
+   * toda a validação de verdade (zona já ocupada, `monsterUseCount`,
+   * `magicLocked`, e a exclusão de Coringa/Druida/Glacial - que nunca usam a
+   * Zona Monstro, jogam a carta Monstro deles como substituto de numeral via
+   * PLAY_CARD) já vive em GameBoard.tsx/gameEngine.ts (handlePlaceMonsterCard)
+   * - este componente não duplica nenhuma dessas regras.
+   */
+  onMonsterCardDoubleClick?: (cardId: string) => void;
+  /**
    * FIX (overhaul completo do Modo Towers, pedido do usuário: "a atual é
    * completamente anti-intuitiva... capaz de ser realizada também no
    * mobile") - toca o selo "🏰" dedicado que aparece em cada carta elegível
@@ -300,6 +312,7 @@ export function PlayerZone({
   onReactToMagic,
   selectedForTower,
   onSelectCardForField,
+  onMonsterCardDoubleClick,
   onToggleTowerCard,
   fusionEnabled,
   fusionLimit,
@@ -1753,6 +1766,7 @@ export function PlayerZone({
                         isAceTransformFlashing={card.id === aceTransformFlashCardId}
                         isDraggable={isDraggable}
                         onClick={() => handleCardClick(card.id)}
+                        onDoubleClick={card.isMonster ? () => onMonsterCardDoubleClick?.(card.id) : undefined}
                         isSelectedForTower={selectedForTower.has(card.id)}
                         onDragStart={() => onCardSelect(card.id)}
                         onTransformAce={() => onTransformAce(card.id)}

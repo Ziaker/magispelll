@@ -32,6 +32,8 @@ interface HandCardViewProps {
   isAceTransformFlashing?: boolean;
   isDraggable: boolean;
   onClick: () => void;
+  /** QoL (item 7, pedido do usuário): duplo clique nesta carta - hoje só usado na carta Monstro, pra posicioná-la direto na Zona Monstro sem precisar selecionar + confirmar. Ver onMonsterCardDoubleClick em PlayerZone.tsx. */
+  onDoubleClick?: () => void;
   /** Disparado no instante em que o arraste desta carta começa (equivalente ao antigo `onDragStart` nativo). */
   onDragStart?: () => void;
   onTransformAce: () => void;
@@ -146,6 +148,7 @@ export function HandCardView({
   isAceTransformFlashing,
   isDraggable,
   onClick,
+  onDoubleClick,
   onDragStart,
   onTransformAce,
   onActivateMagic,
@@ -354,6 +357,7 @@ export function HandCardView({
       }}
       transition={{ type: 'spring', stiffness: 320, damping: 28 }}
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       onMouseMove={handlePointerMove}
       onMouseEnter={handlePointerEnter}
       onMouseLeave={handlePointerLeave}

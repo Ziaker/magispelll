@@ -2864,6 +2864,25 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     setSelectedCardId(null);
   };
 
+  // QoL (item 7, pedido do usuário: "para personagens que possuem o campo do
+  // monstro presente, permita que o monstro seja automaticamente posicionado
+  // ao clicar nele duas vezes na mão") - só pros 5 personagens que realmente
+  // usam a Zona Monstro (Mago/Anjo/Besta/Mosqueteiro/Piromante); Coringa/
+  // Druida/Glacial nunca chegam aqui (jogam a carta Monstro deles como
+  // substituto de numeral via PLAY_CARD - ver handlePlaceMonsterCard,
+  // gameEngine.ts) e a zona precisa estar livre, mesma condição que o motor
+  // já valida. Reaproveita handleMonsterCardDrop (acima) pro resto da
+  // validação/dispatch/som - nenhuma regra duplicada aqui.
+  const handleMonsterCardDoubleClick = (playerNumber: 1 | 2, cardId: string) => {
+    if (isAi(playerNumber)) return;
+    if (gameState.phase !== 'strategy') return;
+    const character = characterOf(gameState, playerNumber);
+    if (character === 'coringa' || character === 'druida' || character === 'glacial') return;
+    const playerState = gameState[playerKeyOf(playerNumber)];
+    if (playerState.monsterCard) return; // zona já ocupada
+    handleMonsterCardDrop(playerNumber, cardId);
+  };
+
   const executeMonsterEffect = (targetCardId: string) => {
     if (!pendingMonsterEffect) return;
     // FIX (item 5 da 4ª rodada): mesmo efeito visual das magias, aplicado ao
@@ -3768,6 +3787,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onReactToMagic={(cardId) => handleReactToMagic(2, cardId)}
                 selectedForTower={selectedForTower}
                 onSelectCardForField={(cardId) => handleSelectCardForField(2, cardId)}
+                onMonsterCardDoubleClick={(cardId) => handleMonsterCardDoubleClick(2, cardId)}
                 onToggleTowerCard={(cardId) => handleToggleTowerCard(2, cardId)}
                 fusionEnabled={gameConfig.fusion}
                 fusionLimit={gameConfig.fusionLimit}
@@ -3883,6 +3903,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 onReactToMagic={(cardId) => handleReactToMagic(1, cardId)}
                 selectedForTower={selectedForTower}
                 onSelectCardForField={(cardId) => handleSelectCardForField(1, cardId)}
+                onMonsterCardDoubleClick={(cardId) => handleMonsterCardDoubleClick(1, cardId)}
                 onToggleTowerCard={(cardId) => handleToggleTowerCard(1, cardId)}
                 fusionEnabled={gameConfig.fusion}
                 fusionLimit={gameConfig.fusionLimit}
