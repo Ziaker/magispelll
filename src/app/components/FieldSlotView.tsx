@@ -457,6 +457,15 @@ export function FieldSlotView({
   // com `isMonster: true` fora da Estratégia (ver isDraggable/
   // canDragToPlaceOnField, PlayerZone.tsx).
   const isGlacialGolemCombatDrop = (item: CardDragItem) => Boolean(item.card?.isMonster) && phase === 'combat' && !isAiField && !slot.faceDownCard;
+  // FIX (pedido do usuário: "o Ás está podendo ser posicionado como carta
+  // no campo/horizontal, corrija isso, não permita, em TODOS modos de
+  // jogo") - um Ás CRU continua "arrastável" no sentido genérico (ele
+  // precisa continuar podendo ser solto em cima de OUTRA carta da mão pra
+  // se transformar - ver canAceTransformTarget/HandCardView.tsx, mecanismo
+  // totalmente à parte deste arquivo), mas nunca mais é aceito como alvo de
+  // um SLOT DE CAMPO (nem principal nem horizontal) - mesma regra nova de
+  // handlePlayCard/handleSwapFieldCard (gameEngine.ts).
+  const isRawAceDrop = (item: CardDragItem) => item.card?.value === 'A' && item.card.transformedValue === undefined;
   const dropOnMain = (item: CardDragItem) => {
     lastDropSpinRef.current = item.spinAngle ?? 0;
     if (isMagicDrop(item)) {
@@ -487,7 +496,7 @@ export function FieldSlotView({
       // pela IA) e/ou uma fase diferente (Combate) - por isso o OR com
       // `isMagicDrop`, item-aware (react-dnd chama `canDrop` com o item
       // sendo arrastado no momento).
-      canDrop: (item) => canDropHere || isMagicDrop(item) || isGlacialGolemCombatDrop(item),
+      canDrop: (item) => (canDropHere && !isRawAceDrop(item)) || isMagicDrop(item) || isGlacialGolemCombatDrop(item),
       // Soltar em cima da carta principal já ocupada vira pedido de reforço
       // horizontal (mesma regra do drag nativo anterior); num slot vazio,
       // vira a carta principal. Uma magia com atalho válido tem prioridade
@@ -505,7 +514,7 @@ export function FieldSlotView({
   >(
     () => ({
       accept: CARD_ITEM_TYPE,
-      canDrop: (item) => (canDropHere && Boolean(slot.faceDownCard)) || isMagicDrop(item),
+      canDrop: (item) => (canDropHere && Boolean(slot.faceDownCard) && !isRawAceDrop(item)) || isMagicDrop(item),
       drop: dropOnHorizontal,
       collect: (monitor) => ({ isOver: monitor.isOver(), canDrop: monitor.canDrop() }),
     }),
@@ -529,7 +538,7 @@ export function FieldSlotView({
         const rect = mainNodeRef.current?.getBoundingClientRect();
         return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
       },
-      canDrop: (item) => canDropHere || isMagicDrop(item) || isGlacialGolemCombatDrop(item),
+      canDrop: (item) => (canDropHere && !isRawAceDrop(item)) || isMagicDrop(item) || isGlacialGolemCombatDrop(item),
       onDrop: dropOnMain,
     });
     return () => unregisterDropTarget(mainId);
@@ -543,7 +552,7 @@ export function FieldSlotView({
         const rect = horizontalNodeRef.current?.getBoundingClientRect();
         return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
       },
-      canDrop: (item) => (canDropHere && Boolean(slot.faceDownCard)) || isMagicDrop(item),
+      canDrop: (item) => (canDropHere && Boolean(slot.faceDownCard) && !isRawAceDrop(item)) || isMagicDrop(item),
       onDrop: dropOnHorizontal,
     });
     return () => unregisterDropTarget(horizontalId);

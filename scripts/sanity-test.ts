@@ -1541,6 +1541,82 @@ function activateMagoNumeralSpell(state: GameState): GameState {
   assert(state.combatResolution?.winner === 1, 'Item 6: 22 (Ás + horizontal) vence 10 do oponente, exatamente como esperado pela soma');
 })();
 
+// ---------------------------------------------------------------------------
+// FIX (pedido do usuário: "o Ás está podendo ser posicionado como carta no
+// campo/horizontal, corrija isso, não permita, em TODOS modos de jogo") -
+// reverte o mecanismo antigo do "item 19"/testUntransformedAceIsFourteen...
+// acima (que continua válido: um Ás JÁ em campo, por qualquer meio, ainda
+// vale 14 - só que agora NENHUM caminho de PLAY_CARD/SWAP_FIELD_CARD/
+// FORM_OR_REINFORCE_TOWER consegue colocar um lá cru).
+// ---------------------------------------------------------------------------
+(function testRawAceCannotBePlayedAsMainCard() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  const ace = makeCard('raw-ace-main', 'A');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [ace] } };
+  const after = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: ace.id, slotIndex: 0, asHorizontal: false });
+  assert(!after.player1.field[0].faceDownCard, 'FIX: um Ás cru não pode ser posicionado como carta principal do campo');
+  assert(after.player1.hand.some((c) => c.id === ace.id), 'O Ás cru continua na mão após a tentativa rejeitada');
+})();
+
+(function testRawAceCannotBePlayedAsHorizontal() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  const ace = makeCard('raw-ace-horiz', 'A');
+  const mainCard = makeCard('raw-ace-horiz-host', '5');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [ace],
+      field: [{ faceDownCard: mainCard, revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const after = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: ace.id, slotIndex: 0, asHorizontal: true });
+  assert(after.player1.field[0].horizontalCards.length === 0, 'FIX: um Ás cru não pode ser posicionado como carta horizontal');
+  assert(after.player1.hand.some((c) => c.id === ace.id), 'O Ás cru continua na mão após a tentativa rejeitada');
+})();
+
+(function testTransformedAceCanStillBePlayedNormally() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  const reference = makeCard('transformed-ace-ref', '9');
+  let ace = makeCard('transformed-ace-play', 'A');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [ace, reference] } };
+  state = gameReducer(state, { type: 'TRANSFORM_ACE', player: 1, aceCardId: ace.id, targetCardId: reference.id });
+  ace = state.player1.hand.find((c) => c.id === ace.id)!;
+  assert(ace.transformedValue === 9, 'Pré-condição: o Ás foi transformado pra 9');
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: ace.id, slotIndex: 0, asHorizontal: false });
+  assert(state.player1.field[0].faceDownCard?.id === ace.id, 'FIX: um Ás JÁ TRANSFORMADO continua podendo ser posicionado normalmente (só o cru foi bloqueado)');
+})();
+
+(function testRawAceCannotSwapIntoField() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  const ace = makeCard('raw-ace-swap', 'A');
+  const existing = makeCard('raw-ace-swap-existing', '4');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: {
+      ...state.player1,
+      hand: [ace],
+      field: [{ faceDownCard: existing, revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }, { revealed: false, horizontalCards: [] }],
+    },
+  };
+  const after = gameReducer(state, { type: 'SWAP_FIELD_CARD', player: 1, cardId: ace.id, slotIndex: 0 });
+  assert(after.player1.field[0].faceDownCard?.id === 'raw-ace-swap-existing', 'FIX: um Ás cru não pode entrar em campo via troca (SWAP_FIELD_CARD)');
+  assert(after.player1.hand.some((c) => c.id === ace.id), 'O Ás cru continua na mão após a tentativa rejeitada');
+})();
+
+(function testRawAceCannotFormTower() {
+  const config: GameConfig = { ...DEFAULT_GAME_CONFIG, towersMode: true };
+  let state = createInitialState('mago', 'besta', config);
+  const ace1 = makeCard('raw-ace-tower-1', 'A');
+  const ace2 = makeCard('raw-ace-tower-2', 'A');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [ace1, ace2] } };
+  const after = gameReducer(state, { type: 'FORM_OR_REINFORCE_TOWER', player: 1, slotIndex: 0, cardIds: [ace1.id, ace2.id] });
+  assert(!after.player1.field[0].faceDownCard, 'FIX: dois Áses crus (mesmo "valor igual" entre si) não formam uma Torre - Ás cru não é towerEligibleValue');
+  assert(after.player1.hand.length === 2, 'Os dois Áses crus continuam na mão após a tentativa rejeitada');
+})();
+
 // 32. Item 9 da 6ª rodada: RETURN_HORIZONTAL_CARD_TO_HAND remove só a carta
 //     horizontal indicada, preservando a carta principal e a OUTRA
 //     horizontal (quando há 2 empilhadas, via Reforço Angelical do Anjo).

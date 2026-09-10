@@ -307,11 +307,18 @@ export function isPlainNumeralCard(card: Card): boolean {
 
 /**
  * Verdadeiro se `card` é do tipo elegível para ocupar um slot de combate
- * normal do campo (Ás ainda não transformado, OU 2-10 já numeral/Ás
- * transformado) - nunca J/Q/K (só ativam magia) nem Monstro (só vai pra
- * zona própria). Extraída aqui (checagem extensa por bugs, sweep de
- * consolidação de regras duplicadas) - antes só existia como uma cópia local
- * em aiPlayer.ts (`isFieldEligible`), enquanto handlePlayCard/
+ * normal do campo (2-10 numeral, OU Ás JÁ transformado) - nunca J/Q/K (só
+ * ativam magia), nunca Monstro (só vai pra zona própria), e - FIX (pedido do
+ * usuário: "o Ás está podendo ser posicionado como carta no campo/horizontal,
+ * corrija isso, não permita, em todos modos de jogo") - nunca mais um Ás
+ * CRU (sem `transformedValue`): reverte a regra antiga ("um Ás cru vale 14 e
+ * pode ser jogado direto, sem precisar transformar primeiro" - ver histórico
+ * do "item 19"/handleTransformAce). Agora um Ás só entra em campo DEPOIS de
+ * ser transformado (TRANSFORM_ACE, ainda na mão) - a transformação em si
+ * continua igual, só o atalho de jogar cru primeiro (e transformar depois,
+ * já em campo) deixou de existir. Extraída aqui (checagem extensa por bugs,
+ * sweep de consolidação de regras duplicadas) - antes só existia como uma
+ * cópia local em aiPlayer.ts (`isFieldEligible`), enquanto handlePlayCard/
  * handleSwapFieldCard em gameEngine.ts reimplementavam a MESMA regra na
  * forma inversa (excluindo J/Q/K e Monstro em vez de listar quem é aceito) -
  * hoje equivalentes por coincidência (os únicos tipos de carta são A/2-10/
@@ -342,7 +349,12 @@ export function isFieldEligible(card: Card): boolean {
   // depender de transformedValue nunca vazar corretamente em todo caminho de
   // retorno-à-mão do motor.
   if (card.isMonster) return false;
-  return (card.value === 'A' && card.transformedValue === undefined) || isNumeralCard(card);
+  // FIX (pedido do usuário, "não permita o Ás cru no campo") - um Ás sem
+  // `transformedValue` nunca é elegível aqui (era `true` antes) - só
+  // `isNumeralCard` continua valendo, que já aceita um Ás JÁ transformado
+  // normalmente (na prática já "é" um número comum).
+  if (card.value === 'A' && card.transformedValue === undefined) return false;
+  return isNumeralCard(card);
 }
 
 /**

@@ -2177,6 +2177,18 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
     if (card.isMonster) {
       return { ...state, log: appendLog(state, state.log, 'warning', `Cartas Monstro só podem ser posicionadas na sua zona própria, não em um slot de combate!`) };
     }
+
+    // FIX (pedido do usuário: "o Ás está podendo ser posicionado como carta
+    // no campo/horizontal, corrija isso, não permita, em TODOS modos de
+    // jogo") - um Ás CRU (sem `transformedValue`) nunca pode ser posicionado,
+    // nem como principal nem como horizontal - precisa ser transformado
+    // primeiro (TRANSFORM_ACE, ainda na mão - ver handleTransformAce) pra
+    // virar uma carta numeral de verdade. Reverte o mecanismo antigo ("Ás cru
+    // vale 14 e pode ser jogado direto"; ver isFieldEligible, cardUtils.ts,
+    // pra mesma regra usada pela IA/UI).
+    if (card.value === 'A' && card.transformedValue === undefined) {
+      return { ...state, log: appendLog(state, state.log, 'warning', `Um Ás precisa ser transformado (arraste sobre outra carta) antes de ser posicionado!`) };
+    }
   } else if (isCoringaTrapCard) {
     // Valete: SÓ pode ir como horizontal ("Esta carta pode ser posicionada
     // como horizontal em uma carta sua"). Rainha/Rei: SÓ como carta
@@ -2531,6 +2543,13 @@ function handleSwapFieldCard(state: GameState, player: PlayerNumber, cardId: str
     if (card.isMonster) {
       return { ...state, log: appendLog(state, state.log, 'warning', `Cartas Monstro só podem ser posicionadas na sua zona própria, não em um slot de combate!`) };
     }
+    // FIX (pedido do usuário: "o Ás está podendo ser posicionado como carta
+    // no campo/horizontal, corrija isso, não permita, em TODOS modos de
+    // jogo") - mesma guarda de handlePlayCard acima, pro caminho irmão de
+    // troca (SWAP_FIELD_CARD): um Ás CRU precisa ser transformado primeiro.
+    if (card.value === 'A' && card.transformedValue === undefined) {
+      return { ...state, log: appendLog(state, state.log, 'warning', `Um Ás precisa ser transformado (arraste sobre outra carta) antes de ser posicionado!`) };
+    }
   }
 
   // FIX (item 5 da 2ª rodada): a troca também precisa funcionar quando a
@@ -2663,12 +2682,17 @@ function handlePayToUnfreeze(state: GameState, player: PlayerNumber, paymentCard
 
 /**
  * Valor efetivo "elegível pra torre" de uma carta: numeral pura (2-10) ou
- * Ás (transformado ou cru - um Ás cru vale 14, como sempre) - NUNCA magia
- * (J/Q/K) nem Monstro. Reaproveita `getEffectiveCardValue` (já resolve Ás
+ * Ás JÁ transformado - NUNCA magia (J/Q/K), Monstro, ou - FIX (pedido do
+ * usuário: "o Ás está podendo ser posicionado como carta no campo/
+ * horizontal, corrija isso, não permita, em TODOS modos de jogo") - um Ás
+ * CRU (mesma exclusão de isFieldEligible, cardUtils.ts - Torres também é só
+ * mais um jeito de ocupar um slot de combate normal do campo, sujeito à
+ * mesma regra). Reaproveita `getEffectiveCardValue` (já resolve Ás
  * transformado) - `null` quando a carta não é elegível de jeito nenhum.
  */
 export function towerEligibleValue(card: Card): number | null {
   if (card.value === 'J' || card.value === 'Q' || card.value === 'K' || card.isMonster) return null;
+  if (card.value === 'A' && card.transformedValue === undefined) return null;
   return getEffectiveCardValue(card);
 }
 
