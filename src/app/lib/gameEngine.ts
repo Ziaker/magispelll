@@ -372,6 +372,20 @@ export interface LogEntry {
    * slots. Nunca setado por nenhum outro tipo de entrada.
    */
   slotIndex?: number;
+  /**
+   * Besta - Fúria Sanguinária (pedido do usuário: "animação na mão pra
+   * quando o jogador gera ou recebe uma carta de valor > 6 com a Magia
+   * Numeral da Besta ativa... o ícone da besta pulando na mão e
+   * descartando a carta") - ids das carta(s) que `applyBestaBloodRageSweep`
+   * acabou de queimar da mão nesta entrada. GameBoard.tsx usa isto pra
+   * disparar BeastBurnFlash.tsx na última posição conhecida de cada carta
+   * (`cardPositionsRef`, mesmo mecanismo de FlyingDiscardCard.tsx/
+   * ReactionNegatedBurst.tsx) - o "voo até o descarte" em si já acontece de
+   * graça (a carta entrou em `discardPile` como qualquer outra), isto só
+   * cobre o flourish extra do ícone da Besta. Nunca setado por nenhuma
+   * outra entrada.
+   */
+  burnedCardIds?: string[];
 }
 
 export interface CombatResolution {
@@ -754,6 +768,8 @@ interface LogOptions {
    */
   turnOverride?: number;
   phaseOverride?: Phase;
+  /** Ver LogEntry.burnedCardIds acima. */
+  burnedCardIds?: string[];
 }
 
 /**
@@ -795,6 +811,7 @@ function appendLog(state: GameState, log: LogEntry[], type: LogEventType, messag
     cardValue: opts.cardValue,
     cardSuit: opts.cardSuit,
     slotIndex: opts.slotIndex,
+    burnedCardIds: opts.burnedCardIds,
   };
   return [...log, entry].slice(-30);
 }
@@ -1695,7 +1712,7 @@ function applyBestaBloodRageSweep(state: GameState): GameState {
         next.log,
         'numeral-spell',
         `Fúria Sanguinária: Jogador ${player} não pode segurar cartas acima de 6 - ${burned.length} carta(s) queimada(s) na mão`,
-        { player }
+        { player, burnedCardIds: burned.map((c) => c.id) }
       ),
     };
   }

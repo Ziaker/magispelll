@@ -231,6 +231,20 @@ interface PlayerZoneProps {
    */
   isMagicCardDraggable?: (card: Card) => boolean;
   /**
+   * FIX (pedido do usuário: "permita que as magias de alvo J e K do Glacial
+   * possam ser drag&drop em cartas na mão para congelarem elas, isso
+   * incluem outras magias") - irmãs de `isMagicCardDraggable` acima, mas
+   * pra soltar em cima de uma carta DESTA mão específica (não um slot de
+   * campo) - `targetCardId` é a carta desta mão sob o cursor, `draggedCard`
+   * é a carta sendo arrastada (calculado pelo GameBoard.tsx via
+   * `isMagicHandDropTarget`/`handleMagicHandDrop`, mesmo motivo de
+   * `isMagicCardDraggable` acima: só ele enxerga as DUAS mãos ao mesmo
+   * tempo). Repassadas pra cada HandCardView.tsx, que já é tanto origem
+   * quanto alvo de drop (fusão/Transformar Ás/Torre, ver lá).
+   */
+  isMagicHandDropTarget?: (targetCardId: string, draggedCard: Card) => boolean;
+  onMagicHandDrop?: (targetCardId: string, draggedCardId: string) => void;
+  /**
    * Verdadeiro quando este jogador é a IA (modo "Contra a IA", ver
    * lib/aiPlayer.ts e o efeito em GameBoard.tsx que despacha as ações dela).
    * Nesse caso, este painel vira só leitura: nenhum controle (comprar,
@@ -242,6 +256,24 @@ interface PlayerZoneProps {
    * jogador humano foi quem as revelou.
    */
   isAiControlled?: boolean;
+  /**
+   * FIX (bug relatado pelo usuário: "auto-compra não tá auto-comprando após
+   * o fim do turno/fase de combate" + "não está comprando na fase de compra
+   * após o uso de uma magia numeral" + "também não compra cartas quando o
+   * efeito da magia numeral da besta está no campo") - `true` sempre que o
+   * `dispatch` guardado de GameBoard.tsx está bloqueado (`showPhaseTransition`
+   * OU `postMagicPause`, mesma condição do guard no topo daquela função). O
+   * `useEffect` de auto-compra logo abaixo despacha `onDrawCards`, que passa
+   * por esse MESMO dispatch guardado - sem saber que o dispatch foi
+   * silenciosamente descartado, o efeito não tinha nenhum motivo pra rodar
+   * de novo (nenhuma de suas dependências mudou, já que a compra nunca
+   * aconteceu) e a auto-compra ficava parada pra sempre a partir dali. Mesma
+   * causa raiz (e mesmo remédio: incluir isto nas dependências do efeito, pra
+   * ele reavaliar assim que o bloqueio sair) do softlock da IA no Espectador,
+   * já corrigido antes - ver o comentário completo perto de `showPhaseTransition`/
+   * `postMagicPause` em GameBoard.tsx.
+   */
+  dispatchBlocked?: boolean;
   /**
    * FIX (pedido do usuário: "ocultar mão do oponente automaticamente" no
    * Hotseat) - `true` só quando `gameConfig.mode === 'hotseat'` E
@@ -364,7 +396,10 @@ export function PlayerZone({
   unfreezeRelevant,
   unfreezeDisabledReason,
   isMagicCardDraggable,
+  isMagicHandDropTarget,
+  onMagicHandDrop,
   isAiControlled = false,
+  dispatchBlocked = false,
   hotseatPrivacyActive = false,
   forceRevealHand = false,
   effectFlashCardIds,
@@ -756,13 +791,23 @@ export function PlayerZone({
   // disparado pela mudança de `playerState.hand.length` após cada compra,
   // até um dos dois faltar. Só pra zona humana - a mão da IA já se
   // autocompra pelo próprio aiPlayer.ts, sem depender disto.
+  // FIX (bug relatado pelo usuário, ver comentário completo em
+  // `dispatchBlocked` na interface acima): `onDrawCards` passa pelo
+  // `dispatch` guardado de GameBoard.tsx, que descarta a ação em silêncio
+  // enquanto `showPhaseTransition`/`postMagicPause` estão ativos (popup de
+  // troca de fase, pausa pós-magia, ou a Magia Numeral da Besta te mantendo
+  // "no campo") - sem `dispatchBlocked` nas dependências, este efeito não
+  // tinha como saber que a compra nunca aconteceu, e não reavaliava quando o
+  // bloqueio finalmente saía. Agora ele nasce sabendo pra NÃO comprar
+  // enquanto bloqueado (evita descartar a ação à toa) e, principalmente,
+  // reavalia assim que `dispatchBlocked` volta a `false`.
   useEffect(() => {
-    if (isAiControlled || phase !== 'draw' || !settings.autoDrawEnabled) return;
+    if (isAiControlled || phase !== 'draw' || !settings.autoDrawEnabled || dispatchBlocked) return;
     if (playerState.hand.length >= playerState.handLimit) return;
     if (drawsRemainingThisTurn <= 0) return;
     onDrawCards(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAiControlled, phase, settings.autoDrawEnabled, playerState.hand.length, playerState.handLimit, drawsRemainingThisTurn]);
+  }, [isAiControlled, phase, settings.autoDrawEnabled, dispatchBlocked, playerState.hand.length, playerState.handLimit, drawsRemainingThisTurn]);
 
   return (
     <div
@@ -1615,7 +1660,24 @@ export function PlayerZone({
                 verticalmente sem problema - ver `overflow-auto` no container
                 principal de GameBoard.tsx) até mostrar todas as cartas de
                 uma vez, sem nenhuma rolagem própria. */}
-            <div className="flex flex-wrap gap-3 select-none" style={{ minHeight: '10rem' }}>
+            <div
+              className="flex flex-wrap gap-3 select-none"
+              style={{ minHeight: '10rem' }}
+              // FIX (pedido do usuário: "ícone da besta pulando na mão... ao
+              // receber carta > 6 com a Magia Numeral da Besta ativa") -
+              // âncora sintética (mesmo padrão de "piromante-fireball-pN" em
+              // FireballMeter.tsx) pro cardPositionsRef de GameBoard.tsx
+              // rastrear TAMBÉM a mão como um todo, não só cartas
+              // individuais. Necessário porque `applyBestaBloodRageSweep`
+              // (gameEngine.ts) roda no MESMO dispatch que introduz a carta
+              // queimada (a compra em si, ou qualquer efeito que a traga) -
+              // a carta nunca chega a ser pintada com seu próprio
+              // `data-card-id` antes de já ter sido removida, então
+              // BeastBurnFlash.tsx cai neste fallback (posição da mão
+              // inteira) sempre que a carta específica não tiver posição
+              // conhecida.
+              data-card-id={`hand-p${playerNumber}`}
+            >
               {/* FIX (bug reproduzido manualmente): a combinação
                   `AnimatePresence` + `exit` chegou a deixar um nó fantasma
                   (invisível, preso para sempre no estado `initial`, nunca
@@ -1996,6 +2058,8 @@ export function PlayerZone({
                         onAceTransformDrop={(droppedAceCardId) => onAceTransformDrop(droppedAceCardId, card.id)}
                         canTowerGroupTarget={towerBadgeEligible}
                         onTowerGroupDrop={(droppedCardId) => onTowerGroupDrop(droppedCardId, card.id)}
+                        canFreezeTarget={(draggedCard) => Boolean(isMagicHandDropTarget?.(card.id, draggedCard))}
+                        onFreezeDrop={(droppedCardId) => onMagicHandDrop?.(card.id, droppedCardId)}
                         arcRotateDeg={handSortMode === 'manual' ? 0 : arcRotateDeg}
                         arcLiftPx={handSortMode === 'manual' ? 0 : arcLiftPx}
                         fusionPreview={fusionPartnerPreviews?.get(card.id)}

@@ -301,3 +301,74 @@ const DRAG_ACTIVATION_RULES: Partial<Record<DragActivationKey, DragActivationRul
 export function getDragActivationRule(character: CharacterId, magicType: MagicCardType): DragActivationRule | undefined {
   return DRAG_ACTIVATION_RULES[`${character}-${magicType}`];
 }
+
+/**
+ * HandDragActivationRule - irmã de `DragActivationRule` acima, mas pra
+ * magias cujo alvo é uma carta da MÃO (não um slot de campo) - pedido do
+ * usuário: "permita que as magias de alvo J e K do Glacial possam ser
+ * drag&drop em cartas na mão para congelarem elas, isso incluem outras
+ * magias". Até aqui "a mão nunca é uma zona de drop neste jogo" (ver
+ * comentário de `glacialKRule` acima) - Criogenar (J)/Crioescudo-Estratégia
+ * (K) sempre aceitaram mirar a mão pelo diálogo de clique (ver os blocos
+ * "Glacial J"/"Glacial K" em GameBoard.tsx - QUALQUER carta da mão não
+ * congelada, incluindo J/Q/K de outras magias, sem filtro de tipo), só
+ * nunca pelo atalho de arrastar. `isValidHandTarget` reaproveita a MESMA
+ * regra que aquele diálogo já aplica (nunca uma 2ª cópia divergente);
+ * `buildSelection` monta a `MagicSelection` exatamente como o diálogo monta
+ * pro mesmo caso (`selectedCards: [targetCardId]`).
+ */
+export interface HandDragActivationRule {
+  side: 'own' | 'either';
+  isValidHandTarget: (state: GameState, player: PlayerNumber, targetPlayer: PlayerNumber, targetCardId: string) => boolean;
+  buildSelection: (state: GameState, player: PlayerNumber, targetPlayer: PlayerNumber, targetCardId: string) => MagicSelection;
+}
+
+/**
+ * Glacial J - Criogenar, modo "carta de mão": mira a mão de QUALQUER
+ * jogador (`side: 'either'`, mesmo alcance do modo "slot de campo" de
+ * `glacialJFieldRule` acima - "alvo omisso na especificação = qualquer alvo
+ * possível"). Mesma checagem do diálogo: só exclui carta já congelada -
+ * nenhuma restrição de tipo (numeral vs J/Q/K).
+ */
+const glacialJHandRule: HandDragActivationRule = {
+  side: 'either',
+  isValidHandTarget: (state, _player, targetPlayer, targetCardId) => {
+    const targetCard = state[playerKeyOf(targetPlayer)].hand.find((c) => c.id === targetCardId);
+    if (!targetCard) return false;
+    return !hasStatus(targetCard, 'frozen');
+  },
+  buildSelection: (_state, _player, targetPlayer, targetCardId) => ({
+    selectedCards: [targetCardId],
+    selectedTargetPlayer: targetPlayer,
+  }),
+};
+
+/**
+ * Glacial K - Crioescudo, modo "carta de mão" do efeito de ESTRATÉGIA
+ * (`side: 'own'` - "uma carta SUA", nunca mira o oponente, mesmo alcance de
+ * `glacialKRule` acima). A mesma guarda `state.phase !== 'strategy'` de
+ * `glacialKRule` é OBRIGATÓRIA aqui pelo mesmo motivo (ver o comentário
+ * completo lá): o efeito de Combate desta carta nunca abre diálogo nem tem
+ * alvo de mão nenhum.
+ */
+const glacialKHandRule: HandDragActivationRule = {
+  side: 'own',
+  isValidHandTarget: (state, _player, targetPlayer, targetCardId) => {
+    if (state.phase !== 'strategy') return false;
+    const targetCard = state[playerKeyOf(targetPlayer)].hand.find((c) => c.id === targetCardId);
+    if (!targetCard) return false;
+    return !hasStatus(targetCard, 'frozen');
+  },
+  buildSelection: (_state, _player, _targetPlayer, targetCardId) => ({
+    selectedCards: [targetCardId],
+  }),
+};
+
+const HAND_DRAG_ACTIVATION_RULES: Partial<Record<DragActivationKey, HandDragActivationRule>> = {
+  'glacial-J': glacialJHandRule,
+  'glacial-K': glacialKHandRule,
+};
+
+export function getHandDragActivationRule(character: CharacterId, magicType: MagicCardType): HandDragActivationRule | undefined {
+  return HAND_DRAG_ACTIVATION_RULES[`${character}-${magicType}`];
+}

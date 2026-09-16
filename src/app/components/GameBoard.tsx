@@ -29,7 +29,7 @@ import { Badge } from './ui/badge';
 import { Switch } from './ui/switch';
 import { Slider } from './ui/slider';
 import { Label } from './ui/label';
-import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box, Settings as SettingsIcon, Sparkles, ScrollText, Brain, Snowflake, Zap } from 'lucide-react';
+import { Pause, Play, ArrowLeft, Check, Clock, Heart, Skull, Layers3, Trophy, Box, Settings as SettingsIcon, Sparkles, ScrollText, Brain, Snowflake, Zap, Flag } from 'lucide-react';
 import { PlayerZone } from './PlayerZone';
 import { BattleField } from './BattleField';
 import { CharacterMagicReference } from './CharacterMagicReference';
@@ -47,12 +47,12 @@ import { MagicPauseSpotlight } from './MagicPauseSpotlight';
 import { CardInspectionOverlay, type CardInspectionSpec } from './CardInspectionOverlay';
 import { getCardStatusSummaries, getCardTypeInfo, getCardValueBreakdown } from '../lib/cardEffectSummary';
 import { ReactionNegatedBurst, type ReactionNegatedBurstSpec } from './ReactionNegatedBurst';
+import { BeastBurnFlash, type BeastBurnFlashSpec } from './BeastBurnFlash';
 import { BulletImpactBurst, type BulletImpactSpec } from './BulletImpactBurst';
 import { FireballProjectile, type FireballProjectileSpec } from './FireballProjectile';
 import { ChromaticFlash } from './ChromaticFlash';
 import { ROULETTE_DURATION_MS } from './AceTransformBurst';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { PhaseProgress } from './PhaseProgress';
 import { Toaster } from './ui/sonner';
 import { ScrollArea } from './ui/scroll-area';
@@ -65,7 +65,7 @@ import { ZoomContainerContext } from '../lib/zoomContainerContext';
 import { saveRecentCharacter } from '../lib/gamePreferences';
 import { recordMatchResult } from '../lib/matchStats';
 import { getMagicCardInfo, canActivateMagic, type MagicCardType } from '../lib/magicCards';
-import { getDragActivationRule } from '../lib/dragActivation';
+import { getDragActivationRule, getHandDragActivationRule } from '../lib/dragActivation';
 import { MONSTER_ACTIVATION_MODE } from '../lib/activationModes';
 import { getMonsterEffect } from '../lib/monsterCards';
 import type { GameConfig } from '../lib/gameConfig';
@@ -1178,6 +1178,41 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         if (entry.player && entry.slotIndex !== undefined) triggerSmokeBurst({ player: entry.player, slotIndex: entry.slotIndex });
       } else if (entry.type === 'magic' && entry.text.startsWith('O Monstro') && entry.text.includes('voltou oculto')) {
         soundManager.play(monsterSoundFor('coringa'));
+      } else if (entry.burnedCardIds?.length) {
+        // Besta - Fúria Sanguinária (pedido do usuário: "ícone da besta
+        // pulando na mão e descartando a carta") - o "descartando" já
+        // acontece sozinho (as cartas queimadas entraram em `discardPile`
+        // como qualquer outra, o observador de flyingDiscards mais abaixo
+        // já cuida do voo) - aqui só o flourish extra do rosto da Besta,
+        // na última posição conhecida de cada carta (mesmo cardPositionsRef
+        // que FlyingDiscardCard.tsx/ReactionNegatedBurst.tsx usam).
+        // FIX (achado testando ao vivo): `applyBestaBloodRageSweep` roda no
+        // MESMO dispatch que introduz a carta queimada (a compra em si, ou
+        // qualquer efeito que a traga pra mão) - a carta nunca chega a ser
+        // pintada com seu próprio `data-card-id` antes de já ter sido
+        // removida (React nunca renderiza esse estado intermediário), então
+        // `cardPositionsRef.current.get(cardId)` sempre falha pra cartas
+        // RECÉM-chegadas (o caso mais comum: "receber" uma > 6). Cai pra
+        // `hand-pN` (âncora sintética de PlayerZone.tsx, mesmo padrão de
+        // "piromante-fireball-pN" em FireballMeter.tsx) - a mesma posição
+        // pra toda carta queimada nesta entrada, ainda melhor que não
+        // mostrar nada.
+        const handRect = entry.player ? cardPositionsRef.current.get(`hand-p${entry.player}`) : undefined;
+        const specs: BeastBurnFlashSpec[] = [];
+        for (const cardId of entry.burnedCardIds) {
+          const rect = cardPositionsRef.current.get(cardId) ?? handRect;
+          if (!rect) continue;
+          specs.push({
+            key: `${cardId}-burn-${entry.id}`,
+            rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+          });
+        }
+        if (specs.length > 0) {
+          setBeastBurnFlashes((prev) => [...prev, ...specs]);
+          setTimeout(() => {
+            setBeastBurnFlashes((prev) => prev.filter((s) => !specs.some((spec) => spec.key === s.key)));
+          }, delay(700));
+        }
       } else if (entry.type === 'field' && entry.player && (entry.text.includes('plantou um Broto') || entry.text.includes('empilhou o Broto'))) {
         // Druida (personagem novo) - o Broto nunca ativa como magia (ver
         // comentário completo em handlePlayCard, gameEngine.ts) - mesmo
@@ -1296,6 +1331,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const [reactionCountdown, setReactionCountdown] = useState(3);
   /** "Grande X" (pedido do usuário) sobre a última posição conhecida da carta anunciada, no instante em que alguém reage - ver ReactionNegatedBurst.tsx. */
   const [reactionNegatedBurst, setReactionNegatedBurst] = useState<ReactionNegatedBurstSpec | null>(null);
+  /** Besta - Fúria Sanguinária (pedido do usuário): rosto da Besta "pulando" sobre a última posição conhecida de cada carta que acabou de ser queimada da mão - ver BeastBurnFlash.tsx e o branch `entry.burnedCardIds` no useEffect de log logo abaixo. */
+  const [beastBurnFlashes, setBeastBurnFlashes] = useState<BeastBurnFlashSpec[]>([]);
   /**
    * Mosqueteiro (pedido do usuário: "efeitos visuais de balas sendo
    * disparadas nas cartas que as magias do mosqueteiro utiliza") - um tiro
@@ -2792,22 +2829,41 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     if (isAi(ownerPlayerNumber)) return false;
     const character = characterOf(gameState, ownerPlayerNumber);
     const magicType = card.value as MagicCardType;
-    const rule = getDragActivationRule(character, magicType);
-    if (!rule) return false;
     // FIX (pedido do usuário: "a rainha do anjo impede a ativação... até o
     // fim do turno") - checagem por CARTA específica, ver PlayerZone.tsx.
     if (hasStatus(card, 'magicLocked')) return false;
     if (!canActivateMagic(gameState.phase, character, magicType, getMagicActivationContext(gameState, ownerPlayerNumber))) return false;
-    // FIX (pedido do usuário: "o drag & drop do glacial na parte das
-    // magias não funciona") - `side: 'either'` precisa checar os DOIS
-    // campos antes de decidir se a carta vira arrastável, ver
-    // isMagicDropTarget acima.
-    const sidesToCheck: (1 | 2)[] =
-      rule.side === 'own' ? [ownerPlayerNumber] : rule.side === 'opponent' ? [opponentOf(ownerPlayerNumber)] : [1, 2];
-    for (const targetSide of sidesToCheck) {
-      const fieldLength = gameState[playerKeyOf(targetSide)].field.length;
-      for (let i = 0; i < fieldLength; i += 1) {
-        if (rule.isValidSlotTarget(gameState, ownerPlayerNumber, targetSide, i)) return true;
+    const rule = getDragActivationRule(character, magicType);
+    if (rule) {
+      // FIX (pedido do usuário: "o drag & drop do glacial na parte das
+      // magias não funciona") - `side: 'either'` precisa checar os DOIS
+      // campos antes de decidir se a carta vira arrastável, ver
+      // isMagicDropTarget acima.
+      const sidesToCheck: (1 | 2)[] =
+        rule.side === 'own' ? [ownerPlayerNumber] : rule.side === 'opponent' ? [opponentOf(ownerPlayerNumber)] : [1, 2];
+      for (const targetSide of sidesToCheck) {
+        const fieldLength = gameState[playerKeyOf(targetSide)].field.length;
+        for (let i = 0; i < fieldLength; i += 1) {
+          if (rule.isValidSlotTarget(gameState, ownerPlayerNumber, targetSide, i)) return true;
+        }
+      }
+    }
+    // FIX (pedido do usuário: "permita que as magias de alvo J e K do
+    // Glacial possam ser drag&drop em cartas na mão para congelarem elas")
+    // - mesma ideia acima, mas verificando alvos de MÃO via
+    // `getHandDragActivationRule` (ver comentário completo em
+    // dragActivation.ts) - a carta também deve ficar arrastável quando só
+    // existir um alvo de mão válido, mesmo sem nenhum alvo de campo (ex.:
+    // os dois campos cheios de cartas já congeladas, mas a própria mão tem
+    // uma carta livre pra congelar).
+    const handRule = getHandDragActivationRule(character, magicType);
+    if (handRule) {
+      const handSidesToCheck: (1 | 2)[] = handRule.side === 'own' ? [ownerPlayerNumber] : [1, 2];
+      for (const targetSide of handSidesToCheck) {
+        for (const targetCard of gameState[playerKeyOf(targetSide)].hand) {
+          if (targetCard.id === card.id) continue;
+          if (handRule.isValidHandTarget(gameState, ownerPlayerNumber, targetSide, targetCard.id)) return true;
+        }
       }
     }
     return false;
@@ -2833,6 +2889,59 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     const rule = getDragActivationRule(character, magicType)!;
 
     const selection = rule.buildSelection(gameState, ownerPlayerNumber, dropPlayerNumber, slotIndex);
+    executeMagicEffect({
+      playerNumber: ownerPlayerNumber,
+      cardId,
+      type: magicType,
+      character,
+      selectedCards: selection.selectedCards,
+      selectedSlot: selection.selectedSlot,
+      selectedTargetPlayer: selection.selectedTargetPlayer,
+      selectedTargetSlot: selection.selectedTargetSlot,
+      selectedRevealCardIds: selection.selectedRevealCardIds,
+      fireballLaunch: selection.fireballLaunch,
+    });
+  };
+
+  /**
+   * FIX (pedido do usuário: "permita que as magias de alvo J e K do Glacial
+   * possam ser drag&drop em cartas na mão para congelarem elas, isso
+   * incluem outras magias") - irmã de `isMagicDropTarget`/`handleMagicCardDrop`
+   * acima, mas pra soltar em cima de uma carta da MÃO (não um slot de
+   * campo) - a MESMA checagem usada tanto pra decidir se esta carta de mão
+   * aceita o drop (destaque visual em HandCardView.tsx) quanto pra validar
+   * de verdade no instante da soltura, nunca duas cópias divergentes. `card`
+   * é a que está sendo ARRASTADA (o Glacial J/K); `targetCardId` é a carta
+   * de mão sob o cursor (QUALQUER tipo - numeral ou J/Q/K, sem filtro, ver
+   * comentário completo em dragActivation.ts).
+   */
+  const isMagicHandDropTarget = (targetPlayerNumber: 1 | 2, targetCardId: string, card: Card): boolean => {
+    if (card.value !== 'J' && card.value !== 'K') return false;
+    if (card.id === targetCardId) return false;
+    const ownerPlayerNumber: 1 | 2 = gameState.player1.hand.some((c) => c.id === card.id) ? 1 : 2;
+    if (isAi(ownerPlayerNumber)) return false;
+    const character = characterOf(gameState, ownerPlayerNumber);
+    const magicType = card.value as MagicCardType;
+    const rule = getHandDragActivationRule(character, magicType);
+    if (!rule) return false;
+    if (rule.side !== 'either') {
+      const expectedSide: 1 | 2 = ownerPlayerNumber;
+      if (targetPlayerNumber !== expectedSide) return false;
+    }
+    if (hasStatus(card, 'magicLocked')) return false;
+    if (!canActivateMagic(gameState.phase, character, magicType, getMagicActivationContext(gameState, ownerPlayerNumber))) return false;
+    return rule.isValidHandTarget(gameState, ownerPlayerNumber, targetPlayerNumber, targetCardId);
+  };
+
+  const handleMagicHandDrop = (targetPlayerNumber: 1 | 2, targetCardId: string, cardId: string) => {
+    const ownerPlayerNumber: 1 | 2 = gameState.player1.hand.some((c) => c.id === cardId) ? 1 : 2;
+    const card = gameState[playerKeyOf(ownerPlayerNumber)].hand.find((c) => c.id === cardId);
+    if (!card || !isMagicHandDropTarget(targetPlayerNumber, targetCardId, card)) return;
+    const character = characterOf(gameState, ownerPlayerNumber);
+    const magicType = card.value as MagicCardType;
+    const rule = getHandDragActivationRule(character, magicType)!;
+
+    const selection = rule.buildSelection(gameState, ownerPlayerNumber, targetPlayerNumber, targetCardId);
     executeMagicEffect({
       playerNumber: ownerPlayerNumber,
       cardId,
@@ -3549,44 +3658,60 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     ? (gameState.gameOver.winner === 1 ? p1Theme.primary : p2Theme.primary)
     : '#C59E4F';
 
-  // FIX (pedido do usuário: "separar sempre visível de condicional" na
-  // barra superior) - junta Vira Primeiro/Spotlight/Magia Numeral Ativa
-  // (cada um só existe às vezes) numa lista só, consumida pelo Popover
-  // "N efeitos ativos" logo abaixo - o CONTEÚDO de cada item é o mesmo
-  // de antes (só sem o hover-tooltip, que fazia menos sentido dentro de
-  // um Popover já aberto por clique).
-  const activeHeaderEffects: { key: string; node: ReactNode }[] = [];
+  // FIX (overhaul completo pedido pelo usuário: "o 'efeito ativo' de hoje é
+  // só de quem seleciona a carta primeiro no combate, refaça do zero") -
+  // antes disto, os 3 efeitos abaixo (Vira Primeiro/Spotlight/Magia Numeral
+  // Ativa) só apareciam escondidos atrás de um Popover "N efeitos ativos"
+  // que exigia CLIQUE pra abrir - a barra em si nunca dava nenhuma pista de
+  // QUAL efeito estava ativo sem esse clique extra. Agora cada um vira um
+  // "chip" sempre visível na própria barra (cor + ícone do dono, texto curto
+  // direto no chip, descrição completa só no hover via Tooltip - não mais
+  // escondida atrás de clique), com contagem regressiva de turnos quando
+  // aplicável (`expiresAtTurn` já existe em `activeNumeralSpells`, só nunca
+  // tinha sido exposto) e um pulso extra quando o efeito está prestes a
+  // expirar (`urgent`). Pedido EXPLÍCITO incluído na lista: o nome da Magia
+  // Numeral ativa no campo já é o item `numeral-${p}` abaixo, agora num chip
+  // sempre visível em vez de escondido.
+  type ActiveEffectChip = {
+    key: string;
+    icon: ReactNode;
+    color: string;
+    label: string;
+    detail: ReactNode;
+    urgent?: boolean;
+  };
+  const activeEffectChips: ActiveEffectChip[] = [];
   if (gameState.phase === 'combat') {
-    activeHeaderEffects.push({
+    const firstColor = gameState.firstToFlip === 1 ? p1Theme.primary : p2Theme.primary;
+    const firstName = gameState.firstToFlip === 1 ? p1Theme.name : p2Theme.name;
+    activeEffectChips.push({
       key: 'first-to-flip',
-      node: (
-        <p key="first-to-flip" className="text-[11px] text-[#EFE7D6]">
-          <span className="text-[#C59E4F] font-semibold">Vira primeiro:</span>{' '}
-          {gameState.firstToFlip === 1 ? p1Theme.name : p2Theme.name}
-        </p>
-      ),
+      icon: <Flag className="w-3 h-3" />,
+      color: firstColor,
+      label: `Vira primeiro: ${firstName}`,
+      detail: 'Quem revela o próprio slot de combate primeiro nesta rodada.',
     });
   }
   if (gameState.spotlight) {
-    activeHeaderEffects.push({
+    activeEffectChips.push({
       key: 'spotlight',
-      node: (
-        <div key="spotlight" className="space-y-1">
-          <p className="text-[11px] font-semibold flex items-center gap-1.5" style={{ color: '#C59E4F' }}>
-            <Box className="w-3 h-3" /> Spotlight deste turno
-          </p>
-          <ul className="text-[11px] text-[#EFE7D6] space-y-0.5 pl-1">
-            {gameState.spotlight.numbers.map((n) => (
-              <li key={n.value}>
-                <span style={{ color: n.polarity === 'positive' ? '#F2C94C' : '#8A5A5A' }}>
-                  {n.value}
-                  {n.polarity === 'positive' ? '↑' : '↓'}
-                </span>{' '}
-                — {n.polarity === 'positive' ? 'vale 3x mais' : 'valor fixo em 1'} (combate, Magia Numeral, Torres)
-              </li>
-            ))}
-          </ul>
-        </div>
+      icon: <Box className="w-3 h-3" />,
+      color: '#C59E4F',
+      label: `Spotlight: ${gameState.spotlight.numbers
+        .map((n) => `${n.value}${n.polarity === 'positive' ? '↑' : '↓'}`)
+        .join(' ')}`,
+      detail: (
+        <ul className="text-[11px] text-[#EFE7D6] space-y-0.5">
+          {gameState.spotlight.numbers.map((n) => (
+            <li key={n.value}>
+              <span style={{ color: n.polarity === 'positive' ? '#F2C94C' : '#8A5A5A' }}>
+                {n.value}
+                {n.polarity === 'positive' ? '↑' : '↓'}
+              </span>{' '}
+              — {n.polarity === 'positive' ? 'vale 3x mais' : 'valor fixo em 1'} (combate, Magia Numeral, Torres)
+            </li>
+          ))}
+        </ul>
       ),
     });
   }
@@ -3594,16 +3719,23 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     const entry = gameState.activeNumeralSpells[p];
     if (!entry) return;
     const info = getNumeralSpellInfo(entry.character);
-    activeHeaderEffects.push({
+    const ownerTheme = getCharacterTheme(entry.character);
+    const ownerName = p === 1 ? p1Theme.name : p2Theme.name;
+    const turnsRemaining = Math.max(0, entry.expiresAtTurn - gameState.turn);
+    activeEffectChips.push({
       key: `numeral-${p}`,
-      node: (
-        <div key={`numeral-${p}`} className="space-y-0.5">
-          <p className="text-[11px] font-semibold" style={{ color: '#C59E4F' }}>
-            🌟 {info.name} (P{p})
-          </p>
-          <p className="text-[11px] text-[#BFB6A6]">{info.description}</p>
-        </div>
+      icon: <Sparkles className="w-3 h-3" />,
+      color: ownerTheme.primary,
+      label: `🌟 ${info.name} (${ownerName})${turnsRemaining > 0 ? ` · ${turnsRemaining}t` : ''}`,
+      detail: (
+        <>
+          <p className="text-[11px] text-[#EFE7D6]">{info.description}</p>
+          {turnsRemaining > 0 && (
+            <p className="text-[10px] text-[#BFB6A6] mt-1">Expira em {turnsRemaining} turno{turnsRemaining > 1 ? 's' : ''}.</p>
+          )}
+        </>
       ),
+      urgent: turnsRemaining <= 1,
     });
   });
 
@@ -3683,6 +3815,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         secondsLeft={reactionCountdown}
       />
       <ReactionNegatedBurst spec={reactionNegatedBurst} />
+      <BeastBurnFlash specs={beastBurnFlashes} />
       <PhaseTransition
         phase={gameState.phase}
         show={showPhaseTransition}
@@ -3709,17 +3842,17 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         }
       />
 
-      {/* Barra Superior - FIX (pedido do usuário: "overhaul da interface
-          superior") - antes era uma fileira única `flex` sem hierarquia,
-          crescendo sem controle: Turno/Fase (sempre visíveis) tinham o
-          MESMO peso que até 4 badges condicionais (Vira Primeiro, Spotlight,
-          2x Magia Numeral) - quando várias coincidiam, a barra apertava ou
-          cortava em telas mais estreitas (sem `flex-wrap`). Reorganizada em
-          3 blocos: sempre-visível (Turno + PhaseProgress + placar de vidas)
-          à esquerda/centro, condicionais agrupados num Popover só quando há
-          algo pra mostrar, e ações (Pronto x2, Configurações, Pausa) à
-          direita - `flex-wrap` no container garante que nunca corta, só
-          quebra linha se precisar. */}
+      {/* Barra Superior - FIX (overhaul completo pedido pelo usuário: "o
+          'efeito ativo' de hoje é só de quem seleciona a carta primeiro no
+          combate, refaça do zero") - antes era uma fileira única `flex` sem
+          hierarquia; reorganizada em 3 blocos: sempre-visível (Turno +
+          PhaseProgress + placar de vidas) à esquerda/centro, chips
+          condicionais SEMPRE VISÍVEIS (Vira Primeiro/Spotlight/Magia(s)
+          Numeral(is) ativa(s), ver `activeEffectChips` acima - cada um com
+          cor+ícone do dono, nunca mais escondidos atrás de um Popover que
+          exigia clique) logo depois, e ações (Pronto x2, Configurações,
+          Pausa) à direita - `flex-wrap` no container garante que nunca
+          corta, só quebra linha se precisar. */}
       <div className="bg-[#1E1A16] border-b border-[#C59E4F]/30 p-4 flex-shrink-0">
         <div className="flex items-center justify-between gap-4 flex-wrap max-w-[1800px] mx-auto">
           <div className="flex items-center gap-4 flex-wrap">
@@ -3757,35 +3890,34 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               </div>
               <span style={{ color: p2Theme.primary }} className="font-semibold">{p2Theme.name}</span>
             </div>
-            {/* FIX (pedido do usuário: "separar sempre visível de
-                condicional") - Vira Primeiro/Spotlight/Magia Numeral Ativa
-                saíram da fileira principal pra dentro deste Popover, que só
-                existe quando `activeHeaderEffects` tem pelo menos 1 item -
-                a barra nunca mais cresce à toa quando nada disso está
-                acontecendo (a maior parte do jogo). */}
-            {activeHeaderEffects.length > 0 && (
-              <Popover>
-                {/* FIX (bug real encontrado testando ao vivo): `PopoverTrigger
-                    asChild` envolvendo um `<Badge>` quebrava o clique
-                    inteiro - Badge é um function component comum, sem
-                    `forwardRef` (ver ui/badge.tsx), e o mecanismo `asChild`
-                    do Radix (Slot/SlotClone) PRECISA anexar um ref no
-                    elemento filho pra posicionar o popover; sem conseguir,
-                    o React só avisava no console ("Function components
-                    cannot be given refs") e o popover nunca abria - nenhum
-                    erro visível pro jogador, só um botão morto. Estiliza o
-                    PRÓPRIO PopoverTrigger (que já é um `<button>` nativo,
-                    aceita ref igual qualquer elemento DOM) parecido com um
-                    Badge, em vez de aninhar os dois. */}
-                <PopoverTrigger className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium border-[#C59E4F] text-[#C59E4F] cursor-pointer animate-pulse">
-                  <Sparkles className="w-3 h-3" />
-                  {activeHeaderEffects.length} efeito{activeHeaderEffects.length > 1 ? 's' : ''} ativo{activeHeaderEffects.length > 1 ? 's' : ''}
-                </PopoverTrigger>
-                <PopoverContent className="bg-[#1E1A16] border-[#C59E4F] w-72 space-y-3">
-                  {activeHeaderEffects.map((effect) => effect.node)}
-                </PopoverContent>
-              </Popover>
-            )}
+            {/* FIX (overhaul completo pedido pelo usuário: "o 'efeito ativo'
+                de hoje é só de quem seleciona a carta primeiro no combate,
+                refaça do zero") - cada efeito agora é um chip SEMPRE
+                visível (cor + ícone do dono, texto curto direto nele) em
+                vez de escondido atrás de um Popover que exigia clique - ver
+                `activeEffectChips` acima pro cálculo completo (Vira
+                Primeiro/Spotlight/Magia(s) Numeral(is) ativa(s), com
+                contagem regressiva de turnos quando aplicável). Descrição
+                completa só no hover (Tooltip), nunca mais atrás de clique;
+                `urgent` (prestes a expirar) pulsa mais forte que o resto. */}
+            {activeEffectChips.map((chip) => (
+              <TooltipProvider key={chip.key}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium cursor-help ${
+                        chip.urgent ? 'animate-pulse' : ''
+                      }`}
+                      style={{ borderColor: chip.color, color: chip.color, boxShadow: chip.urgent ? `0 0 8px ${chip.color}80` : undefined }}
+                    >
+                      {chip.icon}
+                      {chip.label}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[260px]">{chip.detail}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ))}
           </div>
 
           <div className="flex items-center gap-4">
@@ -4021,6 +4153,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 deck={gameState.deck}
                 magicContext={getMagicActivationContext(gameState, 2)}
                 isMagicCardDraggable={(card) => isMagicCardDraggable(2, card)}
+                isMagicHandDropTarget={(targetCardId, draggedCard) => isMagicHandDropTarget(2, targetCardId, draggedCard)}
+                onMagicHandDrop={(targetCardId, draggedCardId) => handleMagicHandDrop(2, targetCardId, draggedCardId)}
                 onActivateNumeralSpell={() => handleActivateNumeralSpell(2)}
                 canPayToUnfreeze={canPayToUnfreeze(2)}
                 onOpenPayToUnfreeze={() => setPendingUnfreeze({ playerNumber: 2 })}
@@ -4033,6 +4167,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 // próprio, mesmo sendo um efeito completamente independente.
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[2] !== undefined}
                 isAiControlled={isAi(2)}
+                dispatchBlocked={showPhaseTransition || Boolean(postMagicPause)}
                 hotseatPrivacyActive={hotseatPrivacyActive}
                 forceRevealHand={spectatorRevealHands}
                 effectFlashCardIds={effectFlashCardIds}
@@ -4145,6 +4280,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 deck={gameState.deck}
                 magicContext={getMagicActivationContext(gameState, 1)}
                 isMagicCardDraggable={(card) => isMagicCardDraggable(1, card)}
+                isMagicHandDropTarget={(targetCardId, draggedCard) => isMagicHandDropTarget(1, targetCardId, draggedCard)}
+                onMagicHandDrop={(targetCardId, draggedCardId) => handleMagicHandDrop(1, targetCardId, draggedCardId)}
                 onActivateNumeralSpell={() => handleActivateNumeralSpell(1)}
                 canPayToUnfreeze={canPayToUnfreeze(1)}
                 onOpenPayToUnfreeze={() => setPendingUnfreeze({ playerNumber: 1 })}
@@ -4152,6 +4289,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 unfreezeDisabledReason={unfreezeDisabledReason(1)}
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[1] !== undefined}
                 isAiControlled={isAi(1)}
+                dispatchBlocked={showPhaseTransition || Boolean(postMagicPause)}
                 hotseatPrivacyActive={hotseatPrivacyActive}
                 forceRevealHand={spectatorRevealHands}
                 effectFlashCardIds={effectFlashCardIds}
@@ -4221,6 +4359,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   field={gameState.player2.field}
                   photosynthesisLevel={gameState.player2.druidaPhotosynthesisLevel}
                   glacialGolemValue={getGlacialGolemValue(gameState)}
+                  opponentField={gameState.player1.field}
+                  handMagicCount={
+                    !isAi(2) || spectatorRevealHands
+                      ? gameState.player2.hand.filter((c) => c.value === 'J' || c.value === 'Q' || c.value === 'K').length
+                      : undefined
+                  }
                 />
                 <CharacterMagicReference character={player2Character} gameState={gameState} playerNumber={2} />
               </div>
@@ -4451,6 +4595,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   field={gameState.player1.field}
                   photosynthesisLevel={gameState.player1.druidaPhotosynthesisLevel}
                   glacialGolemValue={getGlacialGolemValue(gameState)}
+                  opponentField={gameState.player2.field}
+                  handMagicCount={
+                    !isAi(1) || spectatorRevealHands
+                      ? gameState.player1.hand.filter((c) => c.value === 'J' || c.value === 'Q' || c.value === 'K').length
+                      : undefined
+                  }
                 />
               </div>
             </div>
@@ -6384,6 +6534,26 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 id="pauseAutoDraw"
                 checked={settings.autoDrawEnabled}
                 onCheckedChange={(checked) => updateSetting('autoDrawEnabled', checked)}
+              />
+            </div>
+            {/* FIX (bug relatado pelo usuário: "não adicionou a opção de ver
+                tooltip de efeito de cartas ao passar o mouse... ao lado das
+                outras opções") - `showHandEffectTooltips` (Settings.tsx) já
+                existia na tela CHEIA de Configurações (antes de iniciar a
+                partida), mas nunca tinha sido adicionado aqui neste diálogo
+                de acesso rápido DURANTE a partida, ao lado dos irmãos
+                Auto-Compra/Confirmar Antes de Descartar/Trocar de Fase -
+                único jeito de mudar essa preferência era sair pro Início e
+                reabrir a tela de Configurações de lá. Mesmo padrão exato dos
+                switches acima. */}
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pauseShowHandEffectTooltips" className="text-[#BFB6A6]">
+                Tooltips de Efeito na Mão
+              </Label>
+              <Switch
+                id="pauseShowHandEffectTooltips"
+                checked={settings.showHandEffectTooltips}
+                onCheckedChange={(checked) => updateSetting('showHandEffectTooltips', checked)}
               />
             </div>
             {/* FIX (pedido do usuário: "ocultar mão do oponente

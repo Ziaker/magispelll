@@ -78,6 +78,21 @@ interface HandCardViewProps {
   canTowerGroupTarget?: boolean;
   /** Disparado quando outra carta da mão de mesmo valor é solta em cima desta (agrupamento pra Torre via drag-and-drop) - `droppedCardId` é a carta que estava sendo arrastada. */
   onTowerGroupDrop?: (droppedCardId: string) => void;
+  /**
+   * FIX (pedido do usuário: "permita que as magias de alvo J e K do Glacial
+   * possam ser drag&drop em cartas na mão para congelarem elas, isso
+   * incluem outras magias") - verdadeiro quando ESTA carta específica pode
+   * ser congelada agora pela carta ARRASTADA (`draggedCard`, o Glacial J/K
+   * em questão) - diferente de `canFuseTarget`/`canAceTransformTarget`
+   * (booleanos estáticos, calculados só a partir desta carta), este é uma
+   * FUNÇÃO: quem decide se congelar é possível precisa saber QUEM está
+   * arrastando (calculado em GameBoard.tsx via `isMagicHandDropTarget`, o
+   * único lugar com acesso às duas mãos/ao personagem de quem arrasta - ver
+   * PlayerZone.tsx).
+   */
+  canFreezeTarget?: (draggedCard: Card) => boolean;
+  /** Disparado quando um Glacial J/K é solto em cima desta carta (congelar via drag-and-drop) - `droppedCardId` é a carta de magia que estava sendo arrastada. */
+  onFreezeDrop?: (droppedCardId: string) => void;
 
   /**
    * QoL da mão (pedido do usuário: "me de mais ideias, melhores" sobre a
@@ -174,6 +189,8 @@ export function HandCardView({
   onAceTransformDrop,
   canTowerGroupTarget,
   onTowerGroupDrop,
+  canFreezeTarget,
+  onFreezeDrop,
   arcRotateDeg = 0,
   arcLiftPx = 0,
   fusionPreview,
@@ -271,6 +288,14 @@ export function HandCardView({
         if (item.cardId === card.id) return false;
         const isUntransformedDraggedAce = item.card?.value === 'A' && item.card?.transformedValue === undefined;
         if (isUntransformedDraggedAce) return Boolean(canAceTransformTarget);
+        // FIX (pedido do usuário: "permita que as magias de alvo J e K do
+        // Glacial possam ser drag&drop em cartas na mão para congelarem
+        // elas") - checado ANTES do fallback de Fusão logo abaixo: um J/K
+        // arrastado nunca é fundível de verdade (isPlainNumeralCard exclui
+        // magia), então sem este branch o destaque visual podia mentir
+        // "funde" pra um arraste que `handleFuseCards` (gameEngine.ts)
+        // rejeitaria em silêncio.
+        if (item.card && canFreezeTarget?.(item.card)) return true;
         if (isMatchingTowerDrag(item)) return true;
         return Boolean(canFuseTarget);
       },
@@ -278,6 +303,8 @@ export function HandCardView({
         const isUntransformedDraggedAce = item.card?.value === 'A' && item.card?.transformedValue === undefined;
         if (isUntransformedDraggedAce) {
           onAceTransformDrop?.(item.cardId);
+        } else if (item.card && canFreezeTarget?.(item.card)) {
+          onFreezeDrop?.(item.cardId);
         } else if (isMatchingTowerDrag(item)) {
           onTowerGroupDrop?.(item.cardId);
         } else {
@@ -286,7 +313,7 @@ export function HandCardView({
       },
       collect: (monitor) => ({ isCardDropOver: monitor.isOver(), canDropNow: monitor.canDrop() }),
     }),
-    [canFuseTarget, canAceTransformTarget, canTowerGroupTarget, card, onFuseDrop, onAceTransformDrop, onTowerGroupDrop]
+    [canFuseTarget, canAceTransformTarget, canTowerGroupTarget, canFreezeTarget, card, onFuseDrop, onAceTransformDrop, onTowerGroupDrop, onFreezeDrop]
   );
 
   // Dispara o equivalente ao antigo `onDragStart` nativo (seleciona a carta

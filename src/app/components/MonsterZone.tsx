@@ -5,6 +5,7 @@ import { PlayingCard, PHASE_DISPLAY } from './PlayingCard';
 import { getCharacterTheme } from '../lib/characterThemes';
 import type { Card } from '../lib/cardUtils';
 import { isBrotoSlot, type CharacterId, type FieldSlot } from '../lib/gameEngine';
+import { getDisplayValue, getEffectiveCardValue } from '../lib/cardUtils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { getMonsterEffect } from '../lib/monsterCards';
 import { MAX_MONSTER_USES } from '../lib/gameEngine';
@@ -43,6 +44,32 @@ interface MonsterZoneProps {
    * (getGlacialGolemValue, gameEngine.ts) em vez de ficar "vazia" à toa.
    */
   glacialGolemValue?: number;
+  /**
+   * Coringa/Palhaço (pedido do usuário: "remova a zona monstro do palhaço e
+   * troque por uma visualização da carta de maior número visível no campo
+   * do oponente, para questões da magia da rainha, e também o número de
+   * magias na mão do palhaço") - mesma ideia do HUD do Broto/Criogolem
+   * acima: o Palhaço nunca usa a Zona Monstro de verdade (o redesenho
+   * completo trocou a carta Monstro única por 3 "armadilhas" J/Q/K
+   * posicionadas direto no campo, ver o comentário "Coringa (redesenho
+   * completo) nunca chega aqui" em handlePlaceMonsterCard, gameEngine.ts),
+   * então a caixa ficaria "vazio" pra sempre sem esta troca. `opponentField`
+   * (cru, mesmo padrão de `field` do Druida acima) - a Rainha do Palhaço
+   * ("Disfarce Duplo") copia o valor de uma carta REVELADA do oponente, daí
+   * a referência rápida da maior carta visível de lá; `handMagicCount`
+   * (pré-calculado, mesmo padrão de `glacialGolemValue`) conta as cartas de
+   * magia (J/Q/K) na própria mão.
+   */
+  opponentField?: [FieldSlot, FieldSlot, FieldSlot];
+  /**
+   * `undefined` quando esta é a mão OCULTA da IA (fora do Modo Espectador
+   * com "revelar mãos" ligado) - mostrar a contagem de armadilhas vazaria
+   * informação estratégica que um jogador de verdade nunca teria (a
+   * contagem TOTAL de cartas já é visível, mas o TIPO de cada uma, não -
+   * mesmo cuidado que `isAiField`/`forceRevealHand` já tomam em
+   * PlayerZone.tsx pro resto da mão).
+   */
+  handMagicCount?: number;
 }
 
 /**
@@ -78,6 +105,8 @@ export function MonsterZone({
   field,
   photosynthesisLevel = 0,
   glacialGolemValue,
+  opponentField,
+  handMagicCount,
 }: MonsterZoneProps) {
   const theme = getCharacterTheme(character);
   const monsterEffect = getMonsterEffect(character);
@@ -208,6 +237,78 @@ export function MonsterZone({
           </p>
           <p className="text-[10px] text-[#BFB6A6]">Valor do Criogolem</p>
         </div>
+      </div>
+    );
+  }
+
+  // Coringa/Palhaço - referência da maior carta revelada do oponente
+  // (Disfarce Duplo copia o valor de uma delas) + contagem de armadilhas
+  // (J/Q/K) na própria mão, lado a lado, em vez do slot de carta Monstro que
+  // este personagem nunca usa de verdade (ver comentário de
+  // `opponentField`/`handMagicCount` na interface acima).
+  if (character === 'coringa') {
+    const revealedOpponentCards = (opponentField ?? []).flatMap((slot) => [
+      ...(slot.faceDownCard?.revealed ? [slot.faceDownCard] : []),
+      ...slot.horizontalCards.filter((c) => c.revealed),
+    ]);
+    const highestOpponentCard =
+      revealedOpponentCards.length > 0
+        ? revealedOpponentCards.reduce((best, c) => (getEffectiveCardValue(c) > getEffectiveCardValue(best) ? c : best))
+        : null;
+    return (
+      <div className="bg-[#1E1A16]/50 rounded-lg p-3 flex items-center gap-3" style={{ border: `1px solid ${theme.primary}33` }}>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className="w-14 h-14 rounded-lg border flex flex-col items-center justify-center cursor-help"
+                style={{ borderColor: theme.primary, color: theme.primary, boxShadow: highestOpponentCard ? `0 0 12px ${theme.primary}55` : undefined }}
+              >
+                {highestOpponentCard ? (
+                  <span className="text-[18px] font-bold">{getDisplayValue(highestOpponentCard)}</span>
+                ) : (
+                  <span className="text-[16px]">👁️</span>
+                )}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[240px]">
+              <p className="text-[10px] font-semibold mb-1 uppercase tracking-wide" style={{ color: theme.primary }}>
+                👁️ Maior Carta Revelada do Oponente
+              </p>
+              {highestOpponentCard ? (
+                <p className="text-[#EFE7D6] text-[11px]">
+                  {getDisplayValue(highestOpponentCard)}
+                  {highestOpponentCard.suit} - referência pra Disfarce Duplo (Rainha)
+                </p>
+              ) : (
+                <p className="text-[#EFE7D6] text-[11px]">Nenhuma carta revelada no campo do oponente ainda.</p>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className="w-14 h-14 rounded-lg border flex flex-col items-center justify-center cursor-help"
+                style={{ borderColor: theme.primary, color: theme.primary }}
+              >
+                <span className="text-[18px] font-bold">{handMagicCount ?? '?'}</span>
+                <span className="text-[11px]">🃏</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent className="bg-[#1E1A16] border-[#C59E4F] max-w-[240px]">
+              <p className="text-[10px] font-semibold mb-1 uppercase tracking-wide" style={{ color: theme.primary }}>
+                🃏 Armadilhas na Mão
+              </p>
+              <p className="text-[#EFE7D6] text-[11px]">
+                {handMagicCount === undefined
+                  ? 'Mão oculta - contagem desconhecida.'
+                  : `${handMagicCount} carta(s) de magia (Valete/Rainha/Rei) ainda na mão.`}
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
     );
   }
