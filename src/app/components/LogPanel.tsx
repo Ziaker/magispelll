@@ -1,4 +1,5 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { getCharacterTheme } from '../lib/characterThemes';
@@ -38,6 +39,37 @@ export function LogPanel({ log, player1Character, player2Character, screenReader
   // Turnos que o jogador já mexeu manualmente (expandiu ou recolheu) - sem
   // entrada aqui, o estado padrão vale: só o turno mais recente vem expandido.
   const [manualTurnOverrides, setManualTurnOverrides] = useState<Map<number, boolean>>(new Map());
+
+  /**
+   * FIX ("Overhaul de Animações", item 9: "log de ações com entradas vivas
+   * - slide-in + flash na entrada mais recente") - antes cada entrada só
+   * aparecia instantaneamente junto com o resto do painel (nenhuma
+   * animação); agora a lista inteira entra via `AnimatePresence` (ver JSX
+   * mais abaixo, `key={entry.id}` - `entry.id` é monotônico e nunca se
+   * repete, mesmo com o teto de 30 entradas, ver gameEngine.ts) e a MAIS
+   * RECENTE de verdade (não qualquer uma que apareça na tela por causa de
+   * um filtro mudando) pisca uma vez.
+   *
+   * Mesmo padrão de "detectar a TRANSIÇÃO, não só o valor atual" já usado
+   * em GameBoard.tsx/PlayerZone.tsx: `lastSeenIdRef` compara com o MAIOR id
+   * da prop `log` (sempre a lista completa, não `filtered`/`turnGroups` -
+   * senão trocar um filtro que esconde a entrada mais nova "perderia" o
+   * flash dela na próxima vez que ela reaparecesse) pra saber se uma
+   * entrada nova de verdade chegou desde o último render.
+   */
+  const lastSeenIdRef = useRef<number>(log.length > 0 ? log[log.length - 1].id : -1);
+  const [flashingEntryId, setFlashingEntryId] = useState<number | null>(null);
+  useEffect(() => {
+    if (log.length === 0) return;
+    const newestId = log[log.length - 1].id;
+    if (newestId > lastSeenIdRef.current) {
+      setFlashingEntryId(newestId);
+      const t = setTimeout(() => setFlashingEntryId(null), 900);
+      lastSeenIdRef.current = newestId;
+      return () => clearTimeout(t);
+    }
+    lastSeenIdRef.current = newestId;
+  }, [log]);
 
   const toggleBucket = (id: string) => {
     setActiveBucketIds((prev) => {
@@ -181,32 +213,55 @@ export function LogPanel({ log, player1Character, player2Character, screenReader
                 </button>
                 {expanded && (
                   <div className="space-y-1 pl-2">
-                    {entries.map((entry) => {
-                      const color = getLogColor(entry, characterOfPlayer);
-                      const effectInfo = getLogEffectInfo(entry, characterOfPlayer);
-                      return (
-                        <div
-                          key={entry.id}
-                          className="text-[11px] text-[#BFB6A6] opacity-80 pl-2 border-l-2"
-                          style={{ borderLeftColor: color ?? '#BFB6A625' }}
-                        >
-                          <span className="mr-1">{getLogIcon(entry)}</span>
-                          {effectInfo && (
-                            <>
-                              <span
-                                className="underline decoration-dotted cursor-help font-semibold"
-                                style={{ color: color ?? '#C59E4F' }}
-                                title={effectInfo.description}
-                              >
-                                {effectInfo.name}
-                              </span>
-                              {': '}
-                            </>
-                          )}
-                          {effectInfo ? entry.text : renderText(entry, color)}
-                        </div>
-                      );
-                    })}
+                    <AnimatePresence initial={false}>
+                      {entries.map((entry) => {
+                        const color = getLogColor(entry, characterOfPlayer);
+                        const effectInfo = getLogEffectInfo(entry, characterOfPlayer);
+                        const isFlashing = entry.id === flashingEntryId;
+                        return (
+                          <motion.div
+                            key={entry.id}
+                            layout
+                            initial={{ opacity: 0, x: -14 }}
+                            animate={{ opacity: 0.8, x: 0 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.25, ease: 'easeOut' }}
+                            className="relative text-[11px] text-[#BFB6A6] pl-2 border-l-2 rounded-r"
+                            style={{ borderLeftColor: color ?? '#BFB6A625' }}
+                          >
+                            {/* Flash na entrada mais recente - mesma técnica de
+                                overlay disparado por AnimatePresence já usada em
+                                ReadyStamp.tsx/BeastBurnFlash.tsx. */}
+                            <AnimatePresence>
+                              {isFlashing && (
+                                <motion.div
+                                  className="absolute inset-0 rounded-r pointer-events-none"
+                                  initial={{ opacity: 0.6 }}
+                                  animate={{ opacity: 0 }}
+                                  exit={{ opacity: 0 }}
+                                  transition={{ duration: 0.9, ease: 'easeOut' }}
+                                  style={{ backgroundColor: color ?? '#C59E4F' }}
+                                />
+                              )}
+                            </AnimatePresence>
+                            <span className="mr-1">{getLogIcon(entry)}</span>
+                            {effectInfo && (
+                              <>
+                                <span
+                                  className="underline decoration-dotted cursor-help font-semibold"
+                                  style={{ color: color ?? '#C59E4F' }}
+                                  title={effectInfo.description}
+                                >
+                                  {effectInfo.name}
+                                </span>
+                                {': '}
+                              </>
+                            )}
+                            {effectInfo ? entry.text : renderText(entry, color)}
+                          </motion.div>
+                        );
+                      })}
+                    </AnimatePresence>
                   </div>
                 )}
               </div>

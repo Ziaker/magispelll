@@ -23,6 +23,7 @@ import { MagicToast } from './MagicToast';
 import { LogPanel } from './LogPanel';
 import { getLogEffectInfo, getLogIcon } from '../lib/logFormat';
 import { FlyingDiscardCard, type FlyingDiscardSpec } from './FlyingDiscardCard';
+import { DeckReshuffleBurst, type DeckReshuffleBurstSpec } from './DeckReshuffleBurst';
 import confetti from 'canvas-confetti';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -48,6 +49,8 @@ import { CardInspectionOverlay, type CardInspectionSpec } from './CardInspection
 import { getCardStatusSummaries, getCardTypeInfo, getCardValueBreakdown } from '../lib/cardEffectSummary';
 import { ReactionNegatedBurst, type ReactionNegatedBurstSpec } from './ReactionNegatedBurst';
 import { BeastBurnFlash, type BeastBurnFlashSpec } from './BeastBurnFlash';
+import { TurnCounter } from './TurnCounter';
+import { TurnLightSweep } from './TurnLightSweep';
 import { BulletImpactBurst, type BulletImpactSpec } from './BulletImpactBurst';
 import { FireballProjectile, type FireballProjectileSpec } from './FireballProjectile';
 import { ChromaticFlash } from './ChromaticFlash';
@@ -61,6 +64,7 @@ import { getDisplayValue, isNumeralCard, isPlainNumeralCard, isValidAceTransform
 import { isUntransformedAce } from '../lib/fusion';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { getNumeralSpellInfo } from '../lib/numeralSpells';
+import { NumeralSpellAssembly, type NumeralSpellAssemblySpec } from './NumeralSpellAssembly';
 import { ZoomContainerContext } from '../lib/zoomContainerContext';
 import { saveRecentCharacter } from '../lib/gamePreferences';
 import { recordMatchResult } from '../lib/matchStats';
@@ -791,6 +795,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.phase, gameState.turn]);
   const [showNumeralSpellPopup, setShowNumeralSpellPopup] = useState(false);
+  /**
+   * "Overhaul de Animações", item 8: "montagem da Magia Numeral" - ver
+   * NumeralSpellAssembly.tsx pro porquê de guardar só valores simbólicos
+   * (não IDs de carta) e a origem (posição da mão de quem ativou).
+   */
+  const [numeralAssemblySpec, setNumeralAssemblySpec] = useState<NumeralSpellAssemblySpec | null>(null);
   const [pendingMagic, setPendingMagic] = useState<PendingMagic | null>(null);
   const [pendingUnfreeze, setPendingUnfreeze] = useState<PendingUnfreeze | null>(null);
   const [pendingAceTransform, setPendingAceTransform] = useState<{ playerNumber: 1 | 2; aceCardId: string } | null>(null);
@@ -1009,6 +1019,14 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     return [];
   }, [gameConfig.mode]);
   const isAi = (player: PlayerNumber) => aiPlayers.includes(player);
+  /**
+   * "Overhaul de Animações", selo de "Pronto": "quando os DOIS ficam
+   * prontos, um pulso sincronizado nos dois lados sinalizando 'vai
+   * avançar'". Repassado como `bothReady` pras duas instâncias de
+   * PlayerZone (ver `BothReadyPulse` em ReadyStamp.tsx) - não precisa de
+   * `useMemo`, é só um AND de dois booleanos já em `gameState`.
+   */
+  const bothPlayersReady = gameState.player1.readyForNextPhase && gameState.player2.readyForNextPhase;
 
   /**
    * FIX (pedido do usuário, QoL: "lembrar personagem(ns) usados recentemente
@@ -1178,6 +1196,26 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         if (entry.player && entry.slotIndex !== undefined) triggerSmokeBurst({ player: entry.player, slotIndex: entry.slotIndex });
       } else if (entry.type === 'magic' && entry.text.startsWith('O Monstro') && entry.text.includes('voltou oculto')) {
         soundManager.play(monsterSoundFor('coringa'));
+      } else if (entry.type === 'system' && entry.text.includes('baralho esgotou')) {
+        // Pedido do usuário ("Overhaul de Animações"): "quando o baralho
+        // esgota e a pilha de descarte volta, uma animação dedicada em vez
+        // do contador só resetar instantaneamente" - ver DeckReshuffleBurst.tsx.
+        // O reembaralhamento em si já aconteceu no motor (ensureDeckHasCards,
+        // gameEngine.ts, roda ANTES desta entrada de log existir) - aqui só
+        // captura as posições reais dos dois painéis pro voo decorativo.
+        const fromRect = discardPileRef.current?.getBoundingClientRect();
+        const toRect = deckPileRef.current?.getBoundingClientRect();
+        if (fromRect && toRect) {
+          const burstKey = `reshuffle-${entry.id}`;
+          setDeckReshuffleBurst({
+            key: burstKey,
+            from: { left: fromRect.left, top: fromRect.top, width: fromRect.width, height: fromRect.height },
+            to: { left: toRect.left, top: toRect.top, width: toRect.width, height: toRect.height },
+          });
+          setTimeout(() => {
+            setDeckReshuffleBurst((prev) => (prev?.key === burstKey ? null : prev));
+          }, delay(750));
+        }
       } else if (entry.burnedCardIds?.length) {
         // Besta - Fúria Sanguinária (pedido do usuário: "ícone da besta
         // pulando na mão e descartando a carta") - o "descartando" já
@@ -1321,6 +1359,20 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   const cardPositionsRef = useRef(new Map<string, DOMRect>());
   const discardPileRef = useRef<HTMLDivElement>(null);
   const [flyingDiscards, setFlyingDiscards] = useState<FlyingDiscardSpec[]>([]);
+  /** Pedido do usuário ("Overhaul de Animações"): âncora real do painel "Baralho", usada como destino do DeckReshuffleBurst.tsx (origem = discardPileRef acima) quando o baralho esgota e o cemitério volta. */
+  const deckPileRef = useRef<HTMLDivElement>(null);
+  const [deckReshuffleBurst, setDeckReshuffleBurst] = useState<DeckReshuffleBurstSpec | null>(null);
+  /** Pedido do usuário ("Overhaul de Animações", "contador de turno tipo hodômetro"): "talvez com uma varredura sutil de luz cruzando o tabuleiro inteiro na virada" - ver TurnLightSweep.tsx, disparado pelo useEffect de `gameState.turn` logo abaixo. */
+  const [showTurnSweep, setShowTurnSweep] = useState(false);
+  const prevTurnRef = useRef(gameState.turn);
+  useEffect(() => {
+    if (gameState.turn === prevTurnRef.current) return;
+    prevTurnRef.current = gameState.turn;
+    setShowTurnSweep(true);
+    const t = setTimeout(() => setShowTurnSweep(false), delay(700));
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState.turn]);
 
   // ---------------------------------------------------------------------
   // Modo Reações (pedido do usuário) - ver gameEngine.ts (pendingReaction/
@@ -1800,31 +1852,63 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   // que uma magia comum (que só tem o burst local em MagicEffectBurst.tsx).
   useEffect(() => {
     if (!gameState.numeralSpellPending) return;
-    setShowNumeralSpellPopup(true);
-    // FIX (pedido do usuário: "checkout em todos sons... adicione para tais
-    // personagens") - antes tocava o 'magic-activate' genérico pras 3 Magias
-    // Numerais (Visão Arcana/Fúria Sanguinária/Benção Eterna), sem distinção
-    // por personagem, diferente das magias J/Q/K normais - ver numeralSoundFor.
-    soundManager.play(numeralSoundFor(gameState.numeralSpellPending.character));
+    const { playerNumber, character } = gameState.numeralSpellPending;
+
+    // "Overhaul de Animações", item 8 ("montagem da Magia Numeral, as 3
+    // cartas do combo se reunindo antes do efeito disparar") - antes de
+    // qualquer coisa abaixo (popup/som/tremor), 3 cartas-fantasma saem da
+    // mão de quem ativou e convergem pro centro da tela (ver
+    // NumeralSpellAssembly.tsx pro porquê de serem simbólicas, não as
+    // cartas reais). `assemblyDuration` 0 quando `settings.animations`
+    // está desligado - sem montagem nenhuma, popup/som/tremor disparam
+    // imediatamente como sempre disparavam (respeita a preferência global
+    // de "reduzir efeitos" em vez de forçar o atraso mesmo assim).
+    const assemblyDuration = settings.animations ? 620 : 0;
     if (settings.animations) {
-      if (settings.screenShakeEnabled) {
-        // FIX (pedido do usuário, overhaul visual da Besta: "tremor de tela
-        // mais errático") - Fúria Sanguinária (a Magia Numeral dela) usa a
-        // variante própria; qualquer outro personagem continua com o tremor
-        // padrão de sempre.
-        setScreenShake(gameState.numeralSpellPending.character === 'besta' ? 'besta' : 'default');
-        setTimeout(() => setScreenShake('none'), delay(650));
-      }
-      if (settings.screenFlashEnabled) {
-        setScreenFlash(true);
-        setTimeout(() => setScreenFlash(false), delay(650));
+      const handRect = cardPositionsRef.current.get(`hand-p${playerNumber}`);
+      if (handRect) {
+        setNumeralAssemblySpec({
+          character,
+          requiredNumbers: getNumeralSpellInfo(character, { fusionEnabled: gameConfig.fusion }).requiredNumbers,
+          originLeft: handRect.left + handRect.width / 2,
+          originTop: handRect.top + handRect.height / 2,
+        });
       }
     }
-    const t = setTimeout(() => {
+
+    const showEffects = () => {
+      setNumeralAssemblySpec(null);
+      setShowNumeralSpellPopup(true);
+      // FIX (pedido do usuário: "checkout em todos sons... adicione para tais
+      // personagens") - antes tocava o 'magic-activate' genérico pras 3 Magias
+      // Numerais (Visão Arcana/Fúria Sanguinária/Benção Eterna), sem distinção
+      // por personagem, diferente das magias J/Q/K normais - ver numeralSoundFor.
+      soundManager.play(numeralSoundFor(character));
+      if (settings.animations) {
+        if (settings.screenShakeEnabled) {
+          // FIX (pedido do usuário, overhaul visual da Besta: "tremor de tela
+          // mais errático") - Fúria Sanguinária (a Magia Numeral dela) usa a
+          // variante própria; qualquer outro personagem continua com o tremor
+          // padrão de sempre.
+          setScreenShake(character === 'besta' ? 'besta' : 'default');
+          setTimeout(() => setScreenShake('none'), delay(650));
+        }
+        if (settings.screenFlashEnabled) {
+          setScreenFlash(true);
+          setTimeout(() => setScreenFlash(false), delay(650));
+        }
+      }
+    };
+    const assemblyTimer = setTimeout(showEffects, delay(assemblyDuration));
+    const finalizeTimer = setTimeout(() => {
       setShowNumeralSpellPopup(false);
       dispatch({ type: 'FINALIZE_NUMERAL_SPELL' });
-    }, delay(3000));
-    return () => clearTimeout(t);
+    }, delay(assemblyDuration + 3000));
+    return () => {
+      clearTimeout(assemblyTimer);
+      clearTimeout(finalizeTimer);
+      setNumeralAssemblySpec(null);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.numeralSpellPending]);
 
@@ -3816,6 +3900,9 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       />
       <ReactionNegatedBurst spec={reactionNegatedBurst} />
       <BeastBurnFlash specs={beastBurnFlashes} />
+      <DeckReshuffleBurst spec={deckReshuffleBurst} />
+      <NumeralSpellAssembly spec={numeralAssemblySpec} />
+      <TurnLightSweep active={showTurnSweep} />
       <PhaseTransition
         phase={gameState.phase}
         show={showPhaseTransition}
@@ -3865,7 +3952,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               <ArrowLeft className="w-4 h-4" />
             </Button>
             <Badge className="bg-[#C59E4F] text-[#0F1113]">
-              Turno {gameState.turn}
+              Turno <TurnCounter turn={gameState.turn} />
             </Badge>
             <PhaseProgress phase={gameState.phase} />
             {/* FIX (pedido do usuário: "placar de vidas no topo") - antes só
@@ -4168,6 +4255,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[2] !== undefined}
                 isAiControlled={isAi(2)}
                 dispatchBlocked={showPhaseTransition || Boolean(postMagicPause)}
+                bothReady={bothPlayersReady}
                 hotseatPrivacyActive={hotseatPrivacyActive}
                 forceRevealHand={spectatorRevealHands}
                 effectFlashCardIds={effectFlashCardIds}
@@ -4290,6 +4378,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                 hasActiveNumeralSpell={gameState.activeNumeralSpells[1] !== undefined}
                 isAiControlled={isAi(1)}
                 dispatchBlocked={showPhaseTransition || Boolean(postMagicPause)}
+                bothReady={bothPlayersReady}
                 hotseatPrivacyActive={hotseatPrivacyActive}
                 forceRevealHand={spectatorRevealHands}
                 effectFlashCardIds={effectFlashCardIds}
@@ -4472,6 +4561,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                       relance - o número exato continua no selo, pra quem
                       quiser precisão. */}
                   <div
+                    ref={deckPileRef}
                     className="border border-[#C59E4F]/30 rounded p-3 cursor-help hover:bg-[#C59E4F]/5 transition-colors flex flex-col items-center gap-2"
                     title={`${gameState.deck.length} carta(s) restantes de reembaralhar o cemitério`}
                   >

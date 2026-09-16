@@ -11,6 +11,8 @@ import { PlayingCard } from './PlayingCard';
 import { CharacterMagicBurst } from './CharacterMagicBurst';
 import { MagicCalloutLabel } from './MagicCalloutLabel';
 import { HandCardView } from './HandCardView';
+import { ReadyStamp, BothReadyPulse } from './ReadyStamp';
+import { LastLifeImpact } from './LastLifeImpact';
 import { getCharacterTheme, getCharacterIconBackground, getCharacterPanelBackground } from '../lib/characterThemes';
 import type { PlayerState, CharacterId, Phase, PendingReaction } from '../lib/gameEngine';
 import { getEffectiveDiscardLimit, getEffectiveDrawLimit, isBrotoSlot, isFrozenMagicActivationBlocked, towerEligibleValue } from '../lib/gameEngine';
@@ -69,6 +71,38 @@ const HEART_REST_ANIMATE = { scale: 1, rotate: 0 };
 const HEART_REST_TRANSITION = { duration: 0.2 };
 /** Ângulos (em radianos) dos 6 fragmentos que estouram do coração quebrado, distribuídos em círculo. */
 const HEART_FRAGMENT_ANGLES = [0, 1, 2, 3, 4, 5].map((i) => (i / 6) * Math.PI * 2);
+
+/**
+ * FIX ("Overhaul de Animações", item 6: "perda de vida com mais peso -
+ * ❤️ rachando/esvaziando + câmera lenta na última vida") - 3 adições por
+ * cima da quebra de coração que já existia (acima):
+ *
+ * 1. "Esvaziando": `HEART_DRAIN_ANIMATE`/`HEART_DRAIN_TRANSITION` recorta o
+ *    preenchimento do coração de baixo pra cima via `clipPath` (mesmos
+ *    `times` do BREAK, então os dois `motion.div` ficam sincronizados) -
+ *    o coração esvazia ANTES/DURANTE o estouro, não só estoura.
+ * 2. "Rachando": `HEART_CRACK_ANIMATE`/`HEART_CRACK_TRANSITION` sobrepõe um
+ *    traço em zigue-zague (SVG, ver JSX) que pisca rápido bem no começo -
+ *    lê como uma rachadura que aparece um instante antes do coração ceder.
+ * 3. "Câmera lenta na última vida": quando o coração que está quebrando é
+ *    o ÚLTIMO (`playerState.lives` chega a 0), troca os 3 conjuntos acima
+ *    pelas variantes `_LAST_LIFE_` - bem mais lentas e com mais amplitude -
+ *    e soma o vinheta de tela cheia `LastLifeImpact.tsx`, que por si só já
+ *    dura mais que qualquer outra animação do jogo (ver comentário lá).
+ */
+const HEART_DRAIN_ANIMATE = { clipPath: ['inset(0% 0 0% 0)', 'inset(65% 0 0% 0)', 'inset(100% 0 0% 0)'] };
+const HEART_DRAIN_TRANSITION = HEART_BREAK_TRANSITION;
+const HEART_CRACK_ANIMATE = { opacity: [0, 1, 1, 0] };
+const HEART_CRACK_TRANSITION = { duration: 0.65, times: [0, 0.12, 0.35, 0.5], ease: 'easeOut' as const };
+
+const HEART_LAST_LIFE_BREAK_ANIMATE = { scale: [1, 2.2, 0.15], rotate: [0, -35, 45], opacity: [1, 1, 0] };
+const HEART_LAST_LIFE_BREAK_TRANSITION = { duration: 1.15, times: [0, 0.45, 1], ease: 'easeOut' as const };
+const HEART_LAST_LIFE_DRAIN_ANIMATE = { clipPath: ['inset(0% 0 0% 0)', 'inset(65% 0 0% 0)', 'inset(100% 0 0% 0)'] };
+const HEART_LAST_LIFE_DRAIN_TRANSITION = HEART_LAST_LIFE_BREAK_TRANSITION;
+const HEART_LAST_LIFE_CRACK_ANIMATE = { opacity: [0, 1, 1, 0] };
+const HEART_LAST_LIFE_CRACK_TRANSITION = { duration: 1.15, times: [0, 0.15, 0.45, 0.65], ease: 'easeOut' as const };
+/** Traço em zigue-zague sobreposto ao coração no instante em que racha (viewBox 0 0 24 24, mesma proporção do ícone lucide-react). */
+const HEART_CRACK_PATH = 'M12 3 L10 9 L13 10 L9 14 L12 15.5 L8 21';
 
 interface PlayerZoneProps {
   playerNumber: 1 | 2;
@@ -275,6 +309,16 @@ interface PlayerZoneProps {
    */
   dispatchBlocked?: boolean;
   /**
+   * "Overhaul de Animações", selo de "Pronto": "quando os DOIS ficam
+   * prontos, um pulso sincronizado nos dois lados sinalizando 'vai
+   * avançar'". Calculado em GameBoard.tsx (só lá os dois `readyForNextPhase`
+   * dos dois jogadores estão disponíveis ao mesmo tempo) e repassado a AMBAS
+   * as instâncias de PlayerZone, que então desenham o pulso de forma
+   * independente porém sincronizada (mesmo `bothReady` chega nos dois ao
+   * mesmo tempo).
+   */
+  bothReady?: boolean;
+  /**
    * FIX (pedido do usuário: "ocultar mão do oponente automaticamente" no
    * Hotseat) - `true` só quando `gameConfig.mode === 'hotseat'` E
    * `settings.hotseatPrivacyMode` está ligado (calculado em GameBoard.tsx,
@@ -400,6 +444,7 @@ export function PlayerZone({
   onMagicHandDrop,
   isAiControlled = false,
   dispatchBlocked = false,
+  bothReady = false,
   hotseatPrivacyActive = false,
   forceRevealHand = false,
   effectFlashCardIds,
@@ -420,10 +465,21 @@ export function PlayerZone({
   // guarda o valor do render anterior para comparar.
   const prevLivesRef = useRef(playerState.lives);
   const [breakingHeartIndex, setBreakingHeartIndex] = useState<number | null>(null);
+  // FIX ("Overhaul de Animações", item 6): a mesma transição de vidas acima
+  // também diz se esta foi a ÚLTIMA vida perdida (`lives` chegou a 0) - vale
+  // pelo tempo mais longo da animação "pesada" (ver HEART_LAST_LIFE_*
+  // acima), não só os 650ms da quebra normal, e também liga o vinheta de
+  // tela cheia `LastLifeImpact`.
+  const [isLastLifeLoss, setIsLastLifeLoss] = useState(false);
   useEffect(() => {
     if (playerState.lives < prevLivesRef.current) {
+      const lastLife = playerState.lives === 0;
       setBreakingHeartIndex(playerState.lives);
-      const t = setTimeout(() => setBreakingHeartIndex(null), 650);
+      setIsLastLifeLoss(lastLife);
+      const t = setTimeout(() => {
+        setBreakingHeartIndex(null);
+        setIsLastLifeLoss(false);
+      }, lastLife ? 1150 : 650);
       prevLivesRef.current = playerState.lives;
       return () => clearTimeout(t);
     }
@@ -869,16 +925,47 @@ export function PlayerZone({
                   {[...Array(3)].map((_, i) => {
                     const isBreaking = i === breakingHeartIndex;
                     const filled = i < playerState.lives;
+                    const breakAnimate = isLastLifeLoss ? HEART_LAST_LIFE_BREAK_ANIMATE : HEART_BREAK_ANIMATE;
+                    const breakTransition = isLastLifeLoss ? HEART_LAST_LIFE_BREAK_TRANSITION : HEART_BREAK_TRANSITION;
+                    const drainAnimate = isLastLifeLoss ? HEART_LAST_LIFE_DRAIN_ANIMATE : HEART_DRAIN_ANIMATE;
+                    const drainTransition = isLastLifeLoss ? HEART_LAST_LIFE_DRAIN_TRANSITION : HEART_DRAIN_TRANSITION;
+                    const crackAnimate = isLastLifeLoss ? HEART_LAST_LIFE_CRACK_ANIMATE : HEART_CRACK_ANIMATE;
+                    const crackTransition = isLastLifeLoss ? HEART_LAST_LIFE_CRACK_TRANSITION : HEART_CRACK_TRANSITION;
+                    const fragmentDuration = isLastLifeLoss ? 0.95 : 0.55;
+                    const fragmentDistance = isLastLifeLoss ? 26 : 16;
                     return (
                       <div key={i} className="relative">
                         <motion.div
-                          animate={isBreaking ? HEART_BREAK_ANIMATE : HEART_REST_ANIMATE}
-                          transition={isBreaking ? HEART_BREAK_TRANSITION : HEART_REST_TRANSITION}
+                          animate={isBreaking ? breakAnimate : HEART_REST_ANIMATE}
+                          transition={isBreaking ? breakTransition : HEART_REST_TRANSITION}
                         >
                           <HeartIcon
                             className={`w-3 h-3 ${filled || isBreaking ? 'fill-current' : 'opacity-20'}`}
                             style={{ color: isBreaking ? '#FF3B3B' : theme.primary }}
                           />
+                          {/* "Esvaziando": recorta o preenchimento de baixo pra cima, sincronizado com o estouro acima. */}
+                          {isBreaking && (
+                            <motion.div
+                              className="absolute inset-0"
+                              initial={{ clipPath: 'inset(0% 0 0% 0)' }}
+                              animate={drainAnimate}
+                              transition={drainTransition}
+                            >
+                              <HeartIcon className="w-3 h-3 fill-current" style={{ color: theme.primary }} />
+                            </motion.div>
+                          )}
+                          {/* "Rachando": traço em zigue-zague que pisca por cima do coração um instante antes dele ceder. */}
+                          {isBreaking && (
+                            <motion.svg
+                              className="absolute inset-0 w-3 h-3"
+                              viewBox="0 0 24 24"
+                              initial={{ opacity: 0 }}
+                              animate={crackAnimate}
+                              transition={crackTransition}
+                            >
+                              <path d={HEART_CRACK_PATH} stroke="#0F1113" strokeWidth={1.4} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                            </motion.svg>
+                          )}
                         </motion.div>
                         {/* Estilhaços voando do coração no instante em que ele quebra. */}
                         {isBreaking && (
@@ -890,12 +977,12 @@ export function PlayerZone({
                                 style={{ backgroundColor: '#FF3B3B' }}
                                 initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
                                 animate={{
-                                  x: Math.cos(angle) * 16,
-                                  y: Math.sin(angle) * 16,
+                                  x: Math.cos(angle) * fragmentDistance,
+                                  y: Math.sin(angle) * fragmentDistance,
                                   opacity: 0,
                                   scale: 0.3,
                                 }}
-                                transition={{ duration: 0.55, ease: 'easeOut' }}
+                                transition={{ duration: fragmentDuration, ease: 'easeOut' }}
                               />
                             ))}
                           </div>
@@ -905,6 +992,7 @@ export function PlayerZone({
                   })}
                 </div>
               </div>
+              <LastLifeImpact active={isLastLifeLoss} />
               {/* FIX (pedido do usuário: "ao invés de falar jogador 1 e
                   jogador 2, troque para os respectivos nomes dos
                   personagens") - `playerNumber` (1/2) virou o nome do
@@ -1000,36 +1088,44 @@ export function PlayerZone({
             )}
 
             {isAiControlled ? (
-              <div
-                className="flex items-center gap-1 h-auto py-1 px-3 rounded-md"
-                style={{
-                  backgroundColor: playerState.readyForNextPhase ? '#6CC47A' : `${theme.primary}40`,
-                  color: playerState.readyForNextPhase ? '#0F1113' : theme.light,
-                }}
-                title="Controlado pela IA"
-              >
-                {playerState.readyForNextPhase ? <Check className="w-3 h-3" /> : <Bot className="w-3 h-3 animate-pulse" />}
-                <span className="text-[11px]">
-                  {playerState.readyForNextPhase ? 'Pronto!' : 'Pensando...'}
-                </span>
-              </div>
-            ) : (
-              <Button
-                onClick={handleToggleReadyClick}
-                size="sm"
-                className="transition-all h-auto py-1 px-3"
-                style={{
-                  backgroundColor: playerState.readyForNextPhase ? '#6CC47A' : theme.primary,
-                  color: '#0F1113',
-                }}
-              >
-                <div className="flex items-center gap-1">
-                  {playerState.readyForNextPhase && <Check className="w-3 h-3" />}
+              <div className="relative">
+                <div
+                  className="flex items-center gap-1 h-auto py-1 px-3 rounded-md"
+                  style={{
+                    backgroundColor: playerState.readyForNextPhase ? '#6CC47A' : `${theme.primary}40`,
+                    color: playerState.readyForNextPhase ? '#0F1113' : theme.light,
+                  }}
+                  title="Controlado pela IA"
+                >
+                  {playerState.readyForNextPhase ? <Check className="w-3 h-3" /> : <Bot className="w-3 h-3 animate-pulse" />}
                   <span className="text-[11px]">
-                    {playerState.readyForNextPhase ? 'Pronto!' : 'Pronto'}
+                    {playerState.readyForNextPhase ? 'Pronto!' : 'Pensando...'}
                   </span>
                 </div>
-              </Button>
+                <ReadyStamp active={playerState.readyForNextPhase} />
+                <BothReadyPulse active={bothReady} />
+              </div>
+            ) : (
+              <div className="relative">
+                <Button
+                  onClick={handleToggleReadyClick}
+                  size="sm"
+                  className="transition-all h-auto py-1 px-3"
+                  style={{
+                    backgroundColor: playerState.readyForNextPhase ? '#6CC47A' : theme.primary,
+                    color: '#0F1113',
+                  }}
+                >
+                  <div className="flex items-center gap-1">
+                    {playerState.readyForNextPhase && <Check className="w-3 h-3" />}
+                    <span className="text-[11px]">
+                      {playerState.readyForNextPhase ? 'Pronto!' : 'Pronto'}
+                    </span>
+                  </div>
+                </Button>
+                <ReadyStamp active={playerState.readyForNextPhase} />
+                <BothReadyPulse active={bothReady} />
+              </div>
             )}
           </div>
         </div>

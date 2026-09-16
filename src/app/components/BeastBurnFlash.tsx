@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { BeastFaceIcon } from './CharacterGlyphIcons';
+import { useZoomEscapeFactor } from '../lib/useZoomEscapeFactor';
 
 export interface BeastBurnFlashSpec {
   key: string;
@@ -22,6 +23,21 @@ export interface BeastBurnFlashSpec {
  * descarte - some rápido, a tempo da carta já estar voando por baixo dele.
  */
 export function BeastBurnFlash({ specs }: { specs: BeastBurnFlashSpec[] }) {
+  // FIX (achado testando ao vivo, auditando "Descarte com trajetória" no
+  // backlog de animações - mesma causa raiz documentada em
+  // useZoomEscapeFactor.ts): `position: fixed` dentro da árvore zoomada de
+  // GameBoard.tsx aterrissa fora do lugar sempre que `settings.interfaceZoom`
+  // (padrão 85%) está ativo - `zoom` num ancestral cria um novo "containing
+  // block" pra descendentes fixed, fazendo pixels de `left`/`top` (vindos de
+  // `getBoundingClientRect()`, já reais) serem reinterpretados no espaço
+  // PRÉ-zoom desse ancestral. `posCompensation` (1/zoomFactor) escala de
+  // volta ANTES de usar esses valores - correção só matemática, sem tirar
+  // este elemento da árvore (uma tentativa inicial com Portal pra
+  // `document.body` quebrou a animação de keyframes do Framer Motion aqui
+  // por um motivo não identificado, revertida - ver FlyingDiscardCard.tsx
+  // pro relato completo dessa investigação).
+  const zoomFactor = useZoomEscapeFactor();
+  const posCompensation = 1 / zoomFactor;
   return (
     <AnimatePresence>
       {specs.map((spec) => (
@@ -29,10 +45,10 @@ export function BeastBurnFlash({ specs }: { specs: BeastBurnFlashSpec[] }) {
           key={spec.key}
           className="fixed z-[95] pointer-events-none flex items-center justify-center"
           style={{
-            left: spec.rect.left,
-            top: spec.rect.top,
-            width: spec.rect.width,
-            height: spec.rect.height,
+            left: spec.rect.left * posCompensation,
+            top: spec.rect.top * posCompensation,
+            width: spec.rect.width * posCompensation,
+            height: spec.rect.height * posCompensation,
           }}
           initial={{ opacity: 0 }}
           animate={{ opacity: [0, 1, 1, 0] }}

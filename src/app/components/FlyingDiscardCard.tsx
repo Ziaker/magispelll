@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { motion } from 'motion/react';
 import { PlayingCard } from './PlayingCard';
 import type { Card } from '../lib/cardUtils';
+import { useZoomEscapeFactor } from '../lib/useZoomEscapeFactor';
 
 export interface FlyingDiscardSpec {
   key: string;
@@ -48,7 +49,37 @@ const LANDING_SCALE = 0.8;
 const ARC_SAMPLES = 7;
 
 export function FlyingDiscardCard({ spec }: { spec: FlyingDiscardSpec }) {
-  const { card, from, to } = spec;
+  const { card } = spec;
+  // FIX (achado testando ao vivo, auditando "Descarte com trajetória" no
+  // backlog de animações - "já existe, mas ficou desatualizado"): com
+  // `settings.interfaceZoom` (padrão 85%, aplicado via `zoom` no wrapper de
+  // GameBoard.tsx) ativo, este fantasma `position: fixed` aterrissava longe
+  // da Pilha de Descarte de verdade - medido ao vivo: aterrissagem ~1.18x
+  // mais perto do canto (0,0) do que devia, quase exatamente 1/0.85. Causa:
+  // `zoom` num ancestral cria um novo "containing block" pra descendentes
+  // fixed (Chromium) - `left`/`top`/`transform: translate()` passam a ser
+  // interpretados no espaço de coordenadas PRÉ-zoom desse ancestral, não em
+  // pixels reais de tela (que é o que `getBoundingClientRect()` já entrega).
+  // `posCompensation` (1/zoomFactor) escala de volta ANTES de usar esses
+  // valores - abordagem escolhida depois de confirmar ao vivo que um Portal
+  // pra `document.body` (a fuga "óbvia", mesma que zoomContainerContext.tsx
+  // usa pro problema OPOSTO) quebra a animação de `x`/`y` por keyframes do
+  // Framer Motion neste componente por um motivo não identificado - esta
+  // correção pura de matemática evita mexer na árvore de renderização.
+  const zoomFactor = useZoomEscapeFactor();
+  const posCompensation = 1 / zoomFactor;
+  const from = {
+    left: spec.from.left * posCompensation,
+    top: spec.from.top * posCompensation,
+    width: spec.from.width * posCompensation,
+    height: spec.from.height * posCompensation,
+  };
+  const to = {
+    left: spec.to.left * posCompensation,
+    top: spec.to.top * posCompensation,
+    width: spec.to.width * posCompensation,
+    height: spec.to.height * posCompensation,
+  };
   const originLeft = from.left + from.width / 2 - GHOST_WIDTH / 2;
   const originTop = from.top + from.height / 2 - GHOST_HEIGHT / 2;
   const deltaX = to.left + to.width / 2 - (originLeft + GHOST_WIDTH / 2);

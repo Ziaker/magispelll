@@ -20,7 +20,7 @@
  * - Implementar sistema de salvamento: adicionar estados para save/load
  */
 
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { DndProvider } from 'react-dnd';
 import { TouchBackend } from 'react-dnd-touch-backend';
 import { Splash } from './components/Splash';
@@ -38,6 +38,7 @@ import { Settings } from './components/Settings';
 import { MatchStatsScreen } from './components/MatchStatsScreen';
 import { DebugPanel } from './components/DebugPanel';
 import { SettingsProvider } from './context/SettingsContext';
+import { ScreenTransition } from './components/ScreenTransition';
 
 // FIX (pedido do usuário: "itens de performance") - GameBoard.tsx sozinho
 // arrasta praticamente todo o "peso" do jogo (party-js, canvas-confetti,
@@ -66,6 +67,24 @@ type Screen =
   | 'settings'            // Configurações do jogo
   | 'stats'               // FIX (pedido do usuário, QoL: "histórico/estatísticas entre partidas") - MatchStatsScreen.tsx
   | 'debug';              // Modo debug/playtest (semi-escondido, ver DebugPanel.tsx)
+
+/**
+ * FIX ("Overhaul de Animações", item 7: "transição entre telas do wizard") -
+ * posição de cada tela no fluxo PRINCIPAL de configuração de partida
+ * (Início -> Configuração -> Personagens -> Resumo -> Jogo), usada só pra
+ * decidir a DIREÇÃO do slide em ScreenTransition.tsx (maior = avançando,
+ * menor = voltando). Telas que são desvios laterais do wizard (Regras,
+ * Lista de Personagens, Configurações, Estatísticas, Debug, Splash) ficam
+ * de fora do mapa de propósito - a comparação cai no `undefined` e
+ * ScreenTransition usa direção 0 (fade simples, sem slide) pra essas.
+ */
+const WIZARD_SCREEN_ORDER: Partial<Record<Screen, number>> = {
+  home: 0,
+  config: 1,
+  'character-selection': 2,
+  summary: 3,
+  game: 4,
+};
 
 export default function App() {
   // ===== ESTADOS PRINCIPAIS =====
@@ -127,6 +146,25 @@ export default function App() {
    * pelo Resumo.
    */
   const [quickStart, setQuickStart] = useState(false);
+
+  /**
+   * FIX ("Overhaul de Animações", item 7): guarda a tela do render ANTERIOR
+   * pra computar a direção do slide comparando com `currentScreen` - mesmo
+   * padrão de "detectar TRANSIÇÃO" usado em PlayerZone.tsx (`prevLivesRef`)
+   * e GameBoard.tsx (`prevTurnRef`). Atualizado só DEPOIS do commit (no
+   * `useEffect` logo abaixo), então durante o cálculo de `screenDirection`
+   * mais abaixo ele ainda aponta pra tela de ANTES desta troca.
+   */
+  const prevScreenRef = useRef<Screen>('splash');
+  const screenDirection = (() => {
+    const fromOrder = WIZARD_SCREEN_ORDER[prevScreenRef.current];
+    const toOrder = WIZARD_SCREEN_ORDER[currentScreen];
+    if (fromOrder === undefined || toOrder === undefined || fromOrder === toOrder) return 0;
+    return toOrder > fromOrder ? 1 : -1;
+  })();
+  useEffect(() => {
+    prevScreenRef.current = currentScreen;
+  }, [currentScreen]);
 
   // ===== HANDLERS =====
 
@@ -416,7 +454,9 @@ export default function App() {
               </div>
             }
           >
-            {renderScreen()}
+            <ScreenTransition screenKey={currentScreen} direction={screenDirection}>
+              {renderScreen()}
+            </ScreenTransition>
           </Suspense>
         </div>
       </DndProvider>
