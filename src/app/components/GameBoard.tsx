@@ -4793,10 +4793,14 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   jogador 2, troque para os respectivos nomes dos
                   personagens") - o nome do vencedor já aparece em destaque
                   logo acima; a legenda "Jogador N venceu" repetia a mesma
-                  informação, então virou só "Venceu a partida!". */}
-              <p className="text-[#BFB6A6] text-[18px]">
+                  informação, então virou só "Venceu a partida!".
+                  FIX (pesquisa de bugs: aviso do Radix "Missing Description
+                  for DialogContent") - era um <p> solto; virou
+                  DialogDescription (mesmo texto/estilo) pra satisfazer o
+                  aria-describedby que o Radix já monta sozinho. */}
+              <DialogDescription className="text-[#BFB6A6] text-[18px]">
                 Venceu a partida!
-              </p>
+              </DialogDescription>
             </div>
           </DialogHeader>
         </DialogContent>
@@ -6408,9 +6412,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                     >
                       {spellInfo.name}
                     </p>
-                    <p className="text-[12px] text-[#BFB6A6] text-center">
+                    {/* FIX (pesquisa de bugs: aviso do Radix "Missing
+                        Description for DialogContent") - era um <p> solto;
+                        virou DialogDescription (mesmo texto/estilo). */}
+                    <DialogDescription className="text-[12px] text-[#BFB6A6] text-center">
                       {spellInfo.description}
-                    </p>
+                    </DialogDescription>
                   </div>
                 </div>
               );

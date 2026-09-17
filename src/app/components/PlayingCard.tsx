@@ -172,15 +172,29 @@ export function PlayingCard({
   // coordenação nova com GameBoard.tsx.
   const wasFrozenRef = useRef(isFrozen);
   const [justUnfroze, setJustUnfroze] = useState(false);
+  // FIX (pesquisa de bugs: mesmo padrão do ReadyStamp.tsx) - timer guardado
+  // em ref pra sobreviver a re-execuções do efeito. Antes, se a carta fosse
+  // recongelada em menos de 900ms (ex.: Glacial reaplicando Criogenar na
+  // mesma carta), o cleanup cancelava o único `clearTimeout` agendado sem
+  // agendar outro, e `justUnfroze` ficava travado em `true` - o efeito de
+  // "acabou de descongelar" nunca sumia, mesmo com a carta congelada de novo.
+  const unfreezeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (wasFrozenRef.current && !isFrozen) {
       setJustUnfroze(true);
-      const t = setTimeout(() => setJustUnfroze(false), 900);
-      wasFrozenRef.current = isFrozen;
-      return () => clearTimeout(t);
+      if (unfreezeTimeoutRef.current !== null) clearTimeout(unfreezeTimeoutRef.current);
+      unfreezeTimeoutRef.current = setTimeout(() => {
+        setJustUnfroze(false);
+        unfreezeTimeoutRef.current = null;
+      }, 900);
     }
     wasFrozenRef.current = isFrozen;
   }, [isFrozen]);
+  useEffect(() => {
+    return () => {
+      if (unfreezeTimeoutRef.current !== null) clearTimeout(unfreezeTimeoutRef.current);
+    };
+  }, []);
 
   /**
    * Overlay "extremamente bem notável" de carta congelada (pedido explícito

@@ -183,6 +183,16 @@ export function PhaseTransition({ phase, show, spotlight, loneTower, isGameStart
           style={{ backgroundColor: 'rgba(0, 0, 0, 0.7)' }}
         >
           <motion.div
+            // FIX (pesquisa de bugs: se a fase mudasse de novo antes do
+            // popup anterior fechar - ex.: Espectador em alta velocidade -
+            // este `motion.div` não remontava (só `show` controla a
+            // `AnimatePresence` de fora, e `show` continuava `true` o tempo
+            // todo), então o Framer Motion reinterpolava o `animate` já em
+            // andamento pro formato da fase nova no meio do voo (ex.:
+            // cartas caindo virando um "punch" de escala sem transição).
+            // `key={phase}` força remontagem: a fase nova sempre recomeça a
+            // própria animação do zero em vez de misturar com a anterior.
+            key={phase}
             initial={settings.animations ? phaseCardMotion.initial : { opacity: 0 }}
             animate={settings.animations ? phaseCardMotion.animate : { opacity: 1 }}
             exit={settings.animations ? phaseCardMotion.exit : { opacity: 0 }}

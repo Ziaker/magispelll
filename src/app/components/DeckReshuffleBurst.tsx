@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PlayingCard } from './PlayingCard';
 import { useZoomEscapeFactor } from '../lib/useZoomEscapeFactor';
@@ -102,14 +103,28 @@ function ShuffleCard({ idx, from, to, posCompensation }: { idx: number; from: Re
   const originTop = scaledFrom.top + scaledFrom.height / 2 - cardH / 2;
   const deltaX = scaledTo.left + scaledTo.width / 2 - (originLeft + cardW / 2);
   const deltaY = scaledTo.top + scaledTo.height / 2 - (originTop + cardH / 2);
-  // Jitter fixo por índice (não por Math.random puro a cada render) evitaria
-  // re-sorteio, mas este componente só monta 1x por burst (chave `spec.key`
-  // no pai já garante isso), então Math.random direto aqui é seguro - cada
-  // burst novo tem seu próprio jitter, sem precisar de useState/useMemo.
-  const jitterX = (Math.random() - 0.5) * 36;
-  const jitterY = (Math.random() - 0.5) * 24;
-  const spinDir = Math.random() < 0.5 ? -1 : 1;
-  const delay = idx * 0.045 + Math.random() * 0.03;
+  // FIX (pesquisa de bugs: cartas "pulavam" de trajetória no meio do voo) -
+  // o comentário original alegava que `Math.random()` direto no corpo do
+  // componente era seguro porque "só monta 1x por burst", mas isso só
+  // impede REMONTAGEM (garantida pela `key={spec.key}` no avô) - não impede
+  // RE-RENDER: GameBoard.tsx é um componente enorme que re-renderiza o
+  // tempo todo, e cada re-render enquanto o burst ainda está animando
+  // recalculava jitter/rotação/delay novos e entregava um alvo `animate`
+  // diferente pro Framer Motion, que reinterpola a animação já em
+  // andamento pro novo alvo - visível como um "salto" de trajetória.
+  // `useMemo` com deps vazias calcula uma vez só por montagem (mesmo padrão
+  // já usado em FlyingDiscardCard.tsx pra este exato problema).
+  const { jitterX, jitterY, spinDir, delay, rotateTarget } = useMemo(
+    () => ({
+      jitterX: (Math.random() - 0.5) * 36,
+      jitterY: (Math.random() - 0.5) * 24,
+      spinDir: Math.random() < 0.5 ? -1 : 1,
+      delay: idx * 0.045 + Math.random() * 0.03,
+      rotateTarget: 200 + Math.random() * 220,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   return (
     <motion.div
@@ -119,7 +134,7 @@ function ShuffleCard({ idx, from, to, posCompensation }: { idx: number; from: Re
       animate={{
         x: [0, deltaX * 0.5 + jitterX, deltaX],
         y: [0, deltaY * 0.5 + jitterY, deltaY],
-        rotate: spinDir * (200 + Math.random() * 220),
+        rotate: spinDir * rotateTarget,
         opacity: [0, 1, 1, 0],
         scale: [0.75, 1, 0.85],
       }}

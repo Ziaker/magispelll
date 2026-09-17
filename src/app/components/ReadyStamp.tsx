@@ -15,16 +15,33 @@ import { AnimatePresence, motion } from 'motion/react';
 export function ReadyStamp({ active }: { active: boolean }) {
   const wasActiveRef = useRef(active);
   const [justStamped, setJustStamped] = useState(false);
+  // FIX (pesquisa de bugs: selo ficava preso visível pra sempre) - o timer
+  // precisa sobreviver a re-execuções do efeito abaixo (que disparam toda
+  // vez que `active` muda). Antes ele vivia só no cleanup do efeito, então
+  // um "Pronto" seguido de "não Pronto" em menos de 550ms cancelava o único
+  // reset agendado sem agendar outro. Guardando em ref, o timeout iniciado
+  // no "carimbou" segue até o fim mesmo que `active` volte a false antes
+  // disso - o selo é puramente decorativo (ver comentário acima), não
+  // precisa acompanhar `active` em tempo real.
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (active && !wasActiveRef.current) {
       setJustStamped(true);
-      const t = setTimeout(() => setJustStamped(false), 550);
-      wasActiveRef.current = active;
-      return () => clearTimeout(t);
+      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        setJustStamped(false);
+        timeoutRef.current = null;
+      }, 550);
     }
     wasActiveRef.current = active;
   }, [active]);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   return (
     <AnimatePresence>

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 
 /**
@@ -24,6 +24,26 @@ import { AnimatePresence, motion } from 'motion/react';
  * simultâneas.
  */
 const SLIDE_DISTANCE = 24;
+const EXIT_DURATION_MS = 220;
+
+/**
+ * FIX (pesquisa de bugs: "Continuar"/"Iniciar" travando o wizard pra
+ * sempre) - o Framer Motion, quando o clique troca `screenKey` enquanto a
+ * animação de ENTRADA da tela atual ainda está rodando (ex.: clicar rápido
+ * assim que a tela aparece), às vezes interrompe pra ir pra animação de
+ * SAÍDA mas nunca resolve essa saída - `AnimatePresence` (`mode="wait"`)
+ * fica esperando um `onExitComplete` que nunca chega, e a tela nova nunca é
+ * montada (reproduzido e confirmado com logs: 2 `animationStart` seguidos
+ * pro mesmo elemento, sem nenhum `animationComplete`/`onExitComplete` entre
+ * eles). Isso é uma falha da própria lib em runtime, não um erro de lógica
+ * daqui - então em vez de tentar "consertar" o Framer Motion, este timeout
+ * é uma rede de segurança: se a saída não se resolver sozinha a tempo,
+ * força um remount limpo do AnimatePresence (que descarta qualquer estado
+ * interno travado) mostrando a tela atual. No caminho normal (a imensa
+ * maioria das trocas de tela) o timeout é cancelado por `onExitComplete`
+ * antes de disparar, e nada muda visualmente.
+ */
+const SAFETY_TIMEOUT_MS = EXIT_DURATION_MS + 500;
 
 const screenVariants = {
   enter: (direction: number) => ({
@@ -46,8 +66,33 @@ export function ScreenTransition({
   direction: number;
   children: ReactNode;
 }) {
+  // Ver comentário de SAFETY_TIMEOUT_MS acima - `presenceKey` força um
+  // remount completo do AnimatePresence quando a rede de segurança dispara.
+  const [presenceKey, setPresenceKey] = useState(0);
+  const lastScreenKeyRef = useRef(screenKey);
+  const safetyTimeoutRef = useRef<number | null>(null);
+
+  const clearSafetyTimeout = () => {
+    if (safetyTimeoutRef.current !== null) {
+      window.clearTimeout(safetyTimeoutRef.current);
+      safetyTimeoutRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (lastScreenKeyRef.current === screenKey) return;
+    lastScreenKeyRef.current = screenKey;
+    clearSafetyTimeout();
+    safetyTimeoutRef.current = window.setTimeout(() => {
+      safetyTimeoutRef.current = null;
+      setPresenceKey((k) => k + 1);
+    }, SAFETY_TIMEOUT_MS);
+    return clearSafetyTimeout;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screenKey]);
+
   return (
-    <AnimatePresence mode="wait" custom={direction}>
+    <AnimatePresence key={presenceKey} mode="wait" custom={direction} onExitComplete={clearSafetyTimeout}>
       <motion.div
         key={screenKey}
         custom={direction}

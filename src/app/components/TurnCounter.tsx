@@ -32,8 +32,14 @@ export function TurnCounter({ turn }: { turn: number }) {
   const digits = String(turn).split('');
   return (
     <span className="inline-flex" style={{ perspective: 240 }}>
+      {/* FIX (pesquisa de bugs: hodômetro rolava o dígito errado ao cruzar
+          10/100) - chave por valor posicional (da direita pra esquerda), não
+          por índice do array: assim o dígito das unidades mantém a MESMA
+          `OdometerDigit` (e portanto o giro 9->0) quando um novo dígito
+          aparece à esquerda, em vez de herdar a identidade de quem já
+          estava naquela posição do array. */}
       {digits.map((d, i) => (
-        <OdometerDigit key={i} digit={d} />
+        <OdometerDigit key={digits.length - 1 - i} digit={d} />
       ))}
     </span>
   );
