@@ -1,0 +1,57 @@
+name: Temporary shared gameplay state migration
+
+on:
+  push:
+    branches: [overhaul/shared-gameplay-state]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/shared-gameplay-state
+      - name: Replace duplicate gameplay-state comparator
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/app/lib/gameEngine.ts')
+          text = path.read_text(encoding='utf-8')
+          helper_import = "import { isSameGameplayState } from './gameplayState';"
+
+          if helper_import not in text:
+              anchor = "import { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';\n"
+              if anchor not in text:
+                  raise SystemExit('characterRegistry import anchor not found; refusing unsafe migration')
+              text = text.replace(anchor, anchor + helper_import + "\n", 1)
+
+          pattern = re.compile(
+              r"function isSameGameplayState\(a: GameState, b: GameState\): boolean \{\n"
+              r"  if \(a === b\) return true;\n"
+              r"  const \{ log: logA, \.\.\.restA \} = a;\n"
+              r"  const \{ log: logB, \.\.\.restB \} = b;\n"
+              r"  return JSON\.stringify\(restA\) === JSON\.stringify\(restB\);\n"
+              r"\}\n?"
+          )
+          text, count = pattern.subn('', text, count=1)
+          if count != 1:
+              raise SystemExit(f'expected exactly one private comparator, found {count}; refusing unsafe migration')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit migration when needed
+        run: |
+          if git diff --quiet -- src/app/lib/gameEngine.ts; then
+            echo "No migration diff to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/lib/gameEngine.ts
+          git commit -m "refactor: share gameplay state comparator with engine"
+          git push origin HEAD:overhaul/shared-gameplay-state
