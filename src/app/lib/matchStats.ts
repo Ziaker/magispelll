@@ -1,4 +1,4 @@
-import type { CharacterId } from './characterRegistry';
+import { isCharacterId, type CharacterId } from './characterRegistry';
 
 /**
  * matchStats.ts - QoL (pedido do usuário: "histórico/estatísticas entre
@@ -42,7 +42,14 @@ export function loadMatchHistory(): MatchRecord[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
       (r): r is MatchRecord =>
-        typeof r === 'object' && r !== null && typeof r.character === 'string' && typeof r.opponentCharacter === 'string' && typeof r.won === 'boolean'
+        typeof r === 'object' &&
+        r !== null &&
+        typeof r.character === 'string' &&
+        isCharacterId(r.character) &&
+        typeof r.opponentCharacter === 'string' &&
+        isCharacterId(r.opponentCharacter) &&
+        typeof r.won === 'boolean' &&
+        typeof r.timestamp === 'number'
     );
   } catch {
     return [];
