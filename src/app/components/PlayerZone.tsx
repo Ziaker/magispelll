@@ -1,3 +1,4 @@
+import { getEffectiveDiscardLimit, getEffectiveDrawLimit } from '../lib/gameLimits';
 import { towerEligibleValue } from '../lib/towerRules';
 import { isFrozenMagicActivationBlocked } from '../lib/glacialRules';
 import type { PlayerState, PendingReaction } from '../lib/gameStateTypes';
@@ -21,7 +22,7 @@ import { LastLifeImpact } from './LastLifeImpact';
 import { getCharacterTheme, getCharacterIconBackground, getCharacterPanelBackground } from '../lib/characterThemes';
 
 import type { CharacterId } from '../lib/characterRegistry';
-import { getEffectiveDiscardLimit, getEffectiveDrawLimit } from '../lib/gameEngine';
+
 import { hasStatus } from '../lib/statusEffects';
 import { useEffect, useRef, useState } from 'react';
 import { canActivateMagic, getMagicCardInfo, type MagicActivationContext } from '../lib/magicCards';

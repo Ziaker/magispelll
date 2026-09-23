@@ -18,6 +18,7 @@ import { join, relative } from 'node:path';
  * - fieldCards/wasEverTowerSlot/getUnbattledHorizontalSlots/getDestroyableReinforcementSlots/getUnrevealedFieldSlots/getFilledFieldSlots -> fieldQueries.ts
  * - getGlacialGolemValue/isFrozenPlayBlocked/isFrozenMagicActivationBlocked -> glacialRules.ts
  * - towerEligibleValue/canFormOrReinforceTower -> towerRules.ts
+ * - getEffectiveDrawLimit/getEffectiveDiscardLimit -> gameLimits.ts
  *
  * Assim uma mudança futura não volta a transformar gameEngine.ts em hub de
  * tipos por acidente.
@@ -55,6 +56,8 @@ const EXTRACTED_SYMBOLS = new Set([
   'isFrozenMagicActivationBlocked',
   'towerEligibleValue',
   'canFormOrReinforceTower',
+  'getEffectiveDrawLimit',
+  'getEffectiveDiscardLimit',
 ]);
 
 const sourceRoot = join(process.cwd(), 'src', 'app');
@@ -91,7 +94,7 @@ assert.deepEqual(
   [],
   [
     'Símbolos extraídos não devem ser importados através de gameEngine.ts.',
-    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts, fieldLifecycle.ts, fieldQueries.ts, glacialRules.ts ou towerRules.ts conforme o símbolo.',
+    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts, fieldLifecycle.ts, fieldQueries.ts, glacialRules.ts, towerRules.ts ou gameLimits.ts conforme o símbolo.',
     `Violações: ${violations.join(', ')}`,
   ].join(' ')
 );
