@@ -70,7 +70,7 @@ import { resolveCoringaTrapTargeting, tryCoringaJShieldBlock } from './coringaTr
 import { handleSelectCombatSlot } from './combatHandlers';
 import { handleActivateSimpleMagic, handleExecuteMagic } from './magicHandlers';
 import type { GameAction, MagicSelection } from './gameActionTypes';
-import { handleReactToMagic, maybeDeferForReaction } from './reactionHandlers';
+import { handleReactToMagic, handleResolvePendingReaction, maybeDeferForReaction } from './reactionHandlers';
 import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
 import { advancePhaseState, handleToggleReady } from './phaseHandlers';
 import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd, canActivateMonsterEffect } from './monsterLifecycle';
@@ -557,31 +557,6 @@ function handlePlayCard(state: GameState, player: PlayerNumber, cardId: string, 
   }
 
   return { ...state, log, [playerKey]: { ...playerState, hand: newHand, field: newField } };
-}
-
-/**
- * A janela de 3s expirou sem reação (timer real em GameBoard.tsx) - aplica
- * de verdade a magia anunciada, re-executando o handler original guardado em
- * `pendingReaction.originalAction` sobre o estado já sem `pendingReaction`
- * (senão o guard de bloqueio total no topo de gameReducer rejeitaria a
- * própria re-execução). O estado não muda em mais nada além disso entre o
- * anúncio e agora (a pausa total garante isso), então o resultado é
- * idêntico ao que seria se a magia tivesse aplicado na hora, sem o modo
- * ligado.
- */
-function handleResolvePendingReaction(state: GameState): GameState {
-  const pending = state.pendingReaction;
-  if (!pending) return state;
-  const stateWithoutPending: GameState = { ...state, pendingReaction: null };
-
-  switch (pending.originalAction.type) {
-    case 'ACTIVATE_SIMPLE_MAGIC':
-      return handleActivateSimpleMagic(stateWithoutPending, pending.originalAction.player, pending.originalAction.cardId);
-    case 'EXECUTE_MAGIC':
-      return handleExecuteMagic(stateWithoutPending, pending.originalAction);
-    default:
-      return stateWithoutPending;
-  }
 }
 
 /**

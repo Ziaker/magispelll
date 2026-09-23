@@ -1,12 +1,13 @@
 /**
  * reactionHandlers.ts - anúncio e negação do Modo Reações.
  *
- * A resolução da janela ainda fica junto das magias até os handlers J/Q/K
- * também saírem do reducer principal.
+ * A resolução da janela também vive aqui: quando o prazo expira, a ação
+ * original é reexecutada pelos handlers de magia já modularizados.
  */
 import { pushToDiscard } from './deckLifecycle';
 import { appendLog } from './gameLog';
 import type { GameAction } from './gameActionTypes';
+import { handleActivateSimpleMagic, handleExecuteMagic } from './magicHandlers';
 import { characterOf, opponentOf, playerKeyOf } from './gameSelectors';
 import { isSameGameplayState } from './gameplayState';
 import type { GameState } from './gameStateTypes';
@@ -204,4 +205,29 @@ export function handleReactToMagic(state: GameState, player: PlayerNumber, cardI
     [casterKey]: { ...casterState, hand: newCasterHand },
     [playerKey]: { ...playerState, hand: newReactingHand },
   };
+}
+
+/**
+ * A janela de 3s expirou sem reação (timer real em GameBoard.tsx) - aplica
+ * de verdade a magia anunciada, re-executando o handler original guardado em
+ * `pendingReaction.originalAction` sobre o estado já sem `pendingReaction`
+ * (senão o guard de bloqueio total no topo de gameReducer rejeitaria a
+ * própria re-execução). O estado não muda em mais nada além disso entre o
+ * anúncio e agora (a pausa total garante isso), então o resultado é
+ * idêntico ao que seria se a magia tivesse aplicado na hora, sem o modo
+ * ligado.
+ */
+export function handleResolvePendingReaction(state: GameState): GameState {
+  const pending = state.pendingReaction;
+  if (!pending) return state;
+  const stateWithoutPending: GameState = { ...state, pendingReaction: null };
+
+  switch (pending.originalAction.type) {
+    case 'ACTIVATE_SIMPLE_MAGIC':
+      return handleActivateSimpleMagic(stateWithoutPending, pending.originalAction.player, pending.originalAction.cardId);
+    case 'EXECUTE_MAGIC':
+      return handleExecuteMagic(stateWithoutPending, pending.originalAction);
+    default:
+      return stateWithoutPending;
+  }
 }
