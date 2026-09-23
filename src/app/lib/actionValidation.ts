@@ -27,6 +27,24 @@ export interface ActionEvaluation {
   accepted: boolean;
   /** Estado devolvido pelo reducer real; deve ser usado em vez de reduzi-lo de novo. */
   nextState: GameState;
+  /**
+   * Mensagem produzida pelo próprio motor quando uma ação rejeitada adiciona
+   * um aviso ao log. `undefined` quando a rejeição é silenciosa.
+   */
+  rejectionReason?: string;
+}
+
+/**
+ * Pega apenas uma mensagem NOVA gerada por esta tentativa. Compara `id`, não
+ * tamanho do array, porque o log é limitado e pode remover uma entrada antiga
+ * no mesmo passo em que adiciona a nova.
+ */
+function getRejectionReason(previous: GameState, next: GameState): string | undefined {
+  const previousLastId = previous.log.length > 0 ? previous.log[previous.log.length - 1].id : -1;
+  for (let i = next.log.length - 1; i >= 0; i--) {
+    if (next.log[i].id > previousLastId) return next.log[i].text;
+  }
+  return undefined;
 }
 
 /**
@@ -36,8 +54,10 @@ export interface ActionEvaluation {
  */
 export function evaluateAction(state: GameState, action: GameAction): ActionEvaluation {
   const nextState = gameReducer(state, action);
+  const accepted = !isSameGameplayState(state, nextState);
   return {
-    accepted: !isSameGameplayState(state, nextState),
+    accepted,
     nextState,
+    rejectionReason: accepted ? undefined : getRejectionReason(state, nextState),
   };
 }
