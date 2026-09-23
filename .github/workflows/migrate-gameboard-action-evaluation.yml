@@ -29,39 +29,20 @@ jobs:
           if import_line not in text:
               text = text.replace(import_anchor, import_anchor + import_line, 1)
 
-          old_fn = """  const isNoOpAiAction = (action: GameAction): boolean => {
-    const next = gameReducer(gameState, action);
-    if (next === gameState) return true;
-    const { log: _prevLog, ...prevRest } = gameState;
-    const { log: _nextLog, ...nextRest } = next;
-    return JSON.stringify(nextRest) === JSON.stringify(prevRest);
-  };"""
-          new_fn = """  const isNoOpAiAction = (action: GameAction): boolean =>
-    !evaluateAction(gameState, action).accepted;"""
+          old_fn = "  const isNoOpAiAction = (action: GameAction): boolean => {\n    const next = gameReducer(gameState, action);\n    if (next === gameState) return true;\n    const { log: _prevLog, ...prevRest } = gameState;\n    const { log: _nextLog, ...nextRest } = next;\n    return JSON.stringify(nextRest) === JSON.stringify(prevRest);\n  };"
+          new_fn = "  const isNoOpAiAction = (action: GameAction): boolean =>\n    !evaluateAction(gameState, action).accepted;"
           if text.count(old_fn) != 1:
               raise SystemExit('legacy isNoOpAiAction implementation not found exactly once')
           text = text.replace(old_fn, new_fn, 1)
 
-          old_comment = """   * Detecta isso de forma DETERMINÍSTICA: chama `gameReducer` diretamente
-   * contra o `gameState` ATUAL, ANTES de despachar de verdade - a mesma
-   * função pura já usada em outros lugares deste arquivo pra \"e se\" sem
-   * efeito colateral (ex.: replay do log, ver mais abaixo). Se o resultado
-   * é idêntico ao estado atual (ignorando só `log`, que toda rejeição
-   * também anexa um aviso nele), a ação NÃO teria nenhum efeito - sabido já
-   * agora, sem precisar despachar e esperar repetir."""
-          new_comment = """   * Detecta isso de forma DETERMINÍSTICA via `evaluateAction`, a autoridade
-   * compartilhada de `actionValidation.ts`: ela executa o reducer real contra
-   * o `gameState` ATUAL e considera rejeição qualquer resultado que não altere
-   * gameplay, mesmo quando o motor acrescenta apenas uma linha ao log. Assim
-   * GameBoard, simuladores e action-space usam exatamente a mesma semântica."""
+          old_comment = "   * Detecta isso de forma DETERMINÍSTICA: chama `gameReducer` diretamente\n   * contra o `gameState` ATUAL, ANTES de despachar de verdade - a mesma\n   * função pura já usada em outros lugares deste arquivo pra \"e se\" sem\n   * efeito colateral (ex.: replay do log, ver mais abaixo). Se o resultado\n   * é idêntico ao estado atual (ignorando só `log`, que toda rejeição\n   * também anexa um aviso nele), a ação NÃO teria nenhum efeito - sabido já\n   * agora, sem precisar despachar e esperar repetir."
+          new_comment = "   * Detecta isso de forma DETERMINÍSTICA via `evaluateAction`, a autoridade\n   * compartilhada de `actionValidation.ts`: ela executa o reducer real contra\n   * o `gameState` ATUAL e considera rejeição qualquer resultado que não altere\n   * gameplay, mesmo quando o motor acrescenta apenas uma linha ao log. Assim\n   * GameBoard, simuladores e action-space usam exatamente a mesma semântica."
           if text.count(old_comment) != 1:
               raise SystemExit('legacy no-op comment not found exactly once')
           text = text.replace(old_comment, new_comment, 1)
 
-          old_note = """   * NOTA (custo aceito): quando a ação NÃO é no-op, `gameReducer` roda aqui
-   * (só pra comparar) e roda de novo de verdade no dispatch real logo abaixo"""
-          new_note = """   * NOTA (custo aceito): quando a ação NÃO é no-op, `evaluateAction` executa
-   * `gameReducer` aqui e o reducer roda de novo no dispatch real logo abaixo"""
+          old_note = "   * NOTA (custo aceito): quando a ação NÃO é no-op, `gameReducer` roda aqui\n   * (só pra comparar) e roda de novo de verdade no dispatch real logo abaixo"
+          new_note = "   * NOTA (custo aceito): quando a ação NÃO é no-op, `evaluateAction` executa\n   * `gameReducer` aqui e o reducer roda de novo no dispatch real logo abaixo"
           if text.count(old_note) != 1:
               raise SystemExit('legacy cost note not found exactly once')
           text = text.replace(old_note, new_note, 1)
