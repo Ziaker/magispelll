@@ -30,6 +30,8 @@ jobs:
         run: npm test
       - name: Exhaustiveness tests
         run: npm run test:exhaustiveness
+      - name: Action validation tests
+        run: npm run test:actions
       - name: Build
         run: npm run build
       - name: Upload Pages artifact
