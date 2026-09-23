@@ -1,0 +1,107 @@
+name: Temporary reaction announcement migration
+
+on:
+  push:
+    branches: [overhaul/reaction-announcement-handlers]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/reaction-announcement-handlers
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract reaction announcement handlers
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/reactionHandlers.ts';
+          const functionNames = ['canMagicTriggerReactionAnnouncement', 'maybeDeferForReaction', 'handleReactToMagic'];
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('reactionHandlers.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const nodes = functionNames.map((name) => {
+            const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === name);
+            if (!node) throw new Error(`${name} not found`);
+            return node;
+          }).sort((a, b) => a.getFullStart() - b.getFullStart());
+
+          const snippets = nodes.map((node) => {
+            const name = node.name.text;
+            const raw = source.slice(node.getFullStart(), node.end).trim();
+            if (name === 'canMagicTriggerReactionAnnouncement') return raw;
+            return raw.replace(`function ${name}`, `export function ${name}`);
+          });
+
+          let next = source;
+          for (const node of [...nodes].sort((a, b) => b.getFullStart() - a.getFullStart())) {
+            next = next.slice(0, node.getFullStart()) + next.slice(node.end);
+          }
+
+          const actionImport = "import type { GameAction, MagicSelection } from './gameActionTypes';\n";
+          const handlerImport = "import { handleReactToMagic, maybeDeferForReaction } from './reactionHandlers';\n";
+          if (next.split(actionImport).length !== 2) throw new Error('gameActionTypes import anchor not found exactly once');
+          next = next.replace(actionImport, actionImport + handlerImport);
+
+          // Preserve the old public export surface from gameEngine.ts.
+          const exportAnchor = "export { getMagicActivationContext } from './magicActivationContext';\n";
+          const exportLine = "export { canMagicTriggerReactionAnnouncement } from './reactionHandlers';\n";
+          if (next.split(exportAnchor).length !== 2) throw new Error('public export anchor not found exactly once');
+          next = next.replace(exportAnchor, exportAnchor + exportLine);
+
+          const header = [
+            '/**',
+            ' * reactionHandlers.ts - anúncio e negação do Modo Reações.',
+            ' *',
+            ' * A resolução da janela ainda fica junto das magias até os handlers J/Q/K',
+            ' * também saírem do reducer principal.',
+            ' */',
+            "import { pushToDiscard } from './deckLifecycle';",
+            "import { appendLog } from './gameLog';",
+            "import type { GameAction } from './gameActionTypes';",
+            "import { opponentOf, playerKeyOf } from './gameSelectors';",
+            "import { isSameGameplayState } from './gameplayState';",
+            "import type { GameState } from './gameStateTypes';",
+            "import type { PlayerNumber } from './gameTypes';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + snippets.join('\n\n') + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+          npm run build
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No reaction-handler diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: extract reaction announcement handlers"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/reaction-announcement-handlers; then
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
