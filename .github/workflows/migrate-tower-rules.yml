@@ -71,7 +71,7 @@ jobs:
           );
           tower = tower.replace(
             "import { isTowerSlot } from './fieldLifecycle';",
-            "import { getEffectiveCardValue, type Card } from './cardUtils';\nimport { isTowerSlot, isBrotoSlot } from './fieldLifecycle';\nimport { playerKeyOf } from './gameSelectors';"
+            "import { getEffectiveCardValue, type Card } from './cardUtils';\nimport { isTowerSlot, isBrotoSlot } from './fieldLifecycle';\nimport { playerKeyOf } from './gameSelectors';\nimport { hasStatus } from './statusEffects';"
           );
           tower = tower.trimEnd() + '\n\n' + blocks.join('\n\n') + '\n';
 
