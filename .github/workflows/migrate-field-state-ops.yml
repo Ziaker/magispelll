@@ -1,0 +1,96 @@
+name: Temporary field state operations migration
+
+on:
+  push:
+    branches: [overhaul/field-state-ops]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/field-state-ops
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract field state operations
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/fieldStateOps.ts';
+          const names = ['updateFieldSlot', 'returnSlotToHand', 'resolveCombatSlot'];
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('fieldStateOps.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const found = new Map();
+          for (const stmt of sf.statements) {
+            if (ts.isFunctionDeclaration(stmt) && stmt.name && names.includes(stmt.name.text)) found.set(stmt.name.text, stmt);
+          }
+          for (const name of names) if (!found.has(name)) throw new Error(`${name} not found`);
+
+          const blocks = [];
+          const ranges = [];
+          for (const name of names) {
+            const node = found.get(name);
+            let block = source.slice(node.getFullStart(), node.end).trim();
+            block = block.replace(`function ${name}`, `export function ${name}`);
+            blocks.push(block);
+            ranges.push([node.getFullStart(), node.end]);
+          }
+
+          let next = source;
+          for (const [start, end] of ranges.sort((a, b) => b[0] - a[0])) next = next.slice(0, start) + next.slice(end);
+
+          const importAnchor = "import { isTowerSlot, isBrotoSlot, keepPersistentFieldSlots, nonPersistentFieldCards } from './fieldLifecycle';\n";
+          const importLine = "import { resolveCombatSlot, returnSlotToHand, updateFieldSlot } from './fieldStateOps';\n";
+          if (next.split(importAnchor).length !== 2) throw new Error('fieldLifecycle import anchor not found exactly once');
+          next = next.replace(importAnchor, importAnchor + importLine);
+
+          const header = [
+            '/**',
+            ' * fieldStateOps.ts - operações puras de transformação estrutural do campo.',
+            ' *',
+            ' * Centraliza updates de slot, retorno de pilhas para a mão e resolução estrutural',
+            ' * do destino de um slot após combate, sem conhecer reducer, UI ou IA.',
+            ' */',
+            "import { hideCard, shuffle, type Card } from './cardUtils';",
+            "import type { FieldSlot } from './gameStateTypes';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + blocks.join('\n\n') + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No field-state diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: extract field state operations"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/field-state-ops; then
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
