@@ -70,6 +70,7 @@ import { growDruidaBrotoField } from './druidaLifecycle';
 import { resetPlayerForPhaseTransition } from './playerPhaseLifecycle';
 import { expireNumeralSpells } from './numeralSpellLifecycle';
 import type { FieldSlot, PlayerState, CombatResolution, NumeralSpellPending, PendingReaction, GameState } from './gameStateTypes';
+import { emptyField, createPlayerState } from './gameStateFactory';
 
 export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
@@ -79,42 +80,6 @@ export type { FieldSlot, PlayerState, CombatResolution, NumeralSpellPending, Pen
 export { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
 export { MAX_MONSTER_USES } from './monsterLifecycle';
 export { isTowerSlot, isBrotoSlot } from './fieldLifecycle';
-
-// ============================================================================
-// Helpers puros
-// ============================================================================
-
-function emptyField(): [FieldSlot, FieldSlot, FieldSlot] {
-  return [
-    { revealed: false, horizontalCards: [] },
-    { revealed: false, horizontalCards: [] },
-    { revealed: false, horizontalCards: [] },
-  ];
-}
-
-function createPlayerState(hand: Card[], handLimit: number): PlayerState {
-  return {
-    hand,
-    field: emptyField(),
-    readyForNextPhase: false,
-    lives: 3,
-    combatWins: 0,
-    handLimit,
-    horizontalStackBonus: 0,
-    permanentDrawBonus: 0,
-    discardsThisTurn: 0,
-    drawsThisTurn: 0,
-    fusesThisTurn: 0,
-    monsterCard: undefined,
-    monsterTargetSlot: undefined,
-    monsterProtectedSlots: [],
-    mosqueteiroDiscardsThisTurn: 0,
-    mosqueteiroDiscardsTurnMinus1: 0,
-    mosqueteiroDiscardsTurnMinus2: 0,
-    fireballValue: 0,
-    druidaPhotosynthesisLevel: 0,
-  };
-}
 
 export function createInitialState(
   player1Character: CharacterId,
