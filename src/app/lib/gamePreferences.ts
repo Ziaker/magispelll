@@ -1,5 +1,5 @@
 import { DEFAULT_GAME_CONFIG, type GameConfig } from './gameConfig';
-import type { CharacterId } from './gameEngine';
+import type { CharacterId } from './characterRegistry';
 
 /**
  * gamePreferences.ts - lembra a última configuração de partida escolhida
