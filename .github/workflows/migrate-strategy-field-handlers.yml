@@ -66,7 +66,7 @@ jobs:
             "import { isBrotoSlot, isTowerSlot } from './fieldLifecycle';",
             "import { returnSlotToHand, updateFieldSlot } from './fieldOperations';",
             "import { appendLog } from './gameLog';",
-            "import { playerKeyOf } from './gameSelectors';",
+            "import { characterOf, playerKeyOf } from './gameSelectors';",
             "import { hasStatus } from './statusEffects';",
             "import type { GameState } from './gameStateTypes';",
             "import type { PlayerNumber } from './gameTypes';",
