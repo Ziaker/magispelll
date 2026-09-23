@@ -116,7 +116,7 @@ jobs:
               raise SystemExit('boundary symbol anchor not found exactly once')
           text = text.replace(array_anchor, array_lines, 1)
 
-          old_help = "Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameSelectors.ts ou monsterLifecycle.ts conforme o símbolo."
+          old_help = "Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameSelectors.ts, monsterLifecycle.ts ou fieldLifecycle.ts conforme o símbolo."
           new_help = "Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts ou fieldLifecycle.ts conforme o símbolo."
           if text.count(old_help) != 1:
               raise SystemExit('boundary help text not found exactly once')
