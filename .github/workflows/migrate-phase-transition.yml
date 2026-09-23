@@ -1,0 +1,101 @@
+name: Temporary phase transition migration
+
+on:
+  push:
+    branches: [overhaul/phase-transition-handler]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/phase-transition-handler
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract phase transition handler
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/phaseHandlers.ts';
+          const functionName = 'advancePhaseState';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('phaseHandlers.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === functionName);
+          if (!node) throw new Error(`${functionName} not found`);
+
+          let snippet = source.slice(node.getFullStart(), node.end).trim();
+          snippet = snippet.replace(`function ${functionName}`, `export function ${functionName}`);
+          let next = source.slice(0, node.getFullStart()) + source.slice(node.end);
+
+          const phaseRulesImport = "import { getNextPhaseTransition } from './phaseRules';\n";
+          if (next.split(phaseRulesImport).length !== 2) throw new Error('phaseRules import anchor not found exactly once');
+          next = next.replace(phaseRulesImport, "import { advancePhaseState } from './phaseHandlers';\n");
+
+          next = next.replace(
+            "import { getSpotlightAdjustedValue, rollSpotlight } from './spotlight';",
+            "import { getSpotlightAdjustedValue } from './spotlight';"
+          );
+          next = next.replace("import { computeLoneTowerForCombat } from './towerRules';\n", '');
+          next = next.replace("import { resetPlayerForPhaseTransition } from './playerPhaseLifecycle';\n", '');
+          next = next.replace("import { expireNumeralSpells } from './numeralSpellLifecycle';\n", '');
+
+          const header = [
+            '/**',
+            ' * phaseHandlers.ts - orquestração das transições entre fases.',
+            ' *',
+            ' * Mantém no domínio de fase os resets/lifecycles executados quando a',
+            ' * partida avança de Compra -> Estratégia -> Combate -> Compra.',
+            ' */',
+            "import type { Card } from './cardUtils';",
+            "import { pushToDiscard } from './deckLifecycle';",
+            "import { nonPersistentFieldCards } from './fieldLifecycle';",
+            "import { appendLog } from './gameLog';",
+            "import type { GameState } from './gameStateTypes';",
+            "import { resolveMonsterCardAtTurnEnd } from './monsterLifecycle';",
+            "import { expireNumeralSpells } from './numeralSpellLifecycle';",
+            "import { getNextPhaseTransition } from './phaseRules';",
+            "import { resetPlayerForPhaseTransition } from './playerPhaseLifecycle';",
+            "import { rollSpotlight } from './spotlight';",
+            "import { computeLoneTowerForCombat } from './towerRules';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + snippet + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+          npm run build
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No phase-transition diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: extract phase transition handler"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/phase-transition-handler; then
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
