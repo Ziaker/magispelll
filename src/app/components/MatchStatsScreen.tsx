@@ -5,14 +5,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { ArrowLeft, Trash2, Trophy } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { loadMatchHistory, clearMatchHistory, getStatsByCharacter } from '../lib/matchStats';
-import type { CharacterId } from '../lib/gameEngine';
+import { ALL_CHARACTER_IDS } from '../lib/characterRegistry';
 
 interface MatchStatsScreenProps {
   onBack: () => void;
 }
 
-/** Mesma ordem/lista usada em todo o resto do jogo (CharacterSelection.tsx, Rules.tsx). */
-const ALL_CHARACTERS: CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida', 'glacial'];
+/** Derivada do registry canônico: personagem novo entra nas estatísticas automaticamente. */
+const ALL_CHARACTERS = ALL_CHARACTER_IDS;
 
 /**
  * MatchStatsScreen.tsx - QoL (pedido do usuário: "histórico/estatísticas
