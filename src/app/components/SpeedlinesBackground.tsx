@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { getCharacterTheme } from '../lib/characterThemes';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 
 /**
  * SpeedlinesBackground - pedido do usuário: "adicione um efeito de

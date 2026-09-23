@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertTriangle } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 import { getMagicCardInfo, type MagicCardType } from '../lib/magicCards';
 
 interface ReactionAlertBannerProps {

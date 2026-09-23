@@ -1,4 +1,4 @@
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 
 /**
  * FIX (pedido do usuário: "quando eu disse querer que os números aparecessem

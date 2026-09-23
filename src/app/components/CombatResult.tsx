@@ -4,7 +4,7 @@ import confetti from 'canvas-confetti';
 import { Trophy, Swords, Heart } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { useSettings } from '../context/SettingsContext';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 
 /** Converte a cor hex do tema (`#RRGGBB`) num par de tons p/ o confete (a própria cor + uma versão clara dela). */
 function confettiColorsFor(hex: string): string[] {

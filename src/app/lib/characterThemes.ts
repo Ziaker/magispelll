@@ -19,7 +19,7 @@
  * EXTENSÃO: Para adicionar novo personagem, escolha uma paleta única e adicione aqui
  */
 
-import type { CharacterId } from './gameEngine';
+import type { CharacterId } from './characterRegistry';
 
 /**
  * Personagens jogáveis
