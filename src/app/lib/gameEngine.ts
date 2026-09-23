@@ -68,6 +68,7 @@ import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd } from './monsterLifecycl
 import { isTowerSlot, isBrotoSlot, keepPersistentFieldSlots, nonPersistentFieldCards } from './fieldLifecycle';
 import { growDruidaBrotoField } from './druidaLifecycle';
 import { resetPlayerForPhaseTransition } from './playerPhaseLifecycle';
+import { expireNumeralSpells, type ActiveNumeralSpells } from './numeralSpellLifecycle';
 
 export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
@@ -404,7 +405,7 @@ export interface GameState {
   // teste automatizado (ver sanity-test.ts) forçando os dois jogadores como
   // Mago. Agora é um mapa por jogador, então cada um tem seu próprio slot
   // independente.
-  activeNumeralSpells: Partial<Record<PlayerNumber, { character: CharacterId; expiresAtTurn: number }>>;
+  activeNumeralSpells: ActiveNumeralSpells;
   combatResolution: CombatResolution | null;
   numeralSpellPending: NumeralSpellPending | null;
   gameOver: { winner: PlayerNumber } | null;
@@ -5974,20 +5975,11 @@ function advancePhaseState(state: GameState): GameState {
   // independentemente (mapa por jogador) - ver comentário completo em
   // `activeNumeralSpells` no GameState sobre o bug de um jogador sobrescrever
   // o efeito ativo do outro quando os dois são Mago.
-  let activeNumeralSpells = state.activeNumeralSpells;
-  if (newPhase === 'draw') {
-    const next = { ...activeNumeralSpells };
-    let changed = false;
-    for (const p of [1, 2] as PlayerNumber[]) {
-      const entry = next[p];
-      if (entry && newTurn > entry.expiresAtTurn) {
-        delete next[p];
-        changed = true;
-        log = appendLog(state, log, 'numeral-spell', `Efeito da Magia Numeral de Jogador ${p} terminou`, { player: p });
-      }
-    }
-    if (changed) activeNumeralSpells = next;
-  }
+  const numeralSpellExpiration = expireNumeralSpells(state.activeNumeralSpells, { newTurn, newPhase });
+const activeNumeralSpells = numeralSpellExpiration.activeNumeralSpells;
+for (const player of numeralSpellExpiration.expiredPlayers) {
+  log = appendLog(state, log, 'numeral-spell', `Efeito da Magia Numeral de Jogador ${player} terminou`, { player });
+}
 
   const playerTransitionContext = { newTurn, newPhase, towersMode: state.gameConfig.towersMode };
   const player1Result = resetPlayerForPhaseTransition(state.player1, p1Monster.kept, playerTransitionContext);
