@@ -28,7 +28,7 @@ import { Home } from './components/Home';
 import { GameConfig } from './components/GameConfig';
 import { DEFAULT_GAME_CONFIG, type GameConfig as GameConfigType } from './lib/gameConfig';
 import { loadLastGameConfig } from './lib/gamePreferences';
-import type { CharacterId } from './lib/gameEngine';
+import type { CharacterId } from './lib/characterRegistry';
 import { CharacterSelection } from './components/CharacterSelection';
 import { GameSummary } from './components/GameSummary';
 import { Rules } from './components/Rules';
