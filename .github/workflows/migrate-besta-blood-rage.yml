@@ -1,0 +1,101 @@
+name: Temporary Besta blood rage lifecycle migration
+
+on:
+  push:
+    branches: [overhaul/besta-blood-rage-lifecycle]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/besta-blood-rage-lifecycle
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract Besta blood rage lifecycle
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/bestaLifecycle.ts';
+          const functionName = 'applyBestaBloodRageSweep';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('bestaLifecycle.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === functionName);
+          if (!node) throw new Error(`${functionName} not found`);
+
+          let snippet = source.slice(node.getFullStart(), node.end).trim();
+          snippet = snippet.replace(`function ${functionName}`, `export function ${functionName}`);
+          let next = source.slice(0, node.getFullStart()) + source.slice(node.end);
+
+          const anchor = "import { appendLog } from './gameLog';\n";
+          const handlerImport = "import { applyBestaBloodRageSweep } from './bestaLifecycle';\n";
+          if (next.split(anchor).length !== 2) throw new Error('gameLog import anchor not found exactly once');
+          next = next.replace(anchor, anchor + handlerImport);
+
+          const header = [
+            '/**',
+            ' * bestaLifecycle.ts - efeitos contínuos de ciclo de vida da Besta.',
+            ' *',
+            ' * Mantém pós-processamentos globais do personagem fora do reducer principal.',
+            ' */',
+            "import { getEffectiveCardValue, isPlainNumeralCard } from './cardUtils';",
+            "import { pushToDiscard } from './deckLifecycle';",
+            "import { appendLog } from './gameLog';",
+            "import { playerKeyOf } from './gameSelectors';",
+            "import type { GameState } from './gameStateTypes';",
+            "import type { PlayerNumber } from './gameTypes';",
+            "import { hasStatus } from './statusEffects';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + snippet + '\n');
+          fs.writeFileSync(enginePath, next);
+
+          for (const path of [
+            'src/app/lib/numeralSpells.ts',
+            'src/app/lib/gameLogTypes.ts',
+            'src/app/components/BeastBurnFlash.tsx',
+            'src/app/components/PlayerZone.tsx',
+          ]) {
+            let text = fs.readFileSync(path, 'utf8');
+            text = text.replaceAll('applyBestaBloodRageSweep, gameEngine.ts', 'applyBestaBloodRageSweep, bestaLifecycle.ts');
+            text = text.replaceAll('applyBestaBloodRageSweep em gameEngine.ts', 'applyBestaBloodRageSweep em bestaLifecycle.ts');
+            fs.writeFileSync(path, text);
+          }
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+          npm run build
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No Besta lifecycle diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: extract Besta blood rage lifecycle"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/besta-blood-rage-lifecycle; then
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
