@@ -77,33 +77,8 @@ import { useSettings } from '../context/SettingsContext';
 import { getAnimationDurationScale, getAiThinkTimeScale } from '../lib/settings';
 import { soundManager, magicSoundFor, monsterSoundFor, numeralSoundFor } from '../lib/soundManager';
 import { motion } from 'motion/react';
-import {
-  gameReducer,
-  createInitialState,
-  playerKeyOf,
-  opponentKeyOf,
-  opponentOf,
-  characterOf,
-  isSlotProtected,
-  getDestroyableReinforcementSlots,
-  getUnrevealedFieldSlots,
-  getFilledFieldSlots,
-  canActivateMonsterEffect,
-  canSelectCombatSlot,
-  MAX_MONSTER_USES,
-  getMagicActivationContext,
-  canFormOrReinforceTower,
-  isCoringaRawTrapCard,
-  getFireballCap,
-  canMagicTriggerReactionAnnouncement,
-  isBrotoSlot,
-  getGlacialGolemValue,
-  type CharacterId,
-  type GameAction,
-  type GameState,
-  type MagicSelection,
-  type PlayerNumber,
-} from '../lib/gameEngine';
+import { gameReducer, createInitialState, playerKeyOf, opponentKeyOf, opponentOf, characterOf, isSlotProtected, getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots, canActivateMonsterEffect, canSelectCombatSlot, MAX_MONSTER_USES, getMagicActivationContext, canFormOrReinforceTower, isCoringaRawTrapCard, getFireballCap, canMagicTriggerReactionAnnouncement, isBrotoSlot, getGlacialGolemValue, type GameAction, type GameState, type MagicSelection, type PlayerNumber } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 import { decideAiAction, decideAiActionTraced, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
 import { simulateSteps, fuzzSteps } from '../lib/simulateGame';
 import { enumerateLegalActions, checkActionDivergence } from '../lib/actionSpace';

@@ -18,7 +18,8 @@
  * sobre `WithStatusEffects`, então funcionam para os dois sem duplicação.
  */
 import type { Card } from './cardUtils';
-import type { CharacterId, FieldSlot, Phase } from './gameEngine';
+import type { FieldSlot, Phase } from './gameEngine';
+import type { CharacterId } from './characterRegistry';
 
 /**
  * União fechada dos kinds já conhecidos + trapdoor de string literal
