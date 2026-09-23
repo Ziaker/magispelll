@@ -1,0 +1,80 @@
+name: Temporary Coringa combat value migration
+
+on:
+  push:
+    branches: [overhaul/coringa-combat-value]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/coringa-combat-value
+      - name: Install dependencies
+        run: npm ci
+      - name: Move Coringa combat value rule
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const rulesPath = 'src/app/lib/coringaRules.ts';
+          const functionName = 'applyCoringaTrapCombatValue';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          let rules = fs.readFileSync(rulesPath, 'utf8');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === functionName);
+          if (!node) throw new Error(`${functionName} not found`);
+
+          let snippet = source.slice(node.getFullStart(), node.end).trim();
+          snippet = snippet.replace(`function ${functionName}`, `export function ${functionName}`);
+          let next = source.slice(0, node.getFullStart()) + source.slice(node.end);
+
+          const rulesImport = "import { isCoringaRawTrapCard } from './coringaRules';";
+          const nextRulesImport = "import { applyCoringaTrapCombatValue, isCoringaRawTrapCard } from './coringaRules';";
+          if (next.split(rulesImport).length !== 2) throw new Error('coringaRules engine import anchor not found exactly once');
+          next = next.replace(rulesImport, nextRulesImport);
+
+          const cardImport = "import type { Card } from './cardUtils';";
+          const stateImport = "import type { GameState } from './gameStateTypes';";
+          if (rules.split(cardImport).length !== 2 || rules.split(stateImport).length !== 2) throw new Error('coringaRules import anchors not found');
+          rules = rules.replace(cardImport, "import type { Card } from './cardUtils';\nimport { getSpotlightAdjustedValue } from './spotlight';");
+          rules = rules.replace(stateImport, "import type { FieldSlot, GameState } from './gameStateTypes';");
+          rules = rules.trimEnd() + '\n\n' + snippet + '\n';
+
+          fs.writeFileSync(enginePath, next);
+          fs.writeFileSync(rulesPath, rules);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+          npm run build
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No Coringa combat-value diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: move Coringa combat value rule"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/coringa-combat-value; then
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
