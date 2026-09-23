@@ -1,0 +1,173 @@
+name: Temporary magic activation context migration
+
+on:
+  push:
+    branches: [overhaul/magic-activation-context]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/magic-activation-context
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract magic activation context
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/magicActivationContext.ts';
+          const functionName = 'getMagicActivationContext';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('magicActivationContext.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === functionName);
+          if (!node) throw new Error(`${functionName} not found`);
+          const block = source.slice(node.getFullStart(), node.end).trim();
+          if (!block.includes(`export function ${functionName}`)) throw new Error(`${functionName} is not exported as expected`);
+
+          let next = source.slice(0, node.getFullStart()) + source.slice(node.end);
+          const importAnchor = "import { canActivateMagic, type MagicActivationContext, type MagicCardType } from './magicCards';\n";
+          const importLine = "import { getMagicActivationContext } from './magicActivationContext';\n";
+          if (next.split(importAnchor).length !== 2) throw new Error('magicCards import anchor not found exactly once');
+          next = next.replace(importAnchor, importAnchor + importLine);
+
+          const exportAnchor = "export { isCoringaRawTrapCard } from './coringaRules';\n";
+          const exportLine = "export { getMagicActivationContext } from './magicActivationContext';\n";
+          if (next.split(exportAnchor).length !== 2) throw new Error('coringaRules export anchor not found exactly once');
+          next = next.replace(exportAnchor, exportAnchor + exportLine);
+
+          const header = [
+            '/**',
+            ' * magicActivationContext.ts - deriva o contexto necessário para validar cartas mágicas.',
+            ' *',
+            ' * Compartilha a mesma visão entre motor, UI, IA e action-space sem depender do reducer.',
+            ' */',
+            "import { isPlainNumeralCard } from './cardUtils';",
+            "import type { MagicActivationContext } from './magicCards';",
+            "import type { PlayerNumber } from './gameTypes';",
+            "import type { GameState } from './gameStateTypes';",
+            "import { opponentKeyOf, opponentOf, playerKeyOf } from './gameSelectors';",
+            "import { getDestroyableReinforcementSlots, getFilledFieldSlots } from './fieldQueries';",
+            "import { isSlotProtected } from './anjoRules';",
+            "import { hasStatus } from './statusEffects';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + block + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Migrate application imports and boundary contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          TARGET = 'getMagicActivationContext'
+          import_re = re.compile(
+              r"import\s+(?P<type_only>type\s+)?\{(?P<body>[^}]*)\}\s+from\s+(?P<quote>['\"])(?P<source>[^'\"]*gameEngine)(?P=quote);",
+              re.DOTALL,
+          )
+          moved = []
+
+          for path in sorted(Path('src/app').rglob('*')):
+              if path.suffix not in {'.ts', '.tsx'} or not path.is_file() or path.name in {'gameEngine.ts', 'magicActivationContext.ts'}:
+                  continue
+              text = path.read_text(encoding='utf-8')
+              found_target = [False]
+              target_source = [None]
+
+              def repl(match):
+                  parts = [p.strip() for p in match.group('body').split(',') if p.strip()]
+                  remaining = []
+                  changed = False
+                  source = match.group('source')
+                  candidate = source[:-len('gameEngine')] + 'magicActivationContext'
+                  for part in parts:
+                      base = re.sub(r'^type\s+', '', part).strip()
+                      imported_name = re.split(r'\s+as\s+', base)[0].strip()
+                      if imported_name == TARGET:
+                          target_source[0] = candidate
+                          found_target[0] = True
+                          changed = True
+                      else:
+                          remaining.append(part)
+                  if not changed:
+                      return match.group(0)
+                  if not remaining:
+                      return ''
+                  prefix = 'import type' if match.group('type_only') else 'import'
+                  quote = match.group('quote')
+                  return f"{prefix} {{ {', '.join(remaining)} }} from {quote}{source}{quote};"
+
+              next_text = import_re.sub(repl, text)
+              if not found_target[0]:
+                  continue
+              target = target_source[0]
+              existing_re = re.compile(
+                  r"import\s+\{(?P<body>[^}]*)\}\s+from\s+['\"]" + re.escape(target) + r"['\"];",
+                  re.DOTALL,
+              )
+              existing = existing_re.search(next_text)
+              if existing:
+                  parts = [p.strip() for p in existing.group('body').split(',') if p.strip()]
+                  if TARGET not in parts:
+                      parts.append(TARGET)
+                  replacement = f"import {{ {', '.join(parts)} }} from '{target}';"
+                  next_text = next_text[:existing.start()] + replacement + next_text[existing.end():]
+              else:
+                  first_import = re.search(r'^import\s', next_text, re.MULTILINE)
+                  if not first_import:
+                      raise SystemExit(f'{path}: no import insertion point')
+                  next_text = next_text[:first_import.start()] + f"import {{ {TARGET} }} from '{target}';\n" + next_text[first_import.start():]
+              path.write_text(next_text, encoding='utf-8')
+              moved.append(str(path))
+
+          if not moved:
+              raise SystemExit('no getMagicActivationContext imports found through gameEngine')
+          print(f'Moved getMagicActivationContext across {len(moved)} file(s): {moved}')
+
+          boundary = Path('scripts/import-boundaries-test.ts')
+          text = boundary.read_text(encoding='utf-8')
+          doc_anchor = " * - isCoringaRawTrapCard -> coringaRules.ts\n"
+          doc_line = " * - getMagicActivationContext -> magicActivationContext.ts\n"
+          if text.count(doc_anchor) != 1:
+              raise SystemExit('magic context boundary documentation anchor not found exactly once')
+          text = text.replace(doc_anchor, doc_anchor + doc_line, 1)
+          array_anchor = "  'isCoringaRawTrapCard',\n"
+          if text.count(array_anchor) != 1:
+              raise SystemExit('magic context boundary symbol anchor not found exactly once')
+          text = text.replace(array_anchor, array_anchor + "  'getMagicActivationContext',\n", 1)
+          old_help = "piromanteRules.ts, coringaRules.ts, towerRules.ts ou gameLimits.ts"
+          new_help = "piromanteRules.ts, coringaRules.ts, magicActivationContext.ts, towerRules.ts ou gameLimits.ts"
+          if text.count(old_help) != 1:
+              raise SystemExit('magic context boundary help anchor not found exactly once')
+          boundary.write_text(text.replace(old_help, new_help, 1), encoding='utf-8')
+          PY
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app scripts/import-boundaries-test.ts; then
+            echo "No magic activation context diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app scripts/import-boundaries-test.ts
+          git commit -m "refactor: extract magic activation context"
+          git push origin HEAD:overhaul/magic-activation-context
