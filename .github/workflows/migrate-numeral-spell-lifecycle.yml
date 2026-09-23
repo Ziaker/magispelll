@@ -1,0 +1,133 @@
+name: Temporary numeral spell lifecycle migration
+
+on:
+  push:
+    branches: [overhaul/numeral-spell-lifecycle]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/numeral-spell-lifecycle
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract numeral spell lifecycle
+        run: |
+          cat > src/app/lib/numeralSpellLifecycle.ts <<'TS'
+          /**
+           * numeralSpellLifecycle.ts - ciclo de vida dos efeitos de Magia Numeral.
+           *
+           * Decide de forma pura quais efeitos continuam ativos numa transição de
+           * fase. Logging e apresentação continuam responsabilidade do motor/UI.
+           */
+          import type { CharacterId } from './characterRegistry';
+          import type { Phase, PlayerNumber } from './gameTypes';
+
+          export type ActiveNumeralSpells = Partial<
+            Record<PlayerNumber, { character: CharacterId; expiresAtTurn: number }>
+          >;
+
+          export interface NumeralSpellExpirationResult {
+            activeNumeralSpells: ActiveNumeralSpells;
+            expiredPlayers: PlayerNumber[];
+          }
+
+          /**
+           * Efeitos numerais só expiram ao entrar em Compra. Um efeito com
+           * `expiresAtTurn = T` permanece durante todo T e some quando `newTurn > T`.
+           */
+          export function expireNumeralSpells(
+            activeNumeralSpells: ActiveNumeralSpells,
+            context: { newTurn: number; newPhase: Phase }
+          ): NumeralSpellExpirationResult {
+            if (context.newPhase !== 'draw') {
+              return { activeNumeralSpells, expiredPlayers: [] };
+            }
+
+            const next = { ...activeNumeralSpells };
+            const expiredPlayers: PlayerNumber[] = [];
+
+            for (const player of [1, 2] as const) {
+              const entry = next[player];
+              if (entry && context.newTurn > entry.expiresAtTurn) {
+                delete next[player];
+                expiredPlayers.push(player);
+              }
+            }
+
+            return {
+              activeNumeralSpells: expiredPlayers.length > 0 ? next : activeNumeralSpells,
+              expiredPlayers,
+            };
+          }
+          TS
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/lib/gameEngine.ts')
+          text = path.read_text(encoding='utf-8')
+
+          import_anchor = "import { resetPlayerForPhaseTransition } from './playerPhaseLifecycle';\n"
+          import_line = "import { expireNumeralSpells, type ActiveNumeralSpells } from './numeralSpellLifecycle';\n"
+          if text.count(import_anchor) != 1:
+              raise SystemExit('playerPhaseLifecycle import anchor not found exactly once')
+          text = text.replace(import_anchor, import_anchor + import_line, 1)
+
+          old_type = "activeNumeralSpells: Partial<Record<PlayerNumber, { character: CharacterId; expiresAtTurn: number }>>;"
+          if text.count(old_type) != 1:
+              raise SystemExit('activeNumeralSpells inline type not found exactly once')
+          text = text.replace(old_type, 'activeNumeralSpells: ActiveNumeralSpells;', 1)
+
+          start_marker = "  let activeNumeralSpells = state.activeNumeralSpells;\n  if (newPhase === 'draw') {\n"
+          start = text.find(start_marker)
+          if start == -1:
+              raise SystemExit('active numeral expiration block start not found')
+
+          call_marker = "  const playerTransitionContext = { newTurn, newPhase, towersMode: state.gameConfig.towersMode };"
+          end = text.find(call_marker, start)
+          if end == -1:
+              raise SystemExit('player transition call marker not found after expiration block')
+
+          old_block = text[start:end]
+          if "delete next[p]" not in old_block or "Efeito da Magia Numeral" not in old_block:
+              raise SystemExit('unexpected numeral expiration block contents')
+
+          new_block = """  const numeralSpellExpiration = expireNumeralSpells(state.activeNumeralSpells, { newTurn, newPhase });
+  const activeNumeralSpells = numeralSpellExpiration.activeNumeralSpells;
+  for (const player of numeralSpellExpiration.expiredPlayers) {
+    log = appendLog(state, log, 'numeral-spell', `Efeito da Magia Numeral de Jogador ${player} terminou`, { player });
+  }
+
+"""
+          text = text[:start] + new_block + text[end:]
+
+          if "delete next[p]" in text:
+              raise SystemExit('old numeral expiration implementation still present')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app/lib/gameEngine.ts src/app/lib/numeralSpellLifecycle.ts; then
+            echo "No numeral spell lifecycle diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/lib/gameEngine.ts src/app/lib/numeralSpellLifecycle.ts
+          git commit -m "refactor: extract numeral spell lifecycle"
+          git push origin HEAD:overhaul/numeral-spell-lifecycle
