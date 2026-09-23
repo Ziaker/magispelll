@@ -42,11 +42,11 @@ import { fieldCards, getDestroyableReinforcementSlots, getFilledFieldSlots, getU
 import type { GameState, PlayerState, FieldSlot } from './gameStateTypes';
 import { isTowerSlot, isBrotoSlot } from './fieldLifecycle';
 import { characterOf, opponentKeyOf, opponentOf, playerKeyOf } from './gameSelectors';
-import { MAX_MONSTER_USES } from './monsterLifecycle';
+import { MAX_MONSTER_USES, canActivateMonsterEffect } from './monsterLifecycle';
 import type { GameAction } from './gameActionTypes';
 import type { PlayerNumber } from './gameTypes';
 import { random } from './rng';
-import { getMagicActivationContext, isSlotProtected, canActivateMonsterEffect, canSelectCombatSlot, getFireballCap } from './gameEngine';
+import { getMagicActivationContext, isSlotProtected, canSelectCombatSlot, getFireballCap } from './gameEngine';
 import type { CharacterId } from './characterRegistry';
 import { getEffectiveCardValue, isFieldEligible, isNumeralCard, isPlainNumeralCard, isValidAceTransformTarget, type Card } from './cardUtils';
 import { applyCombatModifierStatuses, getCombatModifierStatuses, hasStatus } from './statusEffects';

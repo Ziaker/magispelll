@@ -5,6 +5,9 @@
  * ou descartar a carta ao terminar um turno. Não conhece fase, UI nem IA.
  */
 import type { Card } from './cardUtils';
+import type { PlayerNumber } from './gameTypes';
+import type { GameState } from './gameStateTypes';
+import { playerKeyOf } from './gameSelectors';
 // ---------------------------------------------------------------------------
 // Efeito de Monstro (Coringa)
 //
@@ -43,4 +46,31 @@ export function resolveMonsterCardAtTurnEnd(monster: Card | undefined): { kept: 
   if (!monster) return { kept: undefined, discarded: undefined };
   if ((monster.monsterUseCount ?? 0) >= MAX_MONSTER_USES) return { kept: undefined, discarded: monster };
   return { kept: { ...monster, monsterUsed: false }, discarded: undefined };
+}
+
+/**
+ * Verdadeiro se `player` tem um Monstro pronto pra ativar AGORA - existe,
+ * ainda não foi usado neste turno, e ainda não esgotou MAX_MONSTER_USES no
+ * total. Não checa personagem (Mago usa EXECUTE_MAGO_MONSTER_EFFECT, que
+ * exige também uma carta-fonte; Besta/Anjo usam ACTIVATE_MONSTER_EFFECT_SIMPLE)
+ * nem alvo específico - só se existe carga disponível pra gastar.
+ *
+ * FIX (checagem extensa por bugs, pedido do usuário: "consolide as regras
+ * duplicadas... 2 por 2") - esta MESMA checagem (`!monster || monsterUsed`
+ * seguido de `monsterUseCount >= MAX_MONSTER_USES`) estava copiada à mão em
+ * 4 lugares independentes: handleActivateMonsterEffectSimple e
+ * handleExecuteMagoMonsterEffect aqui no motor (2 cópias idênticas lado a
+ * lado), decideMonsterEffect em aiPlayer.ts (só a metade `!monsterUsed`, sem
+ * o `monsterUseCount` - seguro hoje porque handlePlaceMonsterCard e
+ * resolveMonsterCardAtTurnEnd já impedem essa combinação de existir na zona,
+ * mas essa garantia vive em OUTRAS 2 funções, não é óbvia lendo só
+ * decideMonsterEffect), e handleMonsterZoneClick em GameBoard.tsx (mesma
+ * metade incompleta). Consolidado numa função só - qualquer mudança futura
+ * na regra (ex.: MAX_MONSTER_USES virar variável por personagem) só precisa
+ * mudar aqui.
+ */
+export function canActivateMonsterEffect(state: GameState, player: PlayerNumber): boolean {
+  const monster = state[playerKeyOf(player)].monsterCard;
+  if (!monster || monster.monsterUsed) return false;
+  return (monster.monsterUseCount ?? 0) < MAX_MONSTER_USES;
 }

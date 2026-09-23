@@ -13,7 +13,7 @@ import { join, relative } from 'node:path';
  * - GameAction/MagicSelection -> gameActionTypes.ts
  * - FieldSlot/PlayerState/CombatResolution/NumeralSpellPending/PendingReaction/GameState -> gameStateTypes.ts
  * - playerKeyOf/opponentKeyOf/opponentOf/characterOf -> gameSelectors.ts
- * - MAX_MONSTER_USES -> monsterLifecycle.ts
+ * - MAX_MONSTER_USES/canActivateMonsterEffect -> monsterLifecycle.ts
  * - isTowerSlot/isBrotoSlot -> fieldLifecycle.ts
  * - fieldCards/wasEverTowerSlot/getUnbattledHorizontalSlots/getDestroyableReinforcementSlots/getUnrevealedFieldSlots/getFilledFieldSlots -> fieldQueries.ts
  * - getGlacialGolemValue/isFrozenPlayBlocked/isFrozenMagicActivationBlocked -> glacialRules.ts
@@ -43,6 +43,7 @@ const EXTRACTED_SYMBOLS = new Set([
   'opponentOf',
   'characterOf',
   'MAX_MONSTER_USES',
+  'canActivateMonsterEffect',
   'isTowerSlot',
   'isBrotoSlot',
   'fieldCards',

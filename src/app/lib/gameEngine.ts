@@ -65,7 +65,7 @@ import type { LogEntry, LogEventType } from './gameLogTypes';
 import type { GameAction, MagicSelection } from './gameActionTypes';
 import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
 import { getNextPhaseTransition } from './phaseRules';
-import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd } from './monsterLifecycle';
+import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd, canActivateMonsterEffect } from './monsterLifecycle';
 import { isTowerSlot, isBrotoSlot, keepPersistentFieldSlots, nonPersistentFieldCards } from './fieldLifecycle';
 import { fieldCards, wasEverTowerSlot, getUnbattledHorizontalSlots, getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots } from './fieldQueries';
 import { getGlacialGolemValue, isFrozenPlayBlocked, isFrozenMagicActivationBlocked } from './glacialRules';
@@ -82,7 +82,7 @@ export type { LogEntry, LogEventType } from './gameLogTypes';
 export type { GameAction, MagicSelection } from './gameActionTypes';
 export type { FieldSlot, PlayerState, CombatResolution, NumeralSpellPending, PendingReaction, GameState } from './gameStateTypes';
 export { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
-export { MAX_MONSTER_USES } from './monsterLifecycle';
+export { MAX_MONSTER_USES, canActivateMonsterEffect } from './monsterLifecycle';
 export { isTowerSlot, isBrotoSlot } from './fieldLifecycle';
 export { fieldCards, wasEverTowerSlot, getUnbattledHorizontalSlots, getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots } from './fieldQueries';
 export { getGlacialGolemValue, isFrozenPlayBlocked, isFrozenMagicActivationBlocked } from './glacialRules';
@@ -3813,33 +3813,6 @@ function handleResolvePendingReaction(state: GameState): GameState {
     default:
       return stateWithoutPending;
   }
-}
-
-/**
- * Verdadeiro se `player` tem um Monstro pronto pra ativar AGORA - existe,
- * ainda não foi usado neste turno, e ainda não esgotou MAX_MONSTER_USES no
- * total. Não checa personagem (Mago usa EXECUTE_MAGO_MONSTER_EFFECT, que
- * exige também uma carta-fonte; Besta/Anjo usam ACTIVATE_MONSTER_EFFECT_SIMPLE)
- * nem alvo específico - só se existe carga disponível pra gastar.
- *
- * FIX (checagem extensa por bugs, pedido do usuário: "consolide as regras
- * duplicadas... 2 por 2") - esta MESMA checagem (`!monster || monsterUsed`
- * seguido de `monsterUseCount >= MAX_MONSTER_USES`) estava copiada à mão em
- * 4 lugares independentes: handleActivateMonsterEffectSimple e
- * handleExecuteMagoMonsterEffect aqui no motor (2 cópias idênticas lado a
- * lado), decideMonsterEffect em aiPlayer.ts (só a metade `!monsterUsed`, sem
- * o `monsterUseCount` - seguro hoje porque handlePlaceMonsterCard e
- * resolveMonsterCardAtTurnEnd já impedem essa combinação de existir na zona,
- * mas essa garantia vive em OUTRAS 2 funções, não é óbvia lendo só
- * decideMonsterEffect), e handleMonsterZoneClick em GameBoard.tsx (mesma
- * metade incompleta). Consolidado numa função só - qualquer mudança futura
- * na regra (ex.: MAX_MONSTER_USES virar variável por personagem) só precisa
- * mudar aqui.
- */
-export function canActivateMonsterEffect(state: GameState, player: PlayerNumber): boolean {
-  const monster = state[playerKeyOf(player)].monsterCard;
-  if (!monster || monster.monsterUsed) return false;
-  return (monster.monsterUseCount ?? 0) < MAX_MONSTER_USES;
 }
 
 /**
