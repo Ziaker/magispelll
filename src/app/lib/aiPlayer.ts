@@ -35,6 +35,7 @@
  * função abaixo para o raciocínio por trás de cada decisão.
  */
 
+import { canFormOrReinforceTower, towerEligibleValue } from './towerRules';
 import { isFrozenPlayBlocked, isFrozenMagicActivationBlocked } from './glacialRules';
 import { fieldCards, getDestroyableReinforcementSlots, getFilledFieldSlots, getUnbattledHorizontalSlots, getUnrevealedFieldSlots } from './fieldQueries';
 import type { GameState, PlayerState, FieldSlot } from './gameStateTypes';
@@ -44,7 +45,7 @@ import { MAX_MONSTER_USES } from './monsterLifecycle';
 import type { GameAction } from './gameActionTypes';
 import type { PlayerNumber } from './gameTypes';
 import { random } from './rng';
-import { getMagicActivationContext, isSlotProtected, canActivateMonsterEffect, canFormOrReinforceTower, canSelectCombatSlot, getEffectiveDiscardLimit, getEffectiveDrawLimit, towerEligibleValue, getFireballCap } from './gameEngine';
+import { getMagicActivationContext, isSlotProtected, canActivateMonsterEffect, canSelectCombatSlot, getEffectiveDiscardLimit, getEffectiveDrawLimit, getFireballCap } from './gameEngine';
 import type { CharacterId } from './characterRegistry';
 import { getEffectiveCardValue, isFieldEligible, isNumeralCard, isPlainNumeralCard, isValidAceTransformTarget, type Card } from './cardUtils';
 import { applyCombatModifierStatuses, getCombatModifierStatuses, hasStatus } from './statusEffects';
