@@ -10,6 +10,7 @@
  * resolução de combate - `getSpotlightAdjustedValue`/`applyCombatModifierStatuses`,
  * nunca uma soma reimplementada aqui.
  */
+import { isCoringaRawTrapCard } from './coringaRules';
 import type { FieldSlot, GameState } from './gameStateTypes';
 import { isBrotoSlot, isTowerSlot } from './fieldLifecycle';
 import { characterOf } from './gameSelectors';
@@ -18,7 +19,7 @@ import { ArrowDown, ArrowUp, Clock, Eye, Layers, Lock, Snowflake, type LucideIco
 import { getEffectiveCardValue, type Card } from './cardUtils';
 import { applyCombatModifierStatuses, getCombatModifierStatuses, hasStatus } from './statusEffects';
 import { getSpotlightAdjustedValue, getSpotlightEntry, type SpotlightState } from './spotlight';
-import { isCoringaRawTrapCard } from './gameEngine';
+
 
 export type CardTypeTag = 'trap' | 'magic' | 'summon' | 'numeralToken' | 'magicToken' | 'numeral';
 
