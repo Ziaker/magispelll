@@ -64,10 +64,10 @@ jobs:
 
           const imports = sf.statements.filter(ts.isImportDeclaration);
           if (!imports.length) throw new Error('gameEngine has no imports');
-          const firstImportStart = imports[0].getFullStart();
+          const firstImportStart = imports[0].getStart(sf);
           const lastImportEnd = imports[imports.length - 1].end;
           const printedImports = keptImports.map((stmt) => printer.printNode(ts.EmitHint.Unspecified, stmt, sf)).join('\n');
-          source = source.slice(0, firstImportStart) + '\n\n' + printedImports + source.slice(lastImportEnd);
+          source = source.slice(0, firstImportStart) + printedImports + source.slice(lastImportEnd);
 
           const coordinatorDoc = `/**\n * gameEngine.ts - coordenador puro do Magispelll.\n *\n * Este arquivo preserva a API histórica do motor e roteia GameAction para\n * handlers de domínio. Regras de compra, estratégia, magias, personagens,\n * reações, fases e combate vivem em módulos próprios em src/app/lib.\n *\n * A fronteira intencional aqui é pequena: gameReducer aplica o sweep global\n * pós-ação e reduceGameAction mantém apenas guards globais + dispatch.\n * Nenhum handler/regra de domínio deve voltar a ser implementado neste arquivo.\n *\n * O reducer continua totalmente puro e determinístico: mesmo estado + mesma\n * ação produzem o mesmo próximo estado; timers/animações permanecem na UI.\n */`;
           if (!source.startsWith('/**')) throw new Error('gameEngine header comment not found');
