@@ -1,6 +1,7 @@
 import { createInitialState } from '../src/app/lib/gameStateFactory';
 import assert from 'node:assert/strict';
 import { evaluateAction, isSameGameplayState } from '../src/app/lib/actionValidation';
+import { enumerateAcceptedActions } from '../src/app/lib/actionSpace';
 
 import { DEFAULT_GAME_CONFIG } from '../src/app/lib/gameConfig';
 
@@ -44,5 +45,28 @@ const acceptedDiscard = evaluateAction(initial, {
 assert.equal(acceptedDiscard.accepted, true, 'descarte válido deve ser aceito');
 assert.equal(acceptedDiscard.rejectionReason, undefined, 'ação aceita não deve carregar motivo de rejeição');
 assert.equal(acceptedDiscard.nextState.player1.hand.length, initial.player1.hand.length - 1, 'estado reduzido deve refletir o descarte');
+
+// O enumerador reducer-backed deve excluir candidatos recusados e preservar
+// o estado já reduzido das ações aceitas.
+const acceptedActions = enumerateAcceptedActions(initial, 1);
+assert.ok(acceptedActions.length > 0, 'estado inicial deve expor ao menos uma ação aceita entre os candidatos');
+assert.ok(acceptedActions.every(({ accepted }) => accepted), 'enumerateAcceptedActions nunca deve devolver rejeições');
+
+const enumeratedDiscard = acceptedActions.find(({ action }) =>
+  action.type === 'DISCARD_CARDS' && action.cardIds.length === 1 && action.cardIds[0] === discardable.id
+);
+assert.ok(enumeratedDiscard, 'descarte válido conhecido deve aparecer entre ações reducer-backed aceitas');
+assert.equal(
+  isSameGameplayState(acceptedDiscard.nextState, enumeratedDiscard.nextState),
+  true,
+  'enumerador deve preservar o mesmo nextState produzido por evaluateAction'
+);
+
+const acceptedFromRejectionState = enumerateAcceptedActions(rejectionState, 1);
+assert.equal(
+  acceptedFromRejectionState.some(({ action }) => action.type === 'DRAW_CARDS' && action.player === 1 && action.count === 1),
+  false,
+  'compra rejeitada pelo reducer não pode aparecer entre ações aceitas'
+);
 
 console.log('✓ actionValidation: rejeição/log e ação aceita classificados corretamente');
