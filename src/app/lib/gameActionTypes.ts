@@ -5,10 +5,11 @@
  * UI, IA, action-space e ferramentas possam depender do protocolo sem
  * usar gameEngine.ts como hub de tipos.
  */
+import type { GameState } from './gameStateTypes';
 import type { PlayerNumber } from './gameTypes';
 import type { CharacterId } from './characterRegistry';
 import type { MagicCardType } from './magicCards';
-import type { GameState } from './gameEngine';
+
 /** Seleção feita pelo jogador no assistente de ativação de magia (ver GameBoard.tsx) */
 export interface MagicSelection {
   selectedCards?: string[];

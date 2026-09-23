@@ -1,3 +1,4 @@
+import type { FieldSlot } from '../lib/gameStateTypes';
 import { isTowerSlot, isBrotoSlot } from '../lib/fieldLifecycle';
 import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
@@ -14,7 +15,7 @@ import { CoringaSmokeBurst } from './CoringaSmokeBurst';
 import { CardImpactBurst } from './CardImpactBurst';
 import { CardKeywords } from './CardKeywords';
 import { getDisplayValue, type Card } from '../lib/cardUtils';
-import type { FieldSlot } from '../lib/gameEngine';
+
 import type { CharacterId } from '../lib/characterRegistry';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';

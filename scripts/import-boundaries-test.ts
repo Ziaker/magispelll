@@ -11,6 +11,7 @@ import { join, relative } from 'node:path';
  * - Phase/PlayerNumber/PlayerKey -> gameTypes.ts
  * - LogEntry/LogEventType -> gameLogTypes.ts
  * - GameAction/MagicSelection -> gameActionTypes.ts
+ * - FieldSlot/PlayerState/CombatResolution/NumeralSpellPending/PendingReaction/GameState -> gameStateTypes.ts
  * - playerKeyOf/opponentKeyOf/opponentOf/characterOf -> gameSelectors.ts
  * - MAX_MONSTER_USES -> monsterLifecycle.ts
  * - isTowerSlot/isBrotoSlot -> fieldLifecycle.ts
@@ -27,6 +28,12 @@ const EXTRACTED_SYMBOLS = new Set([
   'LogEventType',
   'GameAction',
   'MagicSelection',
+  'FieldSlot',
+  'PlayerState',
+  'CombatResolution',
+  'NumeralSpellPending',
+  'PendingReaction',
+  'GameState',
   'playerKeyOf',
   'opponentKeyOf',
   'opponentOf',
@@ -70,7 +77,7 @@ assert.deepEqual(
   [],
   [
     'Símbolos extraídos não devem ser importados através de gameEngine.ts.',
-    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameSelectors.ts, monsterLifecycle.ts ou fieldLifecycle.ts conforme o símbolo.',
+    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts ou fieldLifecycle.ts conforme o símbolo.',
     `Violações: ${violations.join(', ')}`,
   ].join(' ')
 );
