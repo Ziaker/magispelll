@@ -3,7 +3,7 @@ import { Orbit, Feather, Sparkles, Flame, Sprout, Leaf, Snowflake } from 'lucide
 import { getCharacterTheme } from '../lib/characterThemes';
 import { BeastFaceIcon } from './CharacterGlyphIcons';
 import { BeastClawBurst } from './BeastClawBurst';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 
 /**
  * CharacterMagicBurst - substitui MagicEffectBurst.tsx para efeitos de magia

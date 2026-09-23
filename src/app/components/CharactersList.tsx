@@ -4,7 +4,7 @@ import { Card, CardContent } from './ui/card';
 import { ArrowLeft, Wand2, Crosshair, Flame, Sprout, Snowflake } from 'lucide-react';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { getCharacterIconBackground } from '../lib/characterThemes';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 
 interface CharactersListProps {
   onBack: () => void;

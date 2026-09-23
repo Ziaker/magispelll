@@ -9,7 +9,7 @@ import { getSpotlightEntry, type SpotlightState } from '../lib/spotlight';
 import { getCardValueBreakdown } from '../lib/cardEffectSummary';
 import { CardKeywords, type CardKeywordId } from './CardKeywords';
 import { IceShatterBurst } from './IceShatterBurst';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 import { useSettings } from '../context/SettingsContext';
 import { hasStatus } from '../lib/statusEffects';
 

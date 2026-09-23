@@ -22,7 +22,7 @@
  * EXTENSÃO: Para adicionar novo personagem, adicione entrada em MAGIC_CARDS
  */
 
-import type { CharacterId } from './gameEngine';
+import type { CharacterId } from './characterRegistry';
 
 /** Tipos de Cartas Mágicas disponíveis (J = Valete, Q = Rainha, K = Rei) */
 export type MagicCardType = 'J' | 'Q' | 'K';

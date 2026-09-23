@@ -2,7 +2,7 @@ import { Button } from './ui/button';
 import { ArrowLeft, Pencil, Bot } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import type { GameConfig as GameConfigType } from '../lib/gameConfig';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 import { PreGameSteps } from './PreGameSteps';
 
 interface GameSummaryProps {

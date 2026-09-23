@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Orbit, Feather, Sparkles } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 import { BeastFaceIcon } from './CharacterGlyphIcons';
 import { BeastClawBurst } from './BeastClawBurst';
 

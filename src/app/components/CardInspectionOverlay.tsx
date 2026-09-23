@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Clock, X } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { getDisplayValue, getDisplaySuit, type Card } from '../lib/cardUtils';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 import type { CardStatusSummary, CardTypeInfo, CardValueBreakdown } from '../lib/cardEffectSummary';
 import { PlayingCard } from './PlayingCard';
 

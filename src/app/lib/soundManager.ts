@@ -15,7 +15,7 @@
  */
 import { Howl } from 'howler';
 import type { Settings } from './settings';
-import type { CharacterId } from './gameEngine';
+import type { CharacterId } from './characterRegistry';
 import cardPlaySrc from '../../assets/sfx/card-play.ogg';
 import cardFlipSrc from '../../assets/sfx/card-flip.ogg';
 import combatWinSrc from '../../assets/sfx/combat-win.ogg';

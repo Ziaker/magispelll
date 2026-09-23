@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { Sparkles } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 
 export interface MagicPauseSpotlightSpec {
   title: string;

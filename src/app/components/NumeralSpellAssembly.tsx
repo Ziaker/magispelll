@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { numeralDisplayLabel } from '../lib/numeralSpells';
 import { useZoomEscapeFactor } from '../lib/useZoomEscapeFactor';
 import { getCharacterTheme } from '../lib/characterThemes';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 
 /**
  * NumeralSpellAssembly - pedido do usuário ("Overhaul de Animações", item
