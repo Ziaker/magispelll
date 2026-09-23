@@ -1,0 +1,159 @@
+name: Temporary direct runtime boundary migration
+
+on:
+  push:
+    branches: [overhaul/direct-runtime-boundaries]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/direct-runtime-boundaries
+      - name: Migrate extracted runtime imports
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          TARGETS = {
+              'playerKeyOf': 'gameSelectors',
+              'opponentKeyOf': 'gameSelectors',
+              'opponentOf': 'gameSelectors',
+              'characterOf': 'gameSelectors',
+              'MAX_MONSTER_USES': 'monsterLifecycle',
+          }
+          import_re = re.compile(
+              r"import\s+(?P<type_only>type\s+)?\{(?P<body>[^}]*)\}\s+from\s+(?P<quote>['\"])(?P<source>[^'\"]*gameEngine)(?P=quote);",
+              re.DOTALL,
+          )
+
+          changed = []
+          moved_total = 0
+
+          for path in sorted(Path('src/app').rglob('*')):
+              if path.suffix not in {'.ts', '.tsx'} or not path.is_file() or path.name == 'gameEngine.ts':
+                  continue
+              text = path.read_text(encoding='utf-8')
+              pending = {'gameSelectors': [], 'monsterLifecycle': []}
+              sources = {}
+
+              def repl(match):
+                  parts = [p.strip() for p in match.group('body').split(',') if p.strip()]
+                  remaining = []
+                  moved = False
+                  source = match.group('source')
+                  for part in parts:
+                      base = re.sub(r'^type\s+', '', part).strip()
+                      imported_name = re.split(r'\s+as\s+', base)[0].strip()
+                      module = TARGETS.get(imported_name)
+                      if module:
+                          candidate = source[:-len('gameEngine')] + module
+                          if module in sources and sources[module] != candidate:
+                              raise SystemExit(f'{path}: inconsistent source path for {module}')
+                          sources[module] = candidate
+                          if part not in pending[module]:
+                              pending[module].append(part)
+                          moved = True
+                      else:
+                          remaining.append(part)
+                  if not moved:
+                      return match.group(0)
+                  if not remaining:
+                      return ''
+                  prefix = 'import type' if match.group('type_only') else 'import'
+                  quote = match.group('quote')
+                  return f"{prefix} {{ {', '.join(remaining)} }} from {quote}{source}{quote};"
+
+              next_text = import_re.sub(repl, text)
+              moved_names = sum(len(values) for values in pending.values())
+              if moved_names == 0:
+                  continue
+
+              first_import = re.search(r'^import\s', next_text, re.MULTILINE)
+              if not first_import:
+                  raise SystemExit(f'{path}: no import insertion point')
+              insert_at = first_import.start()
+              new_lines = []
+              for module in ('gameSelectors', 'monsterLifecycle'):
+                  if not pending[module]:
+                      continue
+                  source = sources[module]
+                  existing_re = re.compile(
+                      r"import\s+(?:type\s+)?\{(?P<body>[^}]*)\}\s+from\s+['\"]" + re.escape(source) + r"['\"];",
+                      re.DOTALL,
+                  )
+                  existing = set()
+                  for found in existing_re.finditer(next_text):
+                      for raw in found.group('body').split(','):
+                          normalized = re.sub(r'^type\s+', '', raw.strip()).strip()
+                          if normalized:
+                              existing.add(normalized)
+                  missing = [name for name in pending[module] if re.sub(r'^type\s+', '', name).strip() not in existing]
+                  if missing:
+                      new_lines.append(f"import {{ {', '.join(missing)} }} from '{source}';")
+              if new_lines:
+                  next_text = next_text[:insert_at] + '\n'.join(new_lines) + '\n' + next_text[insert_at:]
+
+              for match in import_re.finditer(next_text):
+                  for raw in match.group('body').split(','):
+                      base = re.sub(r'^type\s+', '', raw.strip()).strip()
+                      imported_name = re.split(r'\s+as\s+', base)[0].strip()
+                      if imported_name in TARGETS:
+                          raise SystemExit(f'{path}: {imported_name} still imported through gameEngine')
+
+              path.write_text(next_text, encoding='utf-8')
+              changed.append(str(path))
+              moved_total += moved_names
+
+          if moved_total == 0:
+              raise SystemExit('no extracted runtime imports found through gameEngine')
+          print(f'Moved {moved_total} runtime import(s) across {len(changed)} file(s):')
+          for item in changed:
+              print(f' - {item}')
+          PY
+      - name: Extend import boundary contract to runtime symbols
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/import-boundaries-test.ts')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('Contrato arquitetural dos tipos já extraídos do gameEngine.', 'Contrato arquitetural dos símbolos já extraídos do gameEngine.')
+          text = text.replace(' * - GameAction/MagicSelection -> gameActionTypes.ts\n', " * - GameAction/MagicSelection -> gameActionTypes.ts\n * - playerKeyOf/opponentKeyOf/opponentOf/characterOf -> gameSelectors.ts\n * - MAX_MONSTER_USES -> monsterLifecycle.ts\n")
+          text = text.replace('const EXTRACTED_TYPES = new Set([', 'const EXTRACTED_SYMBOLS = new Set([')
+          anchor = "  'MagicSelection',\n]);"
+          replacement = "  'MagicSelection',\n  'playerKeyOf',\n  'opponentKeyOf',\n  'opponentOf',\n  'characterOf',\n  'MAX_MONSTER_USES',\n]);"
+          if text.count(anchor) != 1:
+              raise SystemExit('boundary symbol anchor not found exactly once')
+          text = text.replace(anchor, replacement, 1)
+          text = text.replace('EXTRACTED_TYPES.has(importedName)', 'EXTRACTED_SYMBOLS.has(importedName)')
+          text = text.replace("'Tipos extraídos não devem ser importados através de gameEngine.ts.'", "'Símbolos extraídos não devem ser importados através de gameEngine.ts.'")
+          text = text.replace("'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts ou gameActionTypes.ts conforme o tipo.'", "'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameSelectors.ts ou monsterLifecycle.ts conforme o símbolo.'")
+          text = text.replace('`✓ import boundaries: ${EXTRACTED_TYPES.size} tipos extraídos protegidos contra reacoplamento ao gameEngine`', '`✓ import boundaries: ${EXTRACTED_SYMBOLS.size} símbolos extraídos protegidos contra reacoplamento ao gameEngine`')
+          if 'EXTRACTED_TYPES' in text:
+              raise SystemExit('old EXTRACTED_TYPES identifier still present')
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Validate migration
+        run: |
+          npm ci
+          npm run typecheck
+          npm run test:boundaries
+          npm run test:actions
+          npm run test:exhaustiveness
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app scripts/import-boundaries-test.ts; then
+            echo "No runtime boundary diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app scripts/import-boundaries-test.ts
+          git commit -m "refactor: import extracted runtime symbols directly"
+          git push origin HEAD:overhaul/direct-runtime-boundaries
