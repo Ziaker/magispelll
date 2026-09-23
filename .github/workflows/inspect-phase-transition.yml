@@ -1,0 +1,46 @@
+name: Temporary phase transition inspection
+
+on:
+  push:
+    branches: [overhaul/phase-transition-rules]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/phase-transition-rules
+      - run: npm ci
+      - name: Inspect phase-related functions
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+          const path = 'src/app/lib/gameEngine.ts';
+          const source = fs.readFileSync(path, 'utf8');
+          const sf = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const matches = [];
+          for (const stmt of sf.statements) {
+            if (ts.isFunctionDeclaration(stmt) && stmt.name) {
+              const n = stmt.name.text;
+              if (/phase|ready|turn/i.test(n)) matches.push(stmt);
+            }
+          }
+          console.log('PHASE_RELATED_FUNCTIONS=' + matches.map(m => m.name.text).join(','));
+          for (const stmt of matches) {
+            if (!['advancePhase','handleToggleReady'].includes(stmt.name.text)) continue;
+            console.log(`\n===== ${stmt.name.text} =====`);
+            console.log(source.slice(stmt.getFullStart(), stmt.end));
+            const ids = new Set();
+            function visit(node) {
+              if (ts.isIdentifier(node)) ids.add(node.text);
+              ts.forEachChild(node, visit);
+            }
+            visit(stmt);
+            console.log(`\nIDENTIFIERS_${stmt.name.text}=` + [...ids].sort().join(','));
+          }
+          NODE
