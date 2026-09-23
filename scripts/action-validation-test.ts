@@ -12,13 +12,24 @@ import { DEFAULT_GAME_CONFIG } from '../src/app/lib/gameConfig';
  */
 const initial = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
 
-// A mão inicial já nasce no limite. Tentar comprar antes de abrir espaço é
-// rejeitado pelo motor com um aviso no log, mas não deve contar como ação
-// aceita só porque o array de log mudou.
-const rejectedDraw = evaluateAction(initial, { type: 'DRAW_CARDS', player: 1, count: 1 });
-assert.equal(rejectedDraw.accepted, false, 'compra acima do limite não pode ser aceita');
-assert.equal(isSameGameplayState(initial, rejectedDraw.nextState), true, 'rejeição deve alterar no máximo o log');
+// O limite opcional de compra tem um caminho de rejeição COM aviso no log.
+// Abrimos um espaço na mão para não cair antes na guarda silenciosa de
+// `handLimit`, e marcamos o limite como já consumido neste turno.
+const limitedConfig = { ...DEFAULT_GAME_CONFIG, drawLimitEnabled: true, drawLimit: 1 };
+const limitedInitial = createInitialState('mago', 'besta', limitedConfig);
+const rejectionState = {
+  ...limitedInitial,
+  player1: {
+    ...limitedInitial.player1,
+    hand: limitedInitial.player1.hand.slice(0, -1),
+    drawsThisTurn: 1,
+  },
+};
+const rejectedDraw = evaluateAction(rejectionState, { type: 'DRAW_CARDS', player: 1, count: 1 });
+assert.equal(rejectedDraw.accepted, false, 'compra acima do limite por turno não pode ser aceita');
+assert.equal(isSameGameplayState(rejectionState, rejectedDraw.nextState), true, 'rejeição deve alterar no máximo o log');
 assert.ok(rejectedDraw.rejectionReason, 'rejeição com aviso deve expor o motivo vindo do reducer');
+assert.match(rejectedDraw.rejectionReason, /Limite de .*compra/i, 'motivo deve vir do aviso real de limite do motor');
 
 // Descartar uma carta oculta na Fase de Compra é uma mudança real de gameplay.
 const discardable = initial.player1.hand.find((card) => !card.revealed);
