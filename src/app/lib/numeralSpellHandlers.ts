@@ -4,43 +4,18 @@
  * As definições/consultas puras continuam em numeralSpells.ts; este módulo
  * aplica as mudanças de estado sem depender de gameEngine.ts.
  */
-import {
-  drawCards,
-  getDisplaySuit,
-  getDisplayValue,
-  getEffectiveCardValue,
-  isNumeralCard,
-  isPlainNumeralCard,
-  revealCard,
-  reshuffleDiscardIntoDeck,
-  resetCardForDiscard,
-  shuffle,
-  type Card,
-} from './cardUtils';
-import { canActivateNumeralSpell, formatNumeralRequirement, getMatchingNumeralCards, getNumeralSpellInfo } from './numeralSpells';
-import {
-  applyCombatModifierStatuses,
-  applyStatus,
-  applyTimedCombatModifier,
-  getCombatModifierStatuses,
-  getStatusMagnitude,
-  hasStatus,
-  removeStatus,
-  removeStatusFromField,
-} from './statusEffects';
-import type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
+import { drawCards, type Card } from './cardUtils';
+import { pushToDiscard, ensureDeckHasAtLeast } from './deckLifecycle';
+import { fieldCards } from './fieldQueries';
 import { appendLog } from './gameLog';
-import { applyBestaBloodRageSweep } from './bestaLifecycle';
-import { handleDiscardCards, handleDrawCards } from './drawPhaseHandlers';
-import { handlePlaceMonsterCard } from './monsterHandlers';
-import { handleActivateMonsterEffectSimple, handleExecuteMagoMonsterEffect } from './monsterEffectHandlers';
-import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
-import { advancePhaseState, handleToggleReady } from './phaseHandlers';
-import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd, canActivateMonsterEffect } from './monsterLifecycle';
-import { pushToDiscard, ensureDeckHasCards, ensureDeckHasAtLeast } from './deckLifecycle';
-import { fieldCards, wasEverTowerSlot, getUnbattledHorizontalSlots, getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots } from './fieldQueries';
-import type { FieldSlot, PlayerState, CombatResolution, NumeralSpellPending, PendingReaction, GameState } from './gameStateTypes';
-import { emptyField, createPlayerState, createInitialState } from './gameStateFactory';
+import { opponentKeyOf, opponentOf, playerKeyOf, characterOf } from './gameSelectors';
+import { emptyField } from './gameStateFactory';
+import type { FieldSlot, GameState, PlayerState } from './gameStateTypes';
+import type { PlayerNumber } from './gameTypes';
+import { resolveMonsterCardAtTurnEnd } from './monsterLifecycle';
+import { canActivateNumeralSpell, formatNumeralRequirement, getMatchingNumeralCards, getNumeralSpellInfo } from './numeralSpells';
+import { advancePhaseState } from './phaseHandlers';
+import { applyStatus } from './statusEffects';
 // ---------------------------------------------------------------------------
 // Magia Numeral
 // ---------------------------------------------------------------------------
