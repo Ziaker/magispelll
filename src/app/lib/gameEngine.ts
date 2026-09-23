@@ -56,9 +56,6 @@ import {
   hasStatus,
   removeStatus,
   removeStatusFromField,
-  tickEntityStatuses,
-  tickFieldStatuses,
-  tickStatuses,
 } from './statusEffects';
 import { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
 import { isSameGameplayState } from './gameplayState';
@@ -70,6 +67,7 @@ import { getNextPhaseTransition } from './phaseRules';
 import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd } from './monsterLifecycle';
 import { isTowerSlot, isBrotoSlot, keepPersistentFieldSlots, nonPersistentFieldCards } from './fieldLifecycle';
 import { growDruidaBrotoField } from './druidaLifecycle';
+import { resetPlayerForPhaseTransition } from './playerPhaseLifecycle';
 
 export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
@@ -5991,80 +5989,9 @@ function advancePhaseState(state: GameState): GameState {
     if (changed) activeNumeralSpells = next;
   }
 
-  // FIX (item 10 da 2ª rodada): "certas batalhas terminam com apenas uma ou
-  // duas disputas mesmo com empates" - `combatWins` só era zerado dentro do
-  // próprio branch de VITÓRIA de uma disputa (handleResolveCombat, quando um
-  // dos lados chega a 2). Se a fase de combate terminasse de forma
-  // INCONCLUSIVA (ex.: um empate consumiu um dos 3 pares de slots, sobrando
-  // pares insuficientes para qualquer lado chegar a 2 vitórias reais nesta
-  // fase), o contador ficava com um valor "preso" (1-0, 0-1, etc.) que
-  // atravessava para a PRÓXIMA fase de combate - bastando UMA vitória comum
-  // no turno seguinte para fechar a disputa precocemente. Como esse contador
-  // só tem sentido DENTRO de uma única fase de combate, ele agora é sempre
-  // zerado a cada transição de fase (nunca precisa "sobreviver" a uma
-  // transição, mesmo dentro do mesmo turno).
-  const resetForNewTurn = (p: PlayerState, monster: { kept: Card | undefined }): PlayerState => {
-    // FIX (overhaul de Status Effects, Fase 3+5): `tickEntityStatuses` expira
-    // sozinho qualquer StatusEffect cuja `duration` bate com esta transição
-    // (ex.: 'magicLocked' com `untilPhase: 'draw'`, ou os 5 contadores de
-    // jogador com `untilTurn`/`untilPhase`) - seguro chamar em TODA transição
-    // de fase, não só na virada pra Compra: a condição de duração já embute
-    // o filtro de fase certo, então nada é removido fora de hora. Calculado
-    // uma vez aqui pra `handLimit` (que precisa ler o bônus JÁ tickado) e o
-    // objeto de retorno usarem o mesmo resultado.
-    const tickedPlayerStatuses = tickStatuses(p.statusEffects ?? [], { newTurn, newPhase });
-    // FIX (Modo Towers, pedido do usuário): "mão aumentada em 1".
-    // Mosqueteiro - Munição Infinita: bônus lido do StatusEffect
-    // 'handLimitBonus' JÁ tickado acima - se expirou nesta transição, some
-    // do handLimit no mesmo instante, sem ação extra.
-    const handLimitBonus = getStatusMagnitude({ statusEffects: tickedPlayerStatuses }, 'handLimitBonus', { source: 'mosqueteiro' });
-    return {
-      ...p,
-      statusEffects: tickedPlayerStatuses,
-      hand: p.hand.map((c) => tickEntityStatuses(c, { newTurn, newPhase })),
-      handLimit: 8 + p.permanentDrawBonus + (state.gameConfig.towersMode ? 1 : 0) + handLimitBonus,
-      horizontalStackBonus: 0,
-      combatWins: 0,
-      // FIX (pedido do usuário, Modo Towers): a virada de turno preserva os
-      // slots de torre (ver keepPersistentFieldSlots) - quem chama já descartou o resto
-      // do campo, então nada fica em campo e no descarte ao mesmo tempo.
-      // FIX (pedido do usuário: "volte atrás com a ideia de ser um acúmulo por
-      // turno, é pra ser um acúmulo por fase") - reversão de uma decisão
-      // confirmada antes (1x por turno, na virada Combate->Compra) - agora
-      // `growDruidaBrotoField` roda em TODA transição de fase (Compra-
-      // >Estratégia, Estratégia->Combate, Combate->Compra: 3x por turno), não
-      // só na de turno. `keepPersistentFieldSlots` continua só na virada de
-      // turno de verdade (`newPhase === 'draw'`) - o campo não é "limpo" no
-      // meio do turno, só o Broto cresce mais vezes.
-      // FIX (overhaul de Status Effects, Fase 3): `tickFieldStatuses` expira
-      // sozinho qualquer StatusEffect de carta do campo cuja `duration` bate
-      // com esta transição (ex.: `combatModifier` do Fúria Selvagem/Tiro
-      // Certeiro/Simbiose/Urtiga, com `untilPhase: 'draw'`) - mesmo raciocínio
-      // do tick da mão acima, seguro chamar em toda transição de fase.
-      field: growDruidaBrotoField(
-        tickFieldStatuses(newPhase === 'draw' ? keepPersistentFieldSlots(p.field) : p.field, { newTurn, newPhase }),
-        p.druidaPhotosynthesisLevel
-      ),
-      monsterCard: newPhase === 'draw' ? monster.kept : p.monsterCard,
-      monsterTargetSlot: newPhase === 'draw' ? undefined : p.monsterTargetSlot,
-      monsterProtectedSlots: newPhase === 'draw' ? [] : p.monsterProtectedSlots,
-      discardsThisTurn: newPhase === 'draw' ? 0 : p.discardsThisTurn,
-      drawsThisTurn: newPhase === 'draw' ? 0 : p.drawsThisTurn,
-      fusesThisTurn: newPhase === 'draw' ? 0 : p.fusesThisTurn,
-      // Mosqueteiro (personagem novo) - janela deslizante de 3 turnos (ver
-      // comentário completo em `mosqueteiroDiscardsThisTurn`, PlayerState): a
-      // cada nova virada de turno, T-1 vira T-2 e o valor final do turno que
-      // está terminando vira o novo T-1 - só acontece de verdade na entrada na
-      // fase de Compra (nova virada de turno), mesmo padrão de todo o resto
-      // deste helper.
-      mosqueteiroDiscardsTurnMinus2: newPhase === 'draw' ? p.mosqueteiroDiscardsTurnMinus1 : p.mosqueteiroDiscardsTurnMinus2,
-      mosqueteiroDiscardsTurnMinus1: newPhase === 'draw' ? p.mosqueteiroDiscardsThisTurn : p.mosqueteiroDiscardsTurnMinus1,
-      mosqueteiroDiscardsThisTurn: newPhase === 'draw' ? 0 : p.mosqueteiroDiscardsThisTurn,
-    };
-  };
-
-  const player1Result = resetForNewTurn(state.player1, p1Monster);
-  const player2Result = resetForNewTurn(state.player2, p2Monster);
+  const playerTransitionContext = { newTurn, newPhase, towersMode: state.gameConfig.towersMode };
+  const player1Result = resetPlayerForPhaseTransition(state.player1, p1Monster.kept, playerTransitionContext);
+  const player2Result = resetPlayerForPhaseTransition(state.player2, p2Monster.kept, playerTransitionContext);
 
   return {
     ...state,
