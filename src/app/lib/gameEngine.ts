@@ -63,6 +63,7 @@ import { handleTransformAce } from './aceHandlers';
 import { handlePlaceMonsterCard } from './monsterHandlers';
 import { handleFuseCards } from './fusionHandlers';
 import { handleTransformCoringaMagicCard } from './coringaHandlers';
+import { handleSelectCombatSlot } from './combatHandlers';
 import type { GameAction, MagicSelection } from './gameActionTypes';
 import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
 import { getNextPhaseTransition } from './phaseRules';
@@ -73,7 +74,6 @@ import { resolveCombatSlot, updateFieldSlot } from './fieldOperations';
 import { fieldCards, wasEverTowerSlot, getUnbattledHorizontalSlots, getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots } from './fieldQueries';
 import { getGlacialGolemValue, isFrozenPlayBlocked, isFrozenMagicActivationBlocked } from './glacialRules';
 import { isSlotProtected } from './anjoRules';
-import { canSelectCombatSlot } from './combatRules';
 import { getFireballCap } from './piromanteRules';
 import { isCoringaRawTrapCard } from './coringaRules';
 import { getMagicActivationContext } from './magicActivationContext';
@@ -3362,14 +3362,6 @@ function handleFinalizeNumeralSpell(state: GameState): GameState {
   // especial aqui, `advancePhaseState` já checa `newTurn > expiresAtTurn` do
   // jeito normal em toda transição para a fase de Compra.
   return advancePhaseState({ ...midState, phase: 'combat' });
-}
-
-function handleSelectCombatSlot(state: GameState, player: PlayerNumber, slotIndex: number): GameState {
-  if (!canSelectCombatSlot(state, player)) return state;
-  const playerKey = playerKeyOf(player);
-  const selection = { ...state.combatSelection, [playerKey]: slotIndex };
-  const log = appendLog(state, state.log, 'combat', `Jogador ${player} selecionou slot ${slotIndex + 1} para combate`, { player });
-  return { ...state, combatSelection: selection, log };
 }
 
 /**
