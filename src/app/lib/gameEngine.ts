@@ -61,6 +61,7 @@ import {
   tickStatuses,
 } from './statusEffects';
 import { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
+import { isSameGameplayState } from './gameplayState';
 
 export type Phase = 'draw' | 'strategy' | 'combat';
 export type PlayerNumber = 1 | 2;
@@ -4677,12 +4678,6 @@ export function canMagicTriggerReactionAnnouncement(state: GameState, player: Pl
  * no mesmo gate de novo e não faria nada - mas o anúncio, a revelação da
  * carta, e a janela de 3s de reação já teriam acontecido à toa).
  */
-function isSameGameplayState(a: GameState, b: GameState): boolean {
-  if (a === b) return true;
-  const { log: logA, ...restA } = a;
-  const { log: logB, ...restB } = b;
-  return JSON.stringify(restA) === JSON.stringify(restB);
-}
 
 function maybeDeferForReaction(
   state: GameState,
