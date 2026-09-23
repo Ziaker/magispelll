@@ -24,8 +24,9 @@ jobs:
 
           const enginePath = 'src/app/lib/gameEngine.ts';
           const targetPath = 'src/app/lib/combatHandlers.ts';
-          const moveNames = ['handleResolveCombat', 'handleFinalizeCombat'];
+          const moveNames = ['slotCombatTotal', 'handleResolveCombat', 'handleFinalizeCombat'];
           const moveSet = new Set(moveNames);
+          const publicNames = new Set(['handleResolveCombat', 'handleFinalizeCombat']);
           const source = fs.readFileSync(enginePath, 'utf8');
           const targetSource = fs.readFileSync(targetPath, 'utf8');
           const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -103,7 +104,9 @@ jobs:
 
           const snippets = movedNodes.map((node) => {
             let text = source.slice(node.getFullStart(), node.end).trim();
-            text = text.replace(`function ${node.name.text}`, `export function ${node.name.text}`);
+            if (publicNames.has(node.name.text)) {
+              text = text.replace(`function ${node.name.text}`, `export function ${node.name.text}`);
+            }
             return text;
           });
 
