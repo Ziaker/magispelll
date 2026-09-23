@@ -60,23 +60,12 @@ import {
   tickFieldStatuses,
   tickStatuses,
 } from './statusEffects';
+import { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
 
 export type Phase = 'draw' | 'strategy' | 'combat';
 export type PlayerNumber = 1 | 2;
 export type PlayerKey = 'player1' | 'player2';
-export type CharacterId = 'mago' | 'besta' | 'anjo' | 'mosqueteiro' | 'coringa' | 'piromante' | 'druida' | 'glacial';
-/**
- * Lista canônica de todo CharacterId - fonte única de verdade pra qualquer
- * lugar que precise iterar "todos os personagens" (fuzzer, matchups de
- * IA-vs-IA em sanity-test.ts, testes de exaustividade de UI). FIX (achado
- * real por auditoria): antes desses lugares hardcoded a própria lista à mão,
- * ficando defasados sempre que um personagem novo era adicionado -
- * `scripts/fuzz.ts` só fuzzava 6 dos 8, esquecendo Druida e Glacial. Usar
- * esta constante em vez de outro array datilografado à mão não impede um
- * novo esquecimento sozinho, mas deixa TODOS os consumidores atualizados de
- * graça na próxima vez que alguém adicionar um personagem aqui.
- */
-export const ALL_CHARACTER_IDS: readonly CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida', 'glacial'];
+export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
 
 export type FieldSlot = {
   faceDownCard?: Card;
