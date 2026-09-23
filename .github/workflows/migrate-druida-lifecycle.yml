@@ -1,0 +1,80 @@
+name: Temporary druida lifecycle migration
+
+on:
+  push:
+    branches: [overhaul/druida-lifecycle]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/druida-lifecycle
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract Druida phase growth with TypeScript AST
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/druidaLifecycle.ts';
+          const functionName = 'growDruidaBrotoField';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('druidaLifecycle.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === functionName);
+          if (!node) throw new Error(`${functionName} not found`);
+
+          const start = node.getFullStart();
+          const end = node.end;
+          let block = source.slice(start, end).trim();
+          block = block.replace(`function ${functionName}`, `export function ${functionName}`);
+          if (!block.includes(`export function ${functionName}`)) throw new Error(`failed to export ${functionName}`);
+
+          let next = source.slice(0, start) + source.slice(end);
+          const importAnchor = "import { isTowerSlot, isBrotoSlot, keepPersistentFieldSlots, nonPersistentFieldCards } from './fieldLifecycle';\n";
+          const importLine = "import { growDruidaBrotoField } from './druidaLifecycle';\n";
+          if (next.split(importAnchor).length !== 2) throw new Error('fieldLifecycle import anchor not found exactly once');
+          next = next.replace(importAnchor, importAnchor + importLine);
+
+          const header = [
+            '/**',
+            ' * druidaLifecycle.ts - regras puras de evolução do Broto do Druida.',
+            ' *',
+            ' * Este módulo não conhece reducer, fase global, UI ou IA; recebe o campo e',
+            ' * devolve o campo atualizado para uma única transição de fase.',
+            ' */',
+            "import { isBrotoSlot } from './fieldLifecycle';",
+            "import type { FieldSlot } from './gameEngine';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + block + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app/lib/gameEngine.ts src/app/lib/druidaLifecycle.ts; then
+            echo "No Druida lifecycle diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/lib/gameEngine.ts src/app/lib/druidaLifecycle.ts
+          git commit -m "refactor: extract Druida phase growth"
+          git push origin HEAD:overhaul/druida-lifecycle
