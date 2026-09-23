@@ -35,6 +35,7 @@
  * função abaixo para o raciocínio por trás de cada decisão.
  */
 
+import { isSlotProtected } from './anjoRules';
 import { getEffectiveDiscardLimit, getEffectiveDrawLimit } from './gameLimits';
 import { canFormOrReinforceTower, towerEligibleValue } from './towerRules';
 import { isFrozenPlayBlocked, isFrozenMagicActivationBlocked } from './glacialRules';
@@ -46,7 +47,7 @@ import { MAX_MONSTER_USES, canActivateMonsterEffect } from './monsterLifecycle';
 import type { GameAction } from './gameActionTypes';
 import type { PlayerNumber } from './gameTypes';
 import { random } from './rng';
-import { getMagicActivationContext, isSlotProtected, canSelectCombatSlot, getFireballCap } from './gameEngine';
+import { getMagicActivationContext, canSelectCombatSlot, getFireballCap } from './gameEngine';
 import type { CharacterId } from './characterRegistry';
 import { getEffectiveCardValue, isFieldEligible, isNumeralCard, isPlainNumeralCard, isValidAceTransformTarget, type Card } from './cardUtils';
 import { applyCombatModifierStatuses, getCombatModifierStatuses, hasStatus } from './statusEffects';

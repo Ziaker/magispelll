@@ -69,6 +69,7 @@ import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd, canActivateMonsterEffect
 import { isTowerSlot, isBrotoSlot, keepPersistentFieldSlots, nonPersistentFieldCards } from './fieldLifecycle';
 import { fieldCards, wasEverTowerSlot, getUnbattledHorizontalSlots, getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots } from './fieldQueries';
 import { getGlacialGolemValue, isFrozenPlayBlocked, isFrozenMagicActivationBlocked } from './glacialRules';
+import { isSlotProtected } from './anjoRules';
 import { computeLoneTowerForCombat, towerEligibleValue, canFormOrReinforceTower } from './towerRules';
 import { growDruidaBrotoField } from './druidaLifecycle';
 import { resetPlayerForPhaseTransition } from './playerPhaseLifecycle';
@@ -86,6 +87,7 @@ export { MAX_MONSTER_USES, canActivateMonsterEffect } from './monsterLifecycle';
 export { isTowerSlot, isBrotoSlot } from './fieldLifecycle';
 export { fieldCards, wasEverTowerSlot, getUnbattledHorizontalSlots, getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots } from './fieldQueries';
 export { getGlacialGolemValue, isFrozenPlayBlocked, isFrozenMagicActivationBlocked } from './glacialRules';
+export { isSlotProtected } from './anjoRules';
 export { towerEligibleValue, canFormOrReinforceTower } from './towerRules';
 export { getEffectiveDrawLimit, getEffectiveDiscardLimit } from './gameLimits';
 
@@ -694,29 +696,6 @@ function tryCoringaJShieldBlock(state: GameState, targetPlayer: PlayerNumber, ta
     return applyCoringaTrapReaction(state, targetPlayer, i, 'horizontal', jGuard);
   }
   return null;
-}
-
-/**
- * Um slot está protegido (Proteção Divina do Anjo) quando seu dono é o Anjo E
- * este slot específico está em `monsterProtectedSlots` (ver PlayerState).
- * Slots protegidos não podem ser alvo de magias (J/Q/K) do oponente.
- *
- * FIX (pedido do usuário: "o monstro do anjo agora só protege 1 slot
- * selecionado do campo ao invés dos 3, mas pode ser ativado múltiplas vezes
- * no mesmo turno ao invés de 1 vez só") - volta a proteger só o(s) slot(s)
- * ESCOLHIDO(S) ao ativar em vez do campo inteiro de uma vez (reversão de um
- * FIX anterior que tinha feito o oposto) - agora com a ativação liberada pra
- * repetir no mesmo turno, cada uma pode escolher um slot diferente (ver
- * handleActivateMonsterEffectSimple).
- *
- * FIX (itens 4 e 7 da 3ª rodada, histórico): antes checava
- * `slot.faceDownCard.isMonster` - válido só na arquitetura antiga, onde o
- * Monstro ocupava fisicamente um dos 3 slots de combate.
- */
-export function isSlotProtected(state: GameState, ownerPlayer: PlayerNumber, slotIndex: number): boolean {
-  if (characterOf(state, ownerPlayer) !== 'anjo') return false;
-  const playerState = state[playerKeyOf(ownerPlayer)];
-  return playerState.monsterProtectedSlots.includes(slotIndex);
 }
 
 /** Contexto usado tanto pela UI (para habilitar/desabilitar botões) quanto pelo motor (para validar de novo ao executar). */
