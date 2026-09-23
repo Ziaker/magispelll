@@ -69,10 +69,10 @@ import { resolveCoringaTrapTargeting, tryCoringaJShieldBlock } from './coringaTr
 import { handleSelectCombatSlot } from './combatHandlers';
 import type { GameAction, MagicSelection } from './gameActionTypes';
 import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
-import { advancePhaseState } from './phaseHandlers';
+import { advancePhaseState, handleToggleReady } from './phaseHandlers';
 import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd, canActivateMonsterEffect } from './monsterLifecycle';
 import { pushToDiscard, ensureDeckHasCards, ensureDeckHasAtLeast } from './deckLifecycle';
-import { isTowerSlot, isBrotoSlot, keepPersistentFieldSlots, nonPersistentFieldCards } from './fieldLifecycle';
+import { isTowerSlot, isBrotoSlot } from './fieldLifecycle';
 import { resolveCombatSlot, updateFieldSlot } from './fieldOperations';
 import { fieldCards, wasEverTowerSlot, getUnbattledHorizontalSlots, getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots } from './fieldQueries';
 import { getGlacialGolemValue, isFrozenPlayBlocked, isFrozenMagicActivationBlocked } from './glacialRules';
@@ -3262,81 +3262,4 @@ function handleFinalizeCombat(state: GameState): GameState {
   }
 
   return nextState;
-}
-
-// ---------------------------------------------------------------------------
-// Pronto / avanço de fase
-// ---------------------------------------------------------------------------
-
-function handleToggleReady(state: GameState, player: PlayerNumber): GameState {
-  // FIX (pedido do usuário: "a magia numeral às vezes causa softlock e o
-  // próximo turno não é chamado, mais com a da Besta") - esta função nunca
-  // checava `numeralSpellPending`. A UI mostra um popup modal por ~3s entre
-  // ativar uma Magia Numeral e handleFinalizeNumeralSpell rodar de fato (ver
-  // GameBoard.tsx), e normalmente isso bloqueia qualquer clique por baixo -
-  // mas se ALGO disparasse TOGGLE_READY nessa janela mesmo assim (ex.: o
-  // popup fechando cedo, um evento de teclado, uma corrida entre efeitos),
-  // esta função avançava a fase NORMALMENTE por cima de um estado que já
-  // tinha sido alterado por handleActivateNumeralSpell (campo substituído
-  // pelas 3 cartas da magia, mão do oponente já mesclada de volta) mas
-  // ainda NÃO tinha sido finalizado - aí, quando o timer de 3s finalmente
-  // chamasse FINALIZE_NUMERAL_SPELL, ele operaria em cima de um turno que já
-  // tinha avançado por outro caminho, produzindo um estado inconsistente que
-  // trava o avanço de turno. A Fúria Sanguinária da Besta (que também troca
-  // a mão INTEIRA do oponente) tem a janela de efeitos colaterais mais
-  // ampla dentre as 3, por isso o relato de que acontece mais com ela -
-  // mas a causa raiz (esta função não conhecer `numeralSpellPending`) não é
-  // específica de personagem nenhum. Nunca confiar só na UI: bloqueado aqui
-  // também, no motor, na mesma linha dos outros guards de fase inválida.
-  if (state.gameOver || state.combatResolution || state.numeralSpellPending) return state;
-  const playerKey = playerKeyOf(player);
-  const otherKey = opponentKeyOf(player);
-  const newReady = !state[playerKey].readyForNextPhase;
-
-  let next: GameState = {
-    ...state,
-    [playerKey]: { ...state[playerKey], readyForNextPhase: newReady },
-  };
-  next = { ...next, log: appendLog(state, state.log, 'system', `Jogador ${player} ${newReady ? 'está pronto' : 'não está mais pronto'} para avançar`, { player }) };
-
-  if (!(newReady && next[otherKey].readyForNextPhase)) {
-    return next;
-  }
-
-  // Ambos prontos
-  if (state.phase === 'combat') {
-    // FIX (itens 4 e 7 da 3ª rodada): idem ao branch de disputa fechada em
-    // handleFinalizeCombat - o campo normal de cada jogador é descartado
-    // aqui. FIX (pedido do usuário, rodada seguinte): a zona própria do
-    // Monstro NÃO é mais descartada incondicionalmente aqui - ela só se
-    // descarta depois do 3º uso, decidido por advancePhaseState logo abaixo
-    // (chamado sempre no final desta função, inclusive daqui).
-    // FIX (pedido do usuário, Modo Towers): uma torre permanece no campo -
-    // ela só é destruída batalhando (contra outra torre) ou erodindo até a
-    // última carta (ver resolveCombatSlot). Encerrar a fase de Combate com os
-    // dois "Prontos" não é combate nenhum, então os slots de torre são
-    // preservados aqui em vez de descartados junto com o resto do campo -
-    // `keepPersistentFieldSlots` e a lista de descarte abaixo usam o MESMO critério
-    // (slot de torre ou não), pra nenhuma carta ficar em campo E no descarte.
-    const cardsToDiscard = [...nonPersistentFieldCards(next.player1.field), ...nonPersistentFieldCards(next.player2.field)];
-    const { deck, discardPile } = pushToDiscard(next, cardsToDiscard);
-    next = {
-      ...next,
-      deck,
-      discardPile,
-      player1: { ...next.player1, field: keepPersistentFieldSlots(next.player1.field), readyForNextPhase: false },
-      player2: { ...next.player2, field: keepPersistentFieldSlots(next.player2.field), readyForNextPhase: false },
-    };
-    if (cardsToDiscard.length > 0) {
-      next = { ...next, log: appendLog(state, next.log, 'combat', `Todas as cartas do campo foram descartadas`) };
-    }
-  } else {
-    next = {
-      ...next,
-      player1: { ...next.player1, readyForNextPhase: false },
-      player2: { ...next.player2, readyForNextPhase: false },
-    };
-  }
-
-  return advancePhaseState(next);
 }
