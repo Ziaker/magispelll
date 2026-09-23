@@ -1,4 +1,4 @@
-import type { CharacterId } from './gameEngine';
+import type { CharacterId } from './characterRegistry';
 
 /**
  * matchStats.ts - QoL (pedido do usuário: "histórico/estatísticas entre
