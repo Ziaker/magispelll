@@ -35,9 +35,13 @@ jobs:
           if (!block.includes(`export function ${functionName}`)) throw new Error(`${functionName} is not exported as expected`);
 
           let next = source.slice(0, node.getFullStart()) + source.slice(node.end);
-          const importAnchor = "import { canActivateMagic, type MagicActivationContext, type MagicCardType } from './magicCards';\n";
+          const oldMagicImport = "import { canActivateMagic, type MagicActivationContext, type MagicCardType } from './magicCards';";
+          const newMagicImport = "import { canActivateMagic, type MagicCardType } from './magicCards';";
+          if (next.includes(oldMagicImport)) next = next.replace(oldMagicImport, newMagicImport);
+
+          const importAnchor = "import { isCoringaRawTrapCard } from './coringaRules';\n";
           const importLine = "import { getMagicActivationContext } from './magicActivationContext';\n";
-          if (next.split(importAnchor).length !== 2) throw new Error('magicCards import anchor not found exactly once');
+          if (next.split(importAnchor).length !== 2) throw new Error('coringaRules import anchor not found exactly once');
           next = next.replace(importAnchor, importAnchor + importLine);
 
           const exportAnchor = "export { isCoringaRawTrapCard } from './coringaRules';\n";
@@ -51,12 +55,13 @@ jobs:
             ' *',
             ' * Compartilha a mesma visão entre motor, UI, IA e action-space sem depender do reducer.',
             ' */',
-            "import { isPlainNumeralCard } from './cardUtils';",
+            "import { getEffectiveCardValue, isNumeralCard, isPlainNumeralCard } from './cardUtils';",
             "import type { MagicActivationContext } from './magicCards';",
             "import type { PlayerNumber } from './gameTypes';",
             "import type { GameState } from './gameStateTypes';",
             "import { opponentKeyOf, opponentOf, playerKeyOf } from './gameSelectors';",
-            "import { getDestroyableReinforcementSlots, getFilledFieldSlots } from './fieldQueries';",
+            "import { fieldCards, getDestroyableReinforcementSlots, getFilledFieldSlots, getUnbattledHorizontalSlots, getUnrevealedFieldSlots } from './fieldQueries';",
+            "import { isBrotoSlot } from './fieldLifecycle';",
             "import { isSlotProtected } from './anjoRules';",
             "import { hasStatus } from './statusEffects';",
             '',
