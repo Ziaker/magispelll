@@ -1,7 +1,7 @@
 import { createInitialState } from '../src/app/lib/gameStateFactory';
 import assert from 'node:assert/strict';
 import { evaluateAction, isSameGameplayState } from '../src/app/lib/actionValidation';
-import { enumerateAcceptedActions } from '../src/app/lib/actionSpace';
+import { checkActionSetDivergence, enumerateAcceptedActions } from '../src/app/lib/actionSpace';
 
 import { DEFAULT_GAME_CONFIG } from '../src/app/lib/gameConfig';
 
@@ -67,6 +67,16 @@ assert.equal(
   acceptedFromRejectionState.some(({ action }) => action.type === 'DRAW_CARDS' && action.player === 1 && action.count === 1),
   false,
   'compra rejeitada pelo reducer não pode aparecer entre ações aceitas'
+);
+
+// O fast path e o reducer-backed devem concordar no estado inicial padrão.
+// Se este assert quebrar no futuro, o relatório contém exatamente os payloads
+// em que a previsão e o motor passaram a discordar.
+const initialSetDivergence = checkActionSetDivergence(initial, 1);
+assert.deepEqual(
+  initialSetDivergence,
+  [],
+  `fast path e reducer divergiram no estado inicial: ${JSON.stringify(initialSetDivergence)}`
 );
 
 console.log('✓ actionValidation: rejeição/log e ação aceita classificados corretamente');
