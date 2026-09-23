@@ -1,0 +1,142 @@
+name: Temporary game state type migration
+
+on:
+  push:
+    branches: [overhaul/game-state-types]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/game-state-types
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract state declarations with TypeScript AST
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/gameStateTypes.ts';
+          const names = [
+            'FieldSlot',
+            'PlayerState',
+            'CombatResolution',
+            'NumeralSpellPending',
+            'PendingReaction',
+            'GameState',
+          ];
+
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('gameStateTypes.ts already exists');
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const found = new Map();
+
+          for (const stmt of sf.statements) {
+            if ((ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt)) && names.includes(stmt.name.text)) {
+              found.set(stmt.name.text, stmt);
+            }
+          }
+          for (const name of names) if (!found.has(name)) throw new Error(`${name} not found`);
+
+          const blocks = [];
+          const ranges = [];
+          for (const name of names) {
+            const node = found.get(name);
+            blocks.push(source.slice(node.getFullStart(), node.end).trim());
+            ranges.push([node.getFullStart(), node.end]);
+          }
+
+          let next = source;
+          for (const [start, end] of ranges.sort((a, b) => b[0] - a[0])) {
+            next = next.slice(0, start) + next.slice(end);
+          }
+
+          const lifecycleImport = "import { expireNumeralSpells, type ActiveNumeralSpells } from './numeralSpellLifecycle';\n";
+          if (next.split(lifecycleImport).length !== 2) throw new Error('numeral lifecycle import not found exactly once');
+          next = next.replace(lifecycleImport, "import { expireNumeralSpells } from './numeralSpellLifecycle';\n");
+
+          const spotlightImport = "import { getSpotlightAdjustedValue, rollSpotlight, type SpotlightState } from './spotlight';\n";
+          if (next.split(spotlightImport).length !== 2) throw new Error('spotlight import not found exactly once');
+          next = next.replace(spotlightImport, "import { getSpotlightAdjustedValue, rollSpotlight } from './spotlight';\n");
+
+          const stateImportAnchor = "import { expireNumeralSpells } from './numeralSpellLifecycle';\n";
+          const stateImport = "import type { FieldSlot, PlayerState, CombatResolution, NumeralSpellPending, PendingReaction, GameState } from './gameStateTypes';\n";
+          next = next.replace(stateImportAnchor, stateImportAnchor + stateImport);
+
+          const exportAnchor = "export type { GameAction, MagicSelection } from './gameActionTypes';\n";
+          const stateExport = "export type { FieldSlot, PlayerState, CombatResolution, NumeralSpellPending, PendingReaction, GameState } from './gameStateTypes';\n";
+          if (next.split(exportAnchor).length !== 2) throw new Error('gameActionTypes export anchor not found exactly once');
+          next = next.replace(exportAnchor, exportAnchor + stateExport);
+
+          const header = [
+            '/**',
+            ' * gameStateTypes.ts - contrato estrutural do estado do Magispelll.',
+            ' *',
+            ' * Apenas tipos: nenhum reducer, regra de gameplay ou efeito runtime mora aqui.',
+            ' * Módulos de domínio podem depender destes shapes sem depender do gameEngine.',
+            ' */',
+            "import type { Card } from './cardUtils';",
+            "import type { GameConfig } from './gameConfig';",
+            "import type { SpotlightState } from './spotlight';",
+            "import type { CharacterId } from './characterRegistry';",
+            "import type { Phase, PlayerNumber } from './gameTypes';",
+            "import type { LogEntry } from './gameLogTypes';",
+            "import type { GameAction } from './gameActionTypes';",
+            "import type { ActiveNumeralSpells } from './numeralSpellLifecycle';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + blocks.join('\n\n') + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Point extracted modules at canonical state types
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path('src/app/lib/fieldLifecycle.ts'): (
+                  "import type { FieldSlot } from './gameEngine';",
+                  "import type { FieldSlot } from './gameStateTypes';",
+              ),
+              Path('src/app/lib/druidaLifecycle.ts'): (
+                  "import type { FieldSlot } from './gameEngine';",
+                  "import type { FieldSlot } from './gameStateTypes';",
+              ),
+              Path('src/app/lib/playerPhaseLifecycle.ts'): (
+                  "import type { PlayerState } from './gameEngine';",
+                  "import type { PlayerState } from './gameStateTypes';",
+              ),
+          }
+          for path, (old, new) in replacements.items():
+              text = path.read_text(encoding='utf-8')
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: expected state type import exactly once')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app/lib; then
+            echo "No game state type diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/lib
+          git commit -m "refactor: extract game state types"
+          git push origin HEAD:overhaul/game-state-types
