@@ -1,0 +1,128 @@
+name: Temporary game log types migration
+
+on:
+  push:
+    branches: [overhaul/game-log-types]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/game-log-types
+      - name: Extract log types from gameEngine
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          engine_path = Path('src/app/lib/gameEngine.ts')
+          log_types_path = Path('src/app/lib/gameLogTypes.ts')
+          text = engine_path.read_text(encoding='utf-8')
+
+          if log_types_path.exists():
+              raise SystemExit('gameLogTypes.ts already exists; refusing duplicate migration')
+
+          def declaration_with_jsdoc(source: str, marker: str, kind: str) -> tuple[int, int, str]:
+              decl_start = source.find(marker)
+              if decl_start == -1:
+                  raise SystemExit(f'{marker!r} not found')
+
+              block_start = decl_start
+              before = source[:decl_start].rstrip()
+              if before.endswith('*/'):
+                  comment_end = before.rfind('*/') + 2
+                  comment_start = before.rfind('/**', 0, comment_end)
+                  if comment_start != -1:
+                      block_start = comment_start
+
+              if kind == 'type':
+                  semi = source.find(';', decl_start)
+                  if semi == -1:
+                      raise SystemExit(f'no semicolon found for {marker}')
+                  block_end = semi + 1
+              elif kind == 'interface':
+                  brace_start = source.find('{', decl_start)
+                  if brace_start == -1:
+                      raise SystemExit(f'no opening brace found for {marker}')
+                  depth = 0
+                  block_end = None
+                  for index in range(brace_start, len(source)):
+                      char = source[index]
+                      if char == '{':
+                          depth += 1
+                      elif char == '}':
+                          depth -= 1
+                          if depth == 0:
+                              block_end = index + 1
+                              break
+                  if block_end is None:
+                      raise SystemExit(f'no closing brace found for {marker}')
+              else:
+                  raise SystemExit(f'unknown declaration kind {kind}')
+
+              while block_end < len(source) and source[block_end] in '\r\n':
+                  block_end += 1
+              return block_start, block_end, source[block_start:block_end].strip()
+
+          event_start, event_end, event_block = declaration_with_jsdoc(
+              text, 'export type LogEventType =', 'type'
+          )
+          entry_start, entry_end, entry_block = declaration_with_jsdoc(
+              text, 'export interface LogEntry {', 'interface'
+          )
+
+          if event_start >= entry_start:
+              raise SystemExit('unexpected declaration order; refusing unsafe migration')
+
+          header = """/**
+           * gameLogTypes.ts - contrato de dados do log da partida.
+           *
+           * O motor produz estes eventos, mas a UI de log também precisa consumi-los
+           * sem depender conceitualmente do reducer inteiro. Este módulo contém só
+           * tipos, sem lógica nem efeitos colaterais.
+           */
+          import type { PlayerNumber } from './gameTypes';
+
+          """
+          log_types_path.write_text(header + event_block + '\n\n' + entry_block + '\n', encoding='utf-8')
+
+          # Remove do fim para o começo para preservar índices.
+          for start, end in sorted([(event_start, event_end), (entry_start, entry_end)], reverse=True):
+              text = text[:start] + text[end:]
+
+          import_line = "import type { LogEntry, LogEventType } from './gameLogTypes';"
+          export_line = "export type { LogEntry, LogEventType } from './gameLogTypes';"
+          anchor = "import type { Phase, PlayerNumber, PlayerKey } from './gameTypes';\n"
+          if anchor not in text:
+              raise SystemExit('gameTypes import anchor not found; refusing unsafe migration')
+          text = text.replace(anchor, anchor + import_line + '\n', 1)
+
+          registry_export = "export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';\n"
+          if registry_export not in text:
+              raise SystemExit('character registry reexport anchor not found; refusing unsafe migration')
+          text = text.replace(registry_export, registry_export + export_line + '\n', 1)
+
+          if 'export type LogEventType =' in text or 'export interface LogEntry {' in text:
+              raise SystemExit('local log declarations remain after migration')
+
+          engine_path.write_text(text, encoding='utf-8')
+          PY
+      - name: Typecheck migration
+        run: |
+          npm ci
+          npm run typecheck
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app/lib/gameEngine.ts src/app/lib/gameLogTypes.ts; then
+            echo "No migration diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/lib/gameEngine.ts src/app/lib/gameLogTypes.ts
+          git commit -m "refactor: extract game log types from engine"
+          git push origin HEAD:overhaul/game-log-types
