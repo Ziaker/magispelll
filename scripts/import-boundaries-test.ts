@@ -10,6 +10,7 @@ import { join, relative } from 'node:path';
  * - CharacterId -> characterRegistry.ts
  * - Phase/PlayerNumber/PlayerKey -> gameTypes.ts
  * - LogEntry/LogEventType -> gameLogTypes.ts
+ * - GameAction/MagicSelection -> gameActionTypes.ts
  *
  * Assim uma mudança futura não volta a transformar gameEngine.ts em hub de
  * tipos por acidente.
@@ -21,6 +22,8 @@ const EXTRACTED_TYPES = new Set([
   'PlayerKey',
   'LogEntry',
   'LogEventType',
+  'GameAction',
+  'MagicSelection',
 ]);
 
 const sourceRoot = join(process.cwd(), 'src', 'app');
@@ -57,7 +60,7 @@ assert.deepEqual(
   [],
   [
     'Tipos extraídos não devem ser importados através de gameEngine.ts.',
-    'Use characterRegistry.ts, gameTypes.ts ou gameLogTypes.ts conforme o tipo.',
+    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts ou gameActionTypes.ts conforme o tipo.',
     `Violações: ${violations.join(', ')}`,
   ].join(' ')
 );

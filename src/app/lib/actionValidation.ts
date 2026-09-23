@@ -12,7 +12,8 @@
  * o resultado. É a base para UI, IA, simulação e debug convergirem na mesma
  * semântica durante o Legal Actions Overhaul.
  */
-import { gameReducer, type GameAction, type GameState } from './gameEngine';
+import type { GameAction } from './gameActionTypes';
+import { gameReducer, type GameState } from './gameEngine';
 import { isSameGameplayState } from './gameplayState';
 
 /** Compatibilidade: consumidores existentes podem continuar importando daqui. */
