@@ -14,25 +14,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: overhaul/direct-game-state-type-imports
-      - name: Migrate state type imports
+      - name: Migrate state type imports and boundaries
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
 
           TARGETS = {
-              'FieldSlot',
-              'PlayerState',
-              'CombatResolution',
-              'NumeralSpellPending',
-              'PendingReaction',
-              'GameState',
+              'FieldSlot', 'PlayerState', 'CombatResolution',
+              'NumeralSpellPending', 'PendingReaction', 'GameState',
           }
           import_re = re.compile(
               r"import\s+(?P<type_only>type\s+)?\{(?P<body>[^}]*)\}\s+from\s+(?P<quote>['\"])(?P<source>[^'\"]*gameEngine)(?P=quote);",
               re.DOTALL,
           )
-
           changed = []
           moved_total = 0
 
@@ -41,10 +36,9 @@ jobs:
                   continue
               text = path.read_text(encoding='utf-8')
               pending = []
-              state_source = None
+              source_holder = [None]
 
               def repl(match):
-                  nonlocal state_source
                   parts = [p.strip() for p in match.group('body').split(',') if p.strip()]
                   remaining = []
                   moved = False
@@ -54,12 +48,11 @@ jobs:
                       base = re.sub(r'^type\s+', '', part).strip()
                       imported_name = re.split(r'\s+as\s+', base)[0].strip()
                       if imported_name in TARGETS:
-                          if state_source is not None and state_source != candidate:
+                          if source_holder[0] is not None and source_holder[0] != candidate:
                               raise SystemExit(f'{path}: inconsistent gameStateTypes source path')
-                          state_source = candidate
-                          normalized = base
-                          if normalized not in pending:
-                              pending.append(normalized)
+                          source_holder[0] = candidate
+                          if base not in pending:
+                              pending.append(base)
                           moved = True
                       else:
                           remaining.append(part)
@@ -74,6 +67,9 @@ jobs:
               next_text = import_re.sub(repl, text)
               if not pending:
                   continue
+              state_source = source_holder[0]
+              if state_source is None:
+                  raise SystemExit(f'{path}: missing gameStateTypes source')
 
               existing_re = re.compile(
                   r"import\s+type\s+\{(?P<body>[^}]*)\}\s+from\s+['\"]" + re.escape(state_source) + r"['\"];",
@@ -81,18 +77,14 @@ jobs:
               )
               existing = set()
               for found in existing_re.finditer(next_text):
-                  for raw in found.group('body').split(','):
-                      normalized = raw.strip()
-                      if normalized:
-                          existing.add(normalized)
+                  existing.update(raw.strip() for raw in found.group('body').split(',') if raw.strip())
               missing = [name for name in pending if name not in existing]
               if missing:
                   first_import = re.search(r'^import\s', next_text, re.MULTILINE)
                   if not first_import:
                       raise SystemExit(f'{path}: no import insertion point')
-                  insert_at = first_import.start()
                   line = f"import type {{ {', '.join(missing)} }} from '{state_source}';\n"
-                  next_text = next_text[:insert_at] + line + next_text[insert_at:]
+                  next_text = next_text[:first_import.start()] + line + next_text[first_import.start():]
 
               for match in import_re.finditer(next_text):
                   for raw in match.group('body').split(','):
@@ -107,18 +99,10 @@ jobs:
 
           if moved_total == 0:
               raise SystemExit('no game state type imports found through gameEngine')
-          print(f'Moved {moved_total} state type import(s) across {len(changed)} file(s):')
-          for item in changed:
-              print(f' - {item}')
-          PY
-      - name: Extend import boundary contract
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          print(f'Moved {moved_total} state type import(s) across {len(changed)} file(s)')
 
-          path = Path('scripts/import-boundaries-test.ts')
-          text = path.read_text(encoding='utf-8')
-
+          boundary = Path('scripts/import-boundaries-test.ts')
+          text = boundary.read_text(encoding='utf-8')
           doc_anchor = " * - GameAction/MagicSelection -> gameActionTypes.ts\n"
           doc_line = " * - FieldSlot/PlayerState/CombatResolution/NumeralSpellPending/PendingReaction/GameState -> gameStateTypes.ts\n"
           if text.count(doc_anchor) != 1:
@@ -126,14 +110,8 @@ jobs:
           text = text.replace(doc_anchor, doc_anchor + doc_line, 1)
 
           array_anchor = "  'MagicSelection',\n"
-          array_lines = """  'MagicSelection',
-  'FieldSlot',
-  'PlayerState',
-  'CombatResolution',
-  'NumeralSpellPending',
-  'PendingReaction',
-  'GameState',
-"""
+          extra_names = ['FieldSlot', 'PlayerState', 'CombatResolution', 'NumeralSpellPending', 'PendingReaction', 'GameState']
+          array_lines = array_anchor + ''.join(f"  '{name}',\n" for name in extra_names)
           if text.count(array_anchor) != 1:
               raise SystemExit('boundary symbol anchor not found exactly once')
           text = text.replace(array_anchor, array_lines, 1)
@@ -142,9 +120,7 @@ jobs:
           new_help = "Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts ou fieldLifecycle.ts conforme o símbolo."
           if text.count(old_help) != 1:
               raise SystemExit('boundary help text not found exactly once')
-          text = text.replace(old_help, new_help, 1)
-
-          path.write_text(text, encoding='utf-8')
+          boundary.write_text(text.replace(old_help, new_help, 1), encoding='utf-8')
           PY
       - name: Validate migration
         run: |
