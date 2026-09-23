@@ -1,0 +1,177 @@
+name: Temporary player phase lifecycle migration
+
+on:
+  push:
+    branches: [overhaul/player-phase-lifecycle]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/player-phase-lifecycle
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract player phase transition lifecycle
+        run: |
+          cat > src/app/lib/playerPhaseLifecycle.ts <<'TS'
+          /**
+           * playerPhaseLifecycle.ts - estado temporário do jogador entre fases.
+           *
+           * Concentra expiração de status, crescimento do Broto e os resets que
+           * acontecem a cada transição ou apenas quando uma nova fase de Compra
+           * inicia. Não conhece reducer, logs, IA ou UI.
+           */
+          import { growDruidaBrotoField } from './druidaLifecycle';
+          import { keepPersistentFieldSlots } from './fieldLifecycle';
+          import {
+            getStatusMagnitude,
+            tickEntityStatuses,
+            tickFieldStatuses,
+            tickStatuses,
+          } from './statusEffects';
+          import type { Phase } from './gameTypes';
+          import type { PlayerState } from './gameEngine';
+
+          export interface PlayerPhaseTransitionContext {
+            newTurn: number;
+            newPhase: Phase;
+            towersMode: boolean;
+          }
+
+          /**
+           * Aplica a parte da transição de fase que pertence a um único jogador.
+           *
+           * Algumas regras rodam em TODA transição (tick de status, reset de
+           * vitórias da fase de combate, crescimento do Broto); outras só na
+           * entrada em Compra, que representa a virada real de turno.
+           */
+          export function resetPlayerForPhaseTransition(
+            player: PlayerState,
+            monsterKept: PlayerState['monsterCard'],
+            context: PlayerPhaseTransitionContext
+          ): PlayerState {
+            const { newTurn, newPhase, towersMode } = context;
+            const tickContext = { newTurn, newPhase };
+            const tickedPlayerStatuses = tickStatuses(player.statusEffects ?? [], tickContext);
+            const handLimitBonus = getStatusMagnitude(
+              { statusEffects: tickedPlayerStatuses },
+              'handLimitBonus',
+              { source: 'mosqueteiro' }
+            );
+
+            return {
+              ...player,
+              statusEffects: tickedPlayerStatuses,
+              hand: player.hand.map((card) => tickEntityStatuses(card, tickContext)),
+              handLimit: 8 + player.permanentDrawBonus + (towersMode ? 1 : 0) + handLimitBonus,
+              horizontalStackBonus: 0,
+              combatWins: 0,
+              field: growDruidaBrotoField(
+                tickFieldStatuses(
+                  newPhase === 'draw' ? keepPersistentFieldSlots(player.field) : player.field,
+                  tickContext
+                ),
+                player.druidaPhotosynthesisLevel
+              ),
+              monsterCard: newPhase === 'draw' ? monsterKept : player.monsterCard,
+              monsterTargetSlot: newPhase === 'draw' ? undefined : player.monsterTargetSlot,
+              monsterProtectedSlots: newPhase === 'draw' ? [] : player.monsterProtectedSlots,
+              discardsThisTurn: newPhase === 'draw' ? 0 : player.discardsThisTurn,
+              drawsThisTurn: newPhase === 'draw' ? 0 : player.drawsThisTurn,
+              fusesThisTurn: newPhase === 'draw' ? 0 : player.fusesThisTurn,
+              mosqueteiroDiscardsTurnMinus2:
+                newPhase === 'draw' ? player.mosqueteiroDiscardsTurnMinus1 : player.mosqueteiroDiscardsTurnMinus2,
+              mosqueteiroDiscardsTurnMinus1:
+                newPhase === 'draw' ? player.mosqueteiroDiscardsThisTurn : player.mosqueteiroDiscardsTurnMinus1,
+              mosqueteiroDiscardsThisTurn:
+                newPhase === 'draw' ? 0 : player.mosqueteiroDiscardsThisTurn,
+            };
+          }
+          TS
+
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+
+          let targetStatement;
+          function visit(node) {
+            if (
+              ts.isVariableStatement(node) &&
+              node.declarationList.declarations.some(
+                (decl) => ts.isIdentifier(decl.name) && decl.name.text === 'resetForNewTurn'
+              )
+            ) {
+              if (targetStatement) throw new Error('resetForNewTurn found more than once');
+              targetStatement = node;
+            }
+            ts.forEachChild(node, visit);
+          }
+          visit(sf);
+          if (!targetStatement) throw new Error('resetForNewTurn variable statement not found');
+
+          const start = targetStatement.getFullStart();
+          const end = targetStatement.end;
+          let next = source.slice(0, start) + source.slice(end);
+
+          const importAnchor = "import { growDruidaBrotoField } from './druidaLifecycle';\n";
+          const importLine = "import { resetPlayerForPhaseTransition } from './playerPhaseLifecycle';\n";
+          if (next.split(importAnchor).length !== 2) throw new Error('druidaLifecycle import anchor not found exactly once');
+          next = next.replace(importAnchor, importAnchor + importLine);
+
+          for (const unusedImportLine of [
+            '  tickEntityStatuses,\n',
+            '  tickFieldStatuses,\n',
+            '  tickStatuses,\n',
+          ]) {
+            if (next.split(unusedImportLine).length !== 2) {
+              throw new Error(`status import line not found exactly once: ${unusedImportLine.trim()}`);
+            }
+            next = next.replace(unusedImportLine, '');
+          }
+
+          const oldCalls = [
+            '  const player1Result = resetForNewTurn(state.player1, p1Monster);',
+            '  const player2Result = resetForNewTurn(state.player2, p2Monster);',
+          ].join('\n');
+          const newCalls = [
+            '  const playerTransitionContext = { newTurn, newPhase, towersMode: state.gameConfig.towersMode };',
+            '  const player1Result = resetPlayerForPhaseTransition(state.player1, p1Monster.kept, playerTransitionContext);',
+            '  const player2Result = resetPlayerForPhaseTransition(state.player2, p2Monster.kept, playerTransitionContext);',
+          ].join('\n');
+          if (next.split(oldCalls).length !== 2) throw new Error('resetForNewTurn call block not found exactly once');
+          next = next.replace(oldCalls, newCalls);
+
+          if (/\bresetForNewTurn\s*=/.test(next) || /\bresetForNewTurn\s*\(/.test(next)) {
+            throw new Error('executable resetForNewTurn reference still present');
+          }
+
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app/lib/gameEngine.ts src/app/lib/playerPhaseLifecycle.ts; then
+            echo "No player phase lifecycle diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/lib/gameEngine.ts src/app/lib/playerPhaseLifecycle.ts
+          git commit -m "refactor: extract player phase lifecycle"
+          git push origin HEAD:overhaul/player-phase-lifecycle
