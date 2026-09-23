@@ -15,6 +15,7 @@ import { join, relative } from 'node:path';
  * - playerKeyOf/opponentKeyOf/opponentOf/characterOf -> gameSelectors.ts
  * - MAX_MONSTER_USES -> monsterLifecycle.ts
  * - isTowerSlot/isBrotoSlot -> fieldLifecycle.ts
+ * - fieldCards/wasEverTowerSlot/getUnbattledHorizontalSlots/getDestroyableReinforcementSlots/getUnrevealedFieldSlots/getFilledFieldSlots -> fieldQueries.ts
  *
  * Assim uma mudança futura não volta a transformar gameEngine.ts em hub de
  * tipos por acidente.
@@ -41,6 +42,12 @@ const EXTRACTED_SYMBOLS = new Set([
   'MAX_MONSTER_USES',
   'isTowerSlot',
   'isBrotoSlot',
+  'fieldCards',
+  'wasEverTowerSlot',
+  'getUnbattledHorizontalSlots',
+  'getDestroyableReinforcementSlots',
+  'getUnrevealedFieldSlots',
+  'getFilledFieldSlots',
 ]);
 
 const sourceRoot = join(process.cwd(), 'src', 'app');
@@ -77,7 +84,7 @@ assert.deepEqual(
   [],
   [
     'Símbolos extraídos não devem ser importados através de gameEngine.ts.',
-    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts ou fieldLifecycle.ts conforme o símbolo.',
+    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts, fieldLifecycle.ts ou fieldQueries.ts conforme o símbolo.',
     `Violações: ${violations.join(', ')}`,
   ].join(' ')
 );
