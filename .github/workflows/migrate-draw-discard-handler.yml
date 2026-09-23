@@ -34,7 +34,12 @@ jobs:
           let block = source.slice(node.getFullStart(), node.end).trim();
           if (!block.includes(`function ${functionName}`)) throw new Error('unexpected handler source');
           block = block.replace(`function ${functionName}`, `export function ${functionName}`);
-          const next = source.slice(0, node.getFullStart()) + source.slice(node.end);
+          let next = source.slice(0, node.getFullStart()) + source.slice(node.end);
+
+          const engineImport = "import { handleDrawCards } from './drawPhaseHandlers';";
+          const nextEngineImport = "import { handleDiscardCards, handleDrawCards } from './drawPhaseHandlers';";
+          if (next.split(engineImport).length !== 2) throw new Error('drawPhaseHandlers engine import anchor not found exactly once');
+          next = next.replace(engineImport, nextEngineImport);
 
           const deckImport = "import { ensureDeckHasCards } from './deckLifecycle';";
           const nextDeckImport = "import { ensureDeckHasCards, pushToDiscard } from './deckLifecycle';";
