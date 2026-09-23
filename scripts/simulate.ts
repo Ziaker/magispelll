@@ -25,6 +25,7 @@
  */
 import { createInitialState, gameReducer, type GameAction, type PlayerNumber } from '../src/app/lib/gameEngine';
 import { ALL_CHARACTER_IDS, type CharacterId } from '../src/app/lib/characterRegistry';
+import { evaluateAction } from '../src/app/lib/actionValidation';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../src/app/lib/gameConfig';
 import { decideAiAction } from '../src/app/lib/aiPlayer';
 import { opponentOf, playerKeyOf } from '../src/app/lib/gameEngine';
@@ -96,9 +97,9 @@ function runOneGame(c1: CharacterId, c2: CharacterId, config: GameConfig, maxSte
           usage.attempts++;
           magicUsage.set(key, usage);
         }
-        const prev = current;
-        current = gameReducer(current, action);
-        if (key && current !== prev) magicUsage.get(key)!.accepted++;
+        const evaluation = evaluateAction(current, action);
+        current = evaluation.nextState;
+        if (key && evaluation.accepted) magicUsage.get(key)!.accepted++;
         acted = true;
         break;
       } else if (decision.type === 'ready') {
