@@ -14,8 +14,8 @@
  *
  * USO:
  *   npm run simulate -- --matchup druida:mago --games 100
- *   npm run simulate -- --matchup druida:all --games 30      -- druida contra os 7 personagens, 30 cada
- *   npm run simulate -- --matchup all:all --games 10         -- toda combinação 7x7 (ver item 37)
+ *   npm run simulate -- --matchup druida:all --games 30      -- druida contra todos os personagens, 30 cada
+ *   npm run simulate -- --matchup all:all --games 10         -- toda combinação NxN
  *   npm run simulate -- --matchup druida:mago --games 50 --config towers
  *
  * SAÍDA: por matchup, quantas partidas rodaram, passos médios, quem venceu
@@ -23,12 +23,14 @@
  * quantas vezes CADA combinação personagem+magia (J/Q/K) foi de fato
  * ATIVADA (EXECUTE_MAGIC aceito pelo motor) ao longo de todas as partidas.
  */
-import { createInitialState, gameReducer, type CharacterId, type GameAction, type PlayerNumber } from '../src/app/lib/gameEngine';
+import { createInitialState, gameReducer, type GameAction, type PlayerNumber } from '../src/app/lib/gameEngine';
+import { ALL_CHARACTER_IDS, type CharacterId } from '../src/app/lib/characterRegistry';
+import { evaluateAction } from '../src/app/lib/actionValidation';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../src/app/lib/gameConfig';
 import { decideAiAction } from '../src/app/lib/aiPlayer';
 import { opponentOf, playerKeyOf } from '../src/app/lib/gameEngine';
 
-const ALL_CHARACTERS: CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida'];
+const ALL_CHARACTERS = ALL_CHARACTER_IDS;
 
 const CONFIGS: Record<string, GameConfig> = {
   base: { ...DEFAULT_GAME_CONFIG, monsterCards: true },
@@ -95,9 +97,9 @@ function runOneGame(c1: CharacterId, c2: CharacterId, config: GameConfig, maxSte
           usage.attempts++;
           magicUsage.set(key, usage);
         }
-        const prev = current;
-        current = gameReducer(current, action);
-        if (key && current !== prev) magicUsage.get(key)!.accepted++;
+        const evaluation = evaluateAction(current, action);
+        current = evaluation.nextState;
+        if (key && evaluation.accepted) magicUsage.get(key)!.accepted++;
         acted = true;
         break;
       } else if (decision.type === 'ready') {

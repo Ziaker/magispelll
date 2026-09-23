@@ -54,7 +54,6 @@
  * de verdade e simular cliques.
  */
 import {
-  gameReducer,
   playerKeyOf,
   opponentKeyOf,
   characterOf,
@@ -72,32 +71,15 @@ import {
   type FieldSlot,
   type MagicSelection,
 } from './gameEngine';
+import { evaluateAction } from './actionValidation';
 import { canActivateMagic, type MagicCardType } from './magicCards';
 import { canActivateNumeralSpell, type NumeralCharacter } from './numeralSpells';
 import { canFuseCards } from './fusion';
 import { isFieldEligible, isPlainNumeralCard, getEffectiveCardValue, type Card } from './cardUtils';
 
-/**
- * Compara dois estados IGNORANDO o campo `log` - descoberto ao validar este
- * módulo: o motor tem um padrão DELIBERADO e generalizado (13+ ocorrências em
- * `gameEngine.ts`, ex.: "Esse slot está protegido por Proteção Divina!",
- * limite de compra/descarte atingido) de rejeição "com aviso" - devolve
- * `{ ...state, log: appendLog(...) }`, uma referência NOVA só pra anexar um
- * toast explicando por quê, mesmo sem mudar nada além do log. Comparar por
- * referência crua (`result !== state`, o mesmo padrão que `rejectedActions`
- * em `fastForward`/`scripts/sanity-test.ts` já usa) conta ERRADO essas
- * rejeições como "aceitas", porque a IA heurística sempre se auto-filtra
- * ANTES de despachar (nunca bate nesses avisos na prática) - mas o modo
- * exaustivo deste módulo despacha candidatos de propósito SEM esse
- * autofiltro, e bateu neles direto na validação. Esta função ignora `log`
- * pra medir só a mudança de estado que REALMENTE importa pro jogo.
- */
-export function isSameGameplayState(a: GameState, b: GameState): boolean {
-  if (a === b) return true;
-  const { log: logA, ...restA } = a;
-  const { log: logB, ...restB } = b;
-  return JSON.stringify(restA) === JSON.stringify(restB);
-}
+// Compatibilidade para consumidores que já importavam daqui. A implementação
+// canônica agora mora em actionValidation.ts junto da avaliação pelo reducer.
+export { isSameGameplayState } from './actionValidation';
 
 /** Ids de toda carta presente num campo (principal + horizontais) - torre/reserva fica de fora de propósito (nunca é alvo direto de nenhuma ação, só se move via combate). */
 function fieldCardIds(field: [FieldSlot, FieldSlot, FieldSlot]): string[] {
@@ -400,7 +382,7 @@ export interface DivergenceReport {
   action: GameAction;
   /** O que um predicado `canX` existente (quando há um mapeável pro tipo de ação) previu. `undefined` = não há predicado equivalente pra comparar (ex.: PLAY_CARD não tem um "canPlayCard" único). */
   predicateSaidLegal: boolean | undefined;
-  /** Se o `gameReducer` de verdade aceitou (mudou o estado) ou recusou (devolveu a MESMA referência) esta ação. */
+  /** Se o reducer de verdade alterou gameplay; mudanças apenas no log contam como rejeição. */
   reducerAccepted: boolean;
 }
 
@@ -439,8 +421,7 @@ export function checkActionDivergence(state: GameState, player: PlayerNumber): D
     if (action.type === 'EXECUTE_MAGIC' || action.type === 'ACTIVATE_SIMPLE_MAGIC') {
       const card = state[playerKeyOf(player)].hand.find((c) => c.id === action.cardId);
       if (!card || (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K')) continue;
-      const result = gameReducer(state, action);
-      const accepted = !isSameGameplayState(result, state);
+      const accepted = evaluateAction(state, action).accepted;
       const entry = magicCandidatesByCard.get(action.cardId);
       if (!entry) {
         magicCandidatesByCard.set(action.cardId, { magicType: card.value, anyAccepted: accepted, sample: action });
@@ -460,8 +441,7 @@ export function checkActionDivergence(state: GameState, player: PlayerNumber): D
   }
 
   for (const action of otherCandidates) {
-    const result = gameReducer(state, action);
-    const reducerAccepted = !isSameGameplayState(result, state);
+    const reducerAccepted = evaluateAction(state, action).accepted;
 
     let predicateSaidLegal: boolean | undefined;
     if (action.type === 'FUSE_CARDS') {

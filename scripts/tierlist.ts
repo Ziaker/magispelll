@@ -1,6 +1,6 @@
 /**
  * scripts/tierlist.ts - roda um round-robin completo IA vs IA entre TODOS os
- * 8 personagens (ambos os lados de cada matchup, pra anular vantagem de
+ * personagens (ambos os lados de cada matchup, pra anular vantagem de
  * quem joga primeiro) e agrega: winrate geral por personagem, winrate por
  * matchup específico, e uso de magia (tentativas aceitas pelo motor) por
  * personagem - a base de dados pra montar uma tierlist e explicar POR QUE
@@ -10,12 +10,14 @@
  * USO:
  *   npx tsx scripts/tierlist.ts --games 40 --config base
  */
-import { createInitialState, gameReducer, type CharacterId, type GameAction, type PlayerNumber } from '../src/app/lib/gameEngine';
+import { createInitialState, gameReducer, type GameAction, type PlayerNumber } from '../src/app/lib/gameEngine';
+import { ALL_CHARACTER_IDS, type CharacterId } from '../src/app/lib/characterRegistry';
+import { evaluateAction } from '../src/app/lib/actionValidation';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../src/app/lib/gameConfig';
 import { decideAiAction } from '../src/app/lib/aiPlayer';
 import { playerKeyOf } from '../src/app/lib/gameEngine';
 
-const ALL_CHARACTERS: CharacterId[] = ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida', 'glacial'];
+const ALL_CHARACTERS = ALL_CHARACTER_IDS;
 
 const CONFIGS: Record<string, GameConfig> = {
   base: { ...DEFAULT_GAME_CONFIG, monsterCards: true },
@@ -75,9 +77,9 @@ function runOneGame(c1: CharacterId, c2: CharacterId, config: GameConfig, maxSte
           usage.attempts++;
           magicUsage.set(key, usage);
         }
-        const prev = current;
-        current = gameReducer(current, action);
-        if (key && current !== prev) magicUsage.get(key)!.accepted++;
+        const evaluation = evaluateAction(current, action);
+        current = evaluation.nextState;
+        if (key && evaluation.accepted) magicUsage.get(key)!.accepted++;
         acted = true;
         break;
       } else if (decision.type === 'ready') {
@@ -137,7 +139,7 @@ function main() {
   const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
   console.log(`\n=== ${totalGames} partidas simuladas em ${elapsed}s (${opts.games} por matchup, config=${opts.configName}) ===\n`);
 
-  console.log('--- TIERLIST GERAL (winrate agregado contra todos os outros 7) ---');
+  console.log(`--- TIERLIST GERAL (winrate agregado contra todos os outros ${ALL_CHARACTERS.length - 1}) ---`);
   const ranked = [...overall.entries()].sort((a, b) => b[1].wins / b[1].games - a[1].wins / a[1].games);
   ranked.forEach(([char, s], i) => {
     const winrate = ((s.wins / s.games) * 100).toFixed(1);
