@@ -58,9 +58,11 @@ jobs:
           if (next.split(importAnchor).length !== 2) throw new Error('monsterLifecycle import anchor not found exactly once');
           next = next.replace(importAnchor, importAnchor + importLine);
 
+          // Estes dois helpers passam a ser usados exclusivamente pelo deckLifecycle.
+          // `reshuffleDiscardIntoDeck` permanece no motor porque ainda existem dois
+          // fluxos diretos que o usam fora dos helpers extraídos.
           for (const line of [
             '  expandSyntheticCard,\n',
-            '  reshuffleDiscardIntoDeck,\n',
             '  resetCardsForDiscard,\n',
           ]) {
             if (next.includes(line)) next = next.replace(line, '');
