@@ -1,0 +1,114 @@
+name: Temporary numeral spell handlers migration
+
+on:
+  push:
+    branches: [overhaul/numeral-spell-handlers]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/numeral-spell-handlers
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract numeral spell handlers
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/numeralSpellHandlers.ts';
+          const functionNames = ['handleActivateNumeralSpell', 'handleFinalizeNumeralSpell'];
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('numeralSpellHandlers.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const nodes = functionNames.map((name) => {
+            const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === name);
+            if (!node) throw new Error(`${name} not found`);
+            return node;
+          }).sort((a, b) => a.getFullStart() - b.getFullStart());
+
+          const snippets = nodes.map((node) => {
+            const name = node.name.text;
+            return source.slice(node.getFullStart(), node.end).trim().replace(`function ${name}`, `export function ${name}`);
+          });
+          const combined = snippets.join('\n\n');
+
+          // Reuse the engine's existing public imports that the extracted code references.
+          // Whole import declarations are preserved intentionally; this avoids inventing
+          // a second dependency map while keeping the new module independent of gameEngine.ts.
+          const usedImports = [];
+          for (const stmt of sf.statements) {
+            if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
+            const names = [];
+            if (stmt.importClause.name) names.push(stmt.importClause.name.text);
+            const bindings = stmt.importClause.namedBindings;
+            if (bindings) {
+              if (ts.isNamespaceImport(bindings)) names.push(bindings.name.text);
+              if (ts.isNamedImports(bindings)) {
+                for (const el of bindings.elements) names.push(el.name.text);
+              }
+            }
+            if (names.some((name) => new RegExp(`\\b${name}\\b`).test(combined))) {
+              usedImports.push(source.slice(stmt.getStart(sf), stmt.end));
+            }
+          }
+
+          let next = source;
+          for (const node of [...nodes].sort((a, b) => b.getFullStart() - a.getFullStart())) {
+            next = next.slice(0, node.getFullStart()) + next.slice(node.end);
+          }
+
+          const anchor = "import { canActivateNumeralSpell, formatNumeralRequirement, getMatchingNumeralCards, getNumeralSpellInfo } from './numeralSpells';\n";
+          const handlerImport = "import { handleActivateNumeralSpell, handleFinalizeNumeralSpell } from './numeralSpellHandlers';\n";
+          if (next.split(anchor).length !== 2) throw new Error('numeralSpells import anchor not found exactly once');
+          next = next.replace(anchor, anchor + handlerImport);
+
+          const header = [
+            '/**',
+            ' * numeralSpellHandlers.ts - transições de ativação/finalização das Magias Numerais.',
+            ' *',
+            ' * As definições/consultas puras continuam em numeralSpells.ts; este módulo',
+            ' * aplica as mudanças de estado sem depender de gameEngine.ts.',
+            ' */',
+            ...usedImports,
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + combined + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+          npm run build
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No numeral-spell diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: extract numeral spell handlers"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/numeral-spell-handlers; then
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
