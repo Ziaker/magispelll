@@ -48,7 +48,12 @@ jobs:
 
           const maxBlock = source.slice(maxUsesStmt.getFullStart(), maxUsesStmt.end).trim();
           let resolveBlock = source.slice(resolveFn.getFullStart(), resolveFn.end).trim();
-          if (!resolveBlock.startsWith('export ')) resolveBlock = resolveBlock.replace(/^function\s+/, 'export function ');
+          if (!resolveBlock.includes('export function resolveMonsterCardAtTurnEnd')) {
+            resolveBlock = resolveBlock.replace('function resolveMonsterCardAtTurnEnd', 'export function resolveMonsterCardAtTurnEnd');
+          }
+          if (!resolveBlock.includes('export function resolveMonsterCardAtTurnEnd')) {
+            throw new Error('failed to export resolveMonsterCardAtTurnEnd');
+          }
 
           let next = source;
           for (const [start, end] of ranges) next = next.slice(0, start) + next.slice(end);
