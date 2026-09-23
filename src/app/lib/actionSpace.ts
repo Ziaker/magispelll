@@ -53,13 +53,14 @@
  * (lógica de clique da UI) e o motor - isso exigiria renderizar o componente
  * de verdade e simular cliques.
  */
+import { getEffectiveDiscardLimit } from './gameLimits';
 import { canFormOrReinforceTower, towerEligibleValue } from './towerRules';
 import type { GameState, FieldSlot } from './gameStateTypes';
 import { isTowerSlot } from './fieldLifecycle';
 import { playerKeyOf, opponentKeyOf, characterOf } from './gameSelectors';
 import type { GameAction, MagicSelection } from './gameActionTypes';
 import type { PlayerNumber } from './gameTypes';
-import { isSlotProtected, getMagicActivationContext, canActivateMonsterEffect, canSelectCombatSlot, getEffectiveDiscardLimit } from './gameEngine';
+import { isSlotProtected, getMagicActivationContext, canActivateMonsterEffect, canSelectCombatSlot } from './gameEngine';
 import { evaluateAction } from './actionValidation';
 import { canActivateMagic, type MagicCardType } from './magicCards';
 import { canActivateNumeralSpell, type NumeralCharacter } from './numeralSpells';
