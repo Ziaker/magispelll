@@ -12,6 +12,7 @@ import { join, relative } from 'node:path';
  * - LogEntry/LogEventType -> gameLogTypes.ts
  * - GameAction/MagicSelection -> gameActionTypes.ts
  * - FieldSlot/PlayerState/CombatResolution/NumeralSpellPending/PendingReaction/GameState -> gameStateTypes.ts
+ * - createInitialState -> gameStateFactory.ts
  * - playerKeyOf/opponentKeyOf/opponentOf/characterOf -> gameSelectors.ts
  * - MAX_MONSTER_USES/canActivateMonsterEffect -> monsterLifecycle.ts
  * - isTowerSlot/isBrotoSlot -> fieldLifecycle.ts
@@ -43,6 +44,7 @@ const EXTRACTED_SYMBOLS = new Set([
   'NumeralSpellPending',
   'PendingReaction',
   'GameState',
+  'createInitialState',
   'playerKeyOf',
   'opponentKeyOf',
   'opponentOf',
@@ -105,7 +107,7 @@ assert.deepEqual(
   [],
   [
     'Símbolos extraídos não devem ser importados através de gameEngine.ts.',
-    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts, fieldLifecycle.ts, fieldQueries.ts, glacialRules.ts, anjoRules.ts, combatRules.ts, piromanteRules.ts, coringaRules.ts, magicActivationContext.ts, towerRules.ts ou gameLimits.ts conforme o símbolo.',
+    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameStateFactory.ts, gameSelectors.ts, monsterLifecycle.ts, fieldLifecycle.ts, fieldQueries.ts, glacialRules.ts, anjoRules.ts, combatRules.ts, piromanteRules.ts, coringaRules.ts, magicActivationContext.ts, towerRules.ts ou gameLimits.ts conforme o símbolo.',
     `Violações: ${violations.join(', ')}`,
   ].join(' ')
 );

@@ -1,6 +1,7 @@
+import { createInitialState } from '../src/app/lib/gameStateFactory';
 import assert from 'node:assert/strict';
 import { evaluateAction, isSameGameplayState } from '../src/app/lib/actionValidation';
-import { createInitialState } from '../src/app/lib/gameEngine';
+
 import { DEFAULT_GAME_CONFIG } from '../src/app/lib/gameConfig';
 
 /**

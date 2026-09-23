@@ -10,7 +10,8 @@
  * USO:
  *   npx tsx scripts/tierlist.ts --games 40 --config base
  */
-import { createInitialState, gameReducer, type GameAction, type PlayerNumber } from '../src/app/lib/gameEngine';
+import { createInitialState } from '../src/app/lib/gameStateFactory';
+import { gameReducer, type GameAction, type PlayerNumber } from '../src/app/lib/gameEngine';
 import { ALL_CHARACTER_IDS, type CharacterId } from '../src/app/lib/characterRegistry';
 import { evaluateAction } from '../src/app/lib/actionValidation';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../src/app/lib/gameConfig';

@@ -26,7 +26,6 @@
 import {
   drawCards,
   expandSyntheticCard,
-  generateDeck,
   getDisplaySuit,
   getDisplayValue,
   getEffectiveCardValue,
@@ -79,7 +78,7 @@ import { growDruidaBrotoField } from './druidaLifecycle';
 import { resetPlayerForPhaseTransition } from './playerPhaseLifecycle';
 import { expireNumeralSpells } from './numeralSpellLifecycle';
 import type { FieldSlot, PlayerState, CombatResolution, NumeralSpellPending, PendingReaction, GameState } from './gameStateTypes';
-import { emptyField, createPlayerState } from './gameStateFactory';
+import { emptyField, createPlayerState, createInitialState } from './gameStateFactory';
 
 export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
@@ -98,48 +97,7 @@ export { isCoringaRawTrapCard } from './coringaRules';
 export { getMagicActivationContext } from './magicActivationContext';
 export { towerEligibleValue, canFormOrReinforceTower } from './towerRules';
 export { getEffectiveDrawLimit, getEffectiveDiscardLimit } from './gameLimits';
-
-export function createInitialState(
-  player1Character: CharacterId,
-  player2Character: CharacterId,
-  gameConfig: GameConfig
-): GameState {
-  const deck = generateDeck(gameConfig.monsterCards, gameConfig.deckType === 'thematic', gameConfig.towersMode);
-  // FIX (Modo Towers, pedido do usuário): "mão aumentada em 1" - a mão
-  // inicial também acompanha o novo limite base (9 em vez de 8), não só o
-  // teto pra compras futuras.
-  const baseHandLimit = 8 + (gameConfig.towersMode ? 1 : 0);
-  const { drawn: p1Hand, remaining: afterP1 } = drawCards(deck, baseHandLimit);
-  const { drawn: p2Hand, remaining: afterP2 } = drawCards(afterP1, baseHandLimit);
-
-  return {
-    turn: 1,
-    phase: 'draw',
-    firstToFlip: 1,
-    paused: false,
-    player1: createPlayerState(p1Hand, baseHandLimit),
-    player2: createPlayerState(p2Hand, baseHandLimit),
-    player1Character,
-    player2Character,
-    gameConfig,
-    deck: afterP2,
-    discardPile: [],
-    combatSelection: {},
-    combatRoundsThisPhase: 0,
-    activeNumeralSpells: {},
-    combatResolution: null,
-    numeralSpellPending: null,
-    gameOver: null,
-    spotlight: rollSpotlight(gameConfig),
-    pendingReaction: null,
-    reactionsUsedThisPhase: {},
-    combatLoneTower: null,
-    log: [
-      { id: 0, turn: 1, phase: 'draw', type: 'system', player: null, text: 'Jogo iniciado' },
-      { id: 1, turn: 1, phase: 'draw', type: 'phase', player: null, text: 'Turno 1 - Fase de Compra' },
-    ],
-  };
-}
+export { createInitialState } from './gameStateFactory';
 
 interface LogOptions {
   player?: PlayerNumber;
