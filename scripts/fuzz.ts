@@ -12,6 +12,7 @@
  *   npm run fuzz                              -- 50 partidas, varrendo personagens/config
  *   npm run fuzz -- --games 500 --steps 800
  *   npm run fuzz -- --substitute 0.3
+ *   npm run fuzz -- --authority reducer         -- substituições validadas pelo reducer
  *   npm run fuzz -- --check-divergence         -- roda checkActionDivergence 1x por partida também
  *   npm run fuzz -- --bench                    -- só mede partidas/segundo (decide se vale a pena paralelizar - item 7)
  *   npm run fuzz -- --seed 12345 --p1 coringa --p2 piromante --config towers+fusion
@@ -22,8 +23,8 @@
 import { createInitialState } from '../src/app/lib/gameStateFactory';
 import { ALL_CHARACTER_IDS } from '../src/app/lib/gameEngine';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../src/app/lib/gameConfig';
-import { fuzzSteps } from '../src/app/lib/simulateGame';
-import { checkActionDivergence } from '../src/app/lib/actionSpace';
+import { fuzzSteps, type SubstituteAuthority } from '../src/app/lib/simulateGame';
+import { checkActionSetDivergence } from '../src/app/lib/actionSpace';
 import { setSeed } from '../src/app/lib/rng';
 import { countAllCards } from '../src/app/lib/invariants';
 
@@ -59,6 +60,7 @@ function parseArgs() {
     steps: Number(get('--steps', '500')),
     seed: args.includes('--seed') ? Number(get('--seed', '0')) : undefined,
     substitute: Number(get('--substitute', '0.15')),
+    authority: get('--authority', 'predicted') as SubstituteAuthority,
     checkDivergence: args.includes('--check-divergence'),
     bench: args.includes('--bench'),
     // Quando os 3 (p1/p2/config) são dados, roda só ESSA partida exata -
@@ -72,11 +74,11 @@ function parseArgs() {
   };
 }
 
-function runOneGame(seed: number, c1: CharacterId, c2: CharacterId, configName: string, maxSteps: number, substituteProbability: number, checkDivergence: boolean) {
+function runOneGame(seed: number, c1: CharacterId, c2: CharacterId, configName: string, maxSteps: number, substituteProbability: number, checkDivergence: boolean, substituteAuthority: SubstituteAuthority) {
   setSeed(seed);
   const state = createInitialState(c1, c2, CONFIGS[configName]);
   const expectedTotal = countAllCards(state);
-  const result = fuzzSteps(state, { maxSteps, substituteProbability, expectedCardTotal: expectedTotal });
+  const result = fuzzSteps(state, { maxSteps, substituteProbability, expectedCardTotal: expectedTotal, substituteAuthority });
 
   const failures: string[] = [];
   if (result.violation) {
@@ -95,13 +97,17 @@ function runOneGame(seed: number, c1: CharacterId, c2: CharacterId, configName: 
   // script fazia) gerava "falhas" toda vez que `--substitute` estava > 0,
   // mesmo sem nenhum bug real.
   const aiRejections = result.rejectedActions.filter((r) => r.source !== 'substitute');
+  const substituteRejections = result.rejectedActions.filter((r) => r.source === 'substitute');
+  if (substituteAuthority === 'reducer' && substituteRejections.length > 0) {
+    failures.push(`${substituteRejections.length} substituição(ões) reducer-backed foram rejeitadas - isso viola o contrato do harness`);
+  }
   if (aiRejections.length > 0) {
     failures.push(`${aiRejections.length} ação(ões) da IA heurística rejeitada(s) em silêncio pelo motor (passo(s): ${aiRejections.map((r) => r.step).join(', ')})`);
   }
   if (checkDivergence) {
-    const divergence = checkActionDivergence(result.state, 1).concat(checkActionDivergence(result.state, 2));
+    const divergence = checkActionSetDivergence(result.state, 1).concat(checkActionSetDivergence(result.state, 2));
     if (divergence.length > 0) {
-      failures.push(`${divergence.length} divergência(s) predicado×motor no estado final: ${JSON.stringify(divergence.slice(0, 3))}`);
+      failures.push(`${divergence.length} divergência(s) fast-path×reducer no estado final: ${JSON.stringify(divergence.slice(0, 3))}`);
     }
   }
 
@@ -110,6 +116,11 @@ function runOneGame(seed: number, c1: CharacterId, c2: CharacterId, configName: 
 
 function main() {
   const opts = parseArgs();
+  if (opts.authority !== 'predicted' && opts.authority !== 'reducer') {
+    console.error(`Authority desconhecida: ${opts.authority}. Use predicted ou reducer.`);
+    process.exitCode = 1;
+    return;
+  }
 
   if (opts.bench) {
     const games = opts.games || 200;
@@ -119,7 +130,7 @@ function main() {
       const c1 = ALL_CHARACTERS[i % ALL_CHARACTERS.length];
       const c2 = ALL_CHARACTERS[(i + 1) % ALL_CHARACTERS.length];
       const configName = CONFIG_NAMES[i % CONFIG_NAMES.length];
-      runOneGame(opts.seed !== undefined ? opts.seed + i : i, c1, c2, configName, opts.steps, opts.substitute, false);
+      runOneGame(opts.seed !== undefined ? opts.seed + i : i, c1, c2, configName, opts.steps, opts.substitute, false, opts.authority);
     }
     const elapsedS = (Date.now() - start) / 1000;
     console.log(`${games} partidas em ${elapsedS.toFixed(2)}s -> ${(games / elapsedS).toFixed(1)} partidas/segundo (single-thread)`);
@@ -135,7 +146,7 @@ function main() {
       return;
     }
     const seed = opts.seed ?? 0;
-    const { failures, steps, gameOver } = runOneGame(seed, p1, p2, configName, opts.steps, opts.substitute, opts.checkDivergence);
+    const { failures, steps, gameOver } = runOneGame(seed, p1, p2, configName, opts.steps, opts.substitute, opts.checkDivergence, opts.authority);
     console.log(`Partida única: seed=${seed} ${p1} vs ${p2} config=${configName} passos=${steps} gameOver=${JSON.stringify(gameOver)}`);
     if (failures.length > 0) {
       console.error('FALHAS:');
@@ -147,19 +158,19 @@ function main() {
     return;
   }
 
-  console.log(`Rodando ${opts.games} partidas, até ${opts.steps} passos cada, substituição=${opts.substitute}${opts.seed !== undefined ? `, seed base=${opts.seed}` : ' (sem seed fixa)'}...`);
+  console.log(`Rodando ${opts.games} partidas, até ${opts.steps} passos cada, substituição=${opts.substitute}, authority=${opts.authority}${opts.seed !== undefined ? `, seed base=${opts.seed}` : ' (sem seed fixa)'}...`);
   let failCount = 0;
   for (let i = 0; i < opts.games; i++) {
     const seed = opts.seed !== undefined ? opts.seed + i : Math.floor(Math.random() * 2 ** 31);
     const c1 = ALL_CHARACTERS[i % ALL_CHARACTERS.length];
     const c2 = ALL_CHARACTERS[(i + 7) % ALL_CHARACTERS.length];
     const configName = CONFIG_NAMES[i % CONFIG_NAMES.length];
-    const { failures, steps } = runOneGame(seed, c1, c2, configName, opts.steps, opts.substitute, opts.checkDivergence);
+    const { failures, steps } = runOneGame(seed, c1, c2, configName, opts.steps, opts.substitute, opts.checkDivergence, opts.authority);
     if (failures.length > 0) {
       failCount++;
       console.error(`\nFALHA (partida ${i + 1}/${opts.games}): seed=${seed} matchup=${c1} vs ${c2} config=${configName} passos=${steps}`);
       for (const f of failures) console.error(`  - ${f}`);
-      console.error(`  Reproduza com: npm run fuzz -- --seed ${seed} --p1 ${c1} --p2 ${c2} --config "${configName}" --steps ${opts.steps} --substitute ${opts.substitute}`);
+      console.error(`  Reproduza com: npm run fuzz -- --seed ${seed} --p1 ${c1} --p2 ${c2} --config "${configName}" --steps ${opts.steps} --substitute ${opts.substitute} --authority ${opts.authority}`);
     }
   }
   console.log(`\n${opts.games - failCount}/${opts.games} partidas limpas, ${failCount} falha(s) encontrada(s).`);
