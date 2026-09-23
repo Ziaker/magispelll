@@ -53,51 +53,27 @@
  * (lógica de clique da UI) e o motor - isso exigiria renderizar o componente
  * de verdade e simular cliques.
  */
-import {
-  gameReducer,
-  playerKeyOf,
-  opponentKeyOf,
-  characterOf,
-  isSlotProtected,
-  getMagicActivationContext,
-  canFormOrReinforceTower,
-  canActivateMonsterEffect,
-  canSelectCombatSlot,
-  towerEligibleValue,
-  isTowerSlot,
-  getEffectiveDiscardLimit,
-  type GameState,
-  type GameAction,
-  type PlayerNumber,
-  type FieldSlot,
-  type MagicSelection,
-} from './gameEngine';
+import { getMagicActivationContext } from './magicActivationContext';
+import { canSelectCombatSlot } from './combatRules';
+import { isSlotProtected } from './anjoRules';
+import { canActivateMonsterEffect } from './monsterLifecycle';
+import { getEffectiveDiscardLimit } from './gameLimits';
+import { canFormOrReinforceTower, towerEligibleValue } from './towerRules';
+import type { GameState, FieldSlot } from './gameStateTypes';
+import { isTowerSlot } from './fieldLifecycle';
+import { playerKeyOf, opponentKeyOf, characterOf } from './gameSelectors';
+import type { GameAction, MagicSelection } from './gameActionTypes';
+import type { PlayerNumber } from './gameTypes';
+
+import { evaluateAction, type ActionEvaluation } from './actionValidation';
 import { canActivateMagic, type MagicCardType } from './magicCards';
 import { canActivateNumeralSpell, type NumeralCharacter } from './numeralSpells';
 import { canFuseCards } from './fusion';
 import { isFieldEligible, isPlainNumeralCard, getEffectiveCardValue, type Card } from './cardUtils';
 
-/**
- * Compara dois estados IGNORANDO o campo `log` - descoberto ao validar este
- * módulo: o motor tem um padrão DELIBERADO e generalizado (13+ ocorrências em
- * `gameEngine.ts`, ex.: "Esse slot está protegido por Proteção Divina!",
- * limite de compra/descarte atingido) de rejeição "com aviso" - devolve
- * `{ ...state, log: appendLog(...) }`, uma referência NOVA só pra anexar um
- * toast explicando por quê, mesmo sem mudar nada além do log. Comparar por
- * referência crua (`result !== state`, o mesmo padrão que `rejectedActions`
- * em `fastForward`/`scripts/sanity-test.ts` já usa) conta ERRADO essas
- * rejeições como "aceitas", porque a IA heurística sempre se auto-filtra
- * ANTES de despachar (nunca bate nesses avisos na prática) - mas o modo
- * exaustivo deste módulo despacha candidatos de propósito SEM esse
- * autofiltro, e bateu neles direto na validação. Esta função ignora `log`
- * pra medir só a mudança de estado que REALMENTE importa pro jogo.
- */
-export function isSameGameplayState(a: GameState, b: GameState): boolean {
-  if (a === b) return true;
-  const { log: logA, ...restA } = a;
-  const { log: logB, ...restB } = b;
-  return JSON.stringify(restA) === JSON.stringify(restB);
-}
+// Compatibilidade para consumidores que já importavam daqui. A implementação
+// canônica agora mora em actionValidation.ts junto da avaliação pelo reducer.
+export { isSameGameplayState } from './actionValidation';
 
 /** Ids de toda carta presente num campo (principal + horizontais) - torre/reserva fica de fora de propósito (nunca é alvo direto de nenhuma ação, só se move via combate). */
 function fieldCardIds(field: [FieldSlot, FieldSlot, FieldSlot]): string[] {
@@ -395,12 +371,108 @@ export function enumerateCandidateActions(state: GameState, player: PlayerNumber
   return actions;
 }
 
+/**
+ * Candidato sintaticamente plausível já avaliado pelo reducer real.
+ * `nextState` é preservado para consumidores (debug/IA/simulação) não
+ * precisarem executar a mesma ação uma segunda vez só para inspecionar o
+ * resultado.
+ */
+export interface EvaluatedCandidateAction extends ActionEvaluation {
+  action: GameAction;
+}
+
+/**
+ * Avalia, uma única vez cada, os candidatos bounded gerados por
+ * `enumerateCandidateActions`. Esta é a fronteira reducer-backed do espaço de
+ * ações: completude continua limitada pelo gerador de candidatos, mas
+ * LEGALIDADE nunca é inferida por `canX` aqui.
+ */
+export function enumerateEvaluatedCandidateActions(state: GameState, player: PlayerNumber): EvaluatedCandidateAction[] {
+  return enumerateCandidateActions(state, player).map((action) => ({ action, ...evaluateAction(state, action) }));
+}
+
+/**
+ * Subconjunto realmente aceito pelo reducer entre os candidatos gerados.
+ * Use esta função quando correção/autoridade for mais importante que o fast
+ * path preditivo de `enumerateLegalActions`.
+ */
+export function enumerateAcceptedActions(state: GameState, player: PlayerNumber): EvaluatedCandidateAction[] {
+  return enumerateEvaluatedCandidateActions(state, player).filter(({ accepted }) => accepted);
+}
+
+/**
+ * Serialização determinística de uma ação para comparação de conjuntos.
+ * Objetos são ordenados por chave recursivamente; arrays preservam ordem
+ * porque, em GameAction, a ordem enviada faz parte do payload observado pelo
+ * reducer (mesmo quando uma regra específica trate o conjunto como simétrico).
+ */
+function stableActionKey(action: GameAction): string {
+  const normalize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value !== null && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, nested]) => [key, normalize(nested)])
+      );
+    }
+    return value;
+  };
+  return JSON.stringify(normalize(action));
+}
+
+export interface ActionSetDivergenceReport {
+  action: GameAction;
+  /** A ação apareceu no fast path preditivo `enumerateLegalActions`. */
+  predictedLegal: boolean;
+  /** O reducer real aceitou a ação como mudança de gameplay. */
+  reducerAccepted: boolean;
+}
+
+/**
+ * Compara o conjunto predito pelo fast path com o conjunto reducer-backed.
+ *
+ * Falsos positivos do fast path são sempre verificáveis: cada ação prevista
+ * é executada diretamente no reducer, mesmo se o gerador bounded de
+ * candidatos não tiver produzido o mesmo payload.
+ *
+ * Falsos negativos continuam limitados à cobertura de
+ * `enumerateCandidateActions`: só podemos descobrir uma ação aceita que o
+ * fast path omitiu se o gerador sintático tiver construído essa ação.
+ */
+export function checkActionSetDivergence(state: GameState, player: PlayerNumber): ActionSetDivergenceReport[] {
+  const predicted = enumerateLegalActions(state, player);
+  const evaluatedCandidates = enumerateEvaluatedCandidateActions(state, player);
+  const candidateByKey = new Map<string, EvaluatedCandidateAction>();
+  for (const evaluated of evaluatedCandidates) candidateByKey.set(stableActionKey(evaluated.action), evaluated);
+
+  const predictedByKey = new Map<string, GameAction>();
+  const reports = new Map<string, ActionSetDivergenceReport>();
+
+  for (const action of predicted) {
+    const key = stableActionKey(action);
+    predictedByKey.set(key, action);
+    const reducerAccepted = (candidateByKey.get(key) ?? { action, ...evaluateAction(state, action) }).accepted;
+    if (!reducerAccepted) reports.set(key, { action, predictedLegal: true, reducerAccepted: false });
+  }
+
+  for (const evaluated of evaluatedCandidates) {
+    if (!evaluated.accepted) continue;
+    const key = stableActionKey(evaluated.action);
+    if (!predictedByKey.has(key)) {
+      reports.set(key, { action: evaluated.action, predictedLegal: false, reducerAccepted: true });
+    }
+  }
+
+  return [...reports.values()];
+}
+
 /** Um item do relatório de `checkActionDivergence` - ver comentário do módulo. */
 export interface DivergenceReport {
   action: GameAction;
   /** O que um predicado `canX` existente (quando há um mapeável pro tipo de ação) previu. `undefined` = não há predicado equivalente pra comparar (ex.: PLAY_CARD não tem um "canPlayCard" único). */
   predicateSaidLegal: boolean | undefined;
-  /** Se o `gameReducer` de verdade aceitou (mudou o estado) ou recusou (devolveu a MESMA referência) esta ação. */
+  /** Se o reducer de verdade alterou gameplay; mudanças apenas no log contam como rejeição. */
   reducerAccepted: boolean;
 }
 
@@ -433,14 +505,13 @@ export function checkActionDivergence(state: GameState, player: PlayerNumber): D
   // só reporta divergência quando NENHUMA variante bate com o que
   // `canActivateMagic` previu.
   const magicCandidatesByCard = new Map<string, { magicType: MagicCardType; anyAccepted: boolean; sample: GameAction }>();
-  const otherCandidates: GameAction[] = [];
+  const otherCandidates: EvaluatedCandidateAction[] = [];
 
-  for (const action of enumerateCandidateActions(state, player)) {
+  for (const evaluated of enumerateEvaluatedCandidateActions(state, player)) {
+    const { action, accepted } = evaluated;
     if (action.type === 'EXECUTE_MAGIC' || action.type === 'ACTIVATE_SIMPLE_MAGIC') {
       const card = state[playerKeyOf(player)].hand.find((c) => c.id === action.cardId);
       if (!card || (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K')) continue;
-      const result = gameReducer(state, action);
-      const accepted = !isSameGameplayState(result, state);
       const entry = magicCandidatesByCard.get(action.cardId);
       if (!entry) {
         magicCandidatesByCard.set(action.cardId, { magicType: card.value, anyAccepted: accepted, sample: action });
@@ -448,7 +519,7 @@ export function checkActionDivergence(state: GameState, player: PlayerNumber): D
         magicCandidatesByCard.set(action.cardId, { magicType: card.value, anyAccepted: true, sample: action });
       }
     } else {
-      otherCandidates.push(action);
+      otherCandidates.push(evaluated);
     }
   }
 
@@ -459,9 +530,7 @@ export function checkActionDivergence(state: GameState, player: PlayerNumber): D
     }
   }
 
-  for (const action of otherCandidates) {
-    const result = gameReducer(state, action);
-    const reducerAccepted = !isSameGameplayState(result, state);
+  for (const { action, accepted: reducerAccepted } of otherCandidates) {
 
     let predicateSaidLegal: boolean | undefined;
     if (action.type === 'FUSE_CARDS') {

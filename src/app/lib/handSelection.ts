@@ -24,8 +24,9 @@
  * mesmo tempo, mesmo invariante de sempre) - cada uma só muda através do
  * controle dedicado a ela, nunca como efeito colateral do outro.
  */
+import { towerEligibleValue } from './towerRules';
 import type { Card } from './cardUtils';
-import { towerEligibleValue } from './gameEngine';
+
 
 export interface HandSelectionState {
   selectedCardId: string | null;

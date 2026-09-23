@@ -14,16 +14,13 @@
  * (`scripts/sanity-test.ts` só usa o objeto devolvido; `GameBoard.tsx`
  * aplica via `forceState` + pausa, ver o comentário de `fastForward` lá).
  */
-import {
-  gameReducer,
-  playerKeyOf,
-  opponentOf,
-  type GameAction,
-  type GameState,
-  type PlayerNumber,
-} from './gameEngine';
+import type { GameState } from './gameStateTypes';
+import { playerKeyOf, opponentOf } from './gameSelectors';
+import type { GameAction } from './gameActionTypes';
+import type { PlayerNumber } from './gameTypes';
+import { gameReducer } from './gameEngine';
 import { decideAiAction, decideReactionToMagic } from './aiPlayer';
-import { enumerateLegalActions } from './actionSpace';
+import { enumerateAcceptedActions, enumerateLegalActions } from './actionSpace';
 import { checkInvariants } from './invariants';
 import { random } from './rng';
 
@@ -35,10 +32,10 @@ export interface RejectedAiAction {
    * `'ai'` (padrão implícito em `simulateSteps`, que nunca substitui nada) =
    * a IA heurística (`decideAiAction`) propôs isto e o motor recusou - SEMPRE
    * um sinal de bug real (a IA nunca deveria propor algo inválido). `'substitute'`
-   * (só em `fuzzSteps`) = a ação veio de `enumerateLegalActions` no lugar da
-   * escolha da IA - rejeição aqui é ESPERADA às vezes (o modo "legal" do
-   * enumerador não é 100% preciso por design, ver actionSpace.ts), nunca por
-   * si só um sinal de bug. Quem consome esta lista (ex.: scripts/fuzz.ts)
+   * (só em `fuzzSteps`) = a ação veio do enumerador no lugar da escolha da
+   * IA. No modo `predicted`, rejeição ainda pode acontecer porque o fast path
+   * não é autoridade. No modo `reducer`, a substituição já foi aceita por
+   * `evaluateAction`, então uma rejeição seria um bug do próprio harness. Quem consome esta lista (ex.: scripts/fuzz.ts)
    * precisa filtrar por isso antes de tratar `rejectedActions.length > 0`
    * como falha.
    */
@@ -129,6 +126,8 @@ export interface FuzzViolation {
   violations: string[];
 }
 
+export type SubstituteAuthority = 'predicted' | 'reducer';
+
 export interface FuzzStepsResult {
   state: GameState;
   steps: number;
@@ -142,9 +141,10 @@ export interface FuzzStepsResult {
  * `fuzzSteps` - mesmo formato de `simulateSteps`, mas em cada decisão da IA
  * (nunca nas transições automáticas - FINALIZE_NUMERAL_SPELL, FINALIZE_COMBAT,
  * RESOLVE_COMBAT etc., essas continuam determinísticas) tem `substituteProbability` de chance de trocar a escolha
- * da IA heurística por uma ação ALEATÓRIA de `enumerateLegalActions` (modo
- * "legal", rápido - ver actionSpace.ts) - explora estado que a IA heurística
- * sozinha nunca visitaria. Roda `checkInvariants` depois de CADA ação
+ * da IA heurística por uma ação ALEATÓRIA. `substituteAuthority='predicted'`
+ * usa `enumerateLegalActions` (rápido); `'reducer'` usa
+ * `enumerateAcceptedActions` (mais caro, mas a substituição é realmente legal).
+ * Ambos exploram estados que a IA heurística sozinha nunca visitaria. Roda `checkInvariants` depois de CADA ação
  * despachada e para na primeira violação, devolvendo o passo/ação exatos.
  *
  * ARMADILHA EVITADA (documentada em rng.ts): a MOEDA de decisão "substituo
@@ -156,19 +156,20 @@ export interface FuzzStepsResult {
  */
 export function fuzzSteps(
   state: GameState,
-  opts: { maxSteps?: number; substituteProbability?: number; expectedCardTotal?: number } = {}
+  opts: { maxSteps?: number; substituteProbability?: number; expectedCardTotal?: number; substituteAuthority?: SubstituteAuthority } = {}
 ): FuzzStepsResult {
   const maxSteps = Math.min(Math.max(1, opts.maxSteps ?? 200), 5000);
   const substituteProbability = Math.min(1, Math.max(0, opts.substituteProbability ?? 0.15));
+  const substituteAuthority: SubstituteAuthority = opts.substituteAuthority ?? 'predicted';
   let current = state;
   let steps = 0;
   let stuck = false;
   const rejectedActions: RejectedAiAction[] = [];
   let violation: FuzzViolation | null = null;
 
-  const dispatchAndCheck = (action: GameAction): boolean => {
+  const dispatchAndCheck = (action: GameAction, precomputedNextState?: GameState): boolean => {
     const prevState = current;
-    current = gameReducer(current, action);
+    current = precomputedNextState ?? gameReducer(current, action);
     if (current === prevState) return false;
     // `countAllCards` (invariants.ts) já pesa cartas fundidas vivas pelo
     // número de cartas físicas que elas representam - `expectedCardTotal`
@@ -212,15 +213,26 @@ export function fuzzSteps(
       if (decision.type === 'action') {
         let action = decision.action;
         let source: 'ai' | 'substitute' = 'ai';
+        let precomputedNextState: GameState | undefined;
         if (random() < substituteProbability) {
-          const legal = enumerateLegalActions(current, p);
-          if (legal.length > 0) {
-            action = legal[Math.floor(random() * legal.length)];
-            source = 'substitute';
+          if (substituteAuthority === 'reducer') {
+            const accepted = enumerateAcceptedActions(current, p);
+            if (accepted.length > 0) {
+              const chosen = accepted[Math.floor(random() * accepted.length)];
+              action = chosen.action;
+              precomputedNextState = chosen.nextState;
+              source = 'substitute';
+            }
+          } else {
+            const legal = enumerateLegalActions(current, p);
+            if (legal.length > 0) {
+              action = legal[Math.floor(random() * legal.length)];
+              source = 'substitute';
+            }
           }
         }
         const prevState = current;
-        if (dispatchAndCheck(action)) { actedThisStep = true; break; }
+        if (dispatchAndCheck(action, precomputedNextState)) { actedThisStep = true; break; }
         if (current === prevState) rejectedActions.push({ step: steps, player: p, action, source });
         actedThisStep = true;
         break;

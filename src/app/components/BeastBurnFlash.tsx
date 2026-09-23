@@ -14,7 +14,7 @@ export interface BeastBurnFlashSpec {
  * ... o ícone da besta pulando na mão e descartando a carta".
  *
  * O "descartando a carta" já é coberto de graça pelo FlyingDiscardCard.tsx
- * existente (applyBestaBloodRageSweep, gameEngine.ts, move a carta pra
+ * existente (applyBestaBloodRageSweep, bestaLifecycle.ts, move a carta pra
  * `discardPile` como qualquer outra - o observador genérico de
  * GameBoard.tsx já anima ela voando até lá). Este componente cobre só o
  * flourish extra: o rosto da Besta "pulando" bem em cima da última posição

@@ -12,11 +12,14 @@
  * quanto pela notificação toast de magia/efeito (GameBoard.tsx) - um único
  * lugar pra essa lógica, em vez de duplicada nos dois.
  */
+import type { LogEntry, LogEventType } from './gameLogTypes';
+import type { PlayerNumber } from './gameTypes';
 import { getCharacterTheme } from './characterThemes';
 import { getMagicCardInfo } from './magicCards';
 import { getMonsterEffect } from './monsterCards';
 import { getNumeralSpellInfo } from './numeralSpells';
-import type { CharacterId, LogEntry, LogEventType, PlayerNumber } from './gameEngine';
+import type { CharacterId } from './characterRegistry';
+
 
 /** Ícone padrão por categoria - usado no painel de log e na notificação toast. */
 const TYPE_ICONS: Record<LogEventType, string> = {

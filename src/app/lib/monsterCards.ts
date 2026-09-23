@@ -28,7 +28,7 @@
  * EXTENSÃO: Para adicionar novo personagem, adicione entrada em MONSTER_EFFECTS
  */
 
-import type { CharacterId } from './gameEngine';
+import type { CharacterId } from './characterRegistry';
 
 /** FIX (endurecimento, ver comentário completo em characterThemes.ts): alias do `CharacterId` canônico. */
 export type MonsterCharacter = CharacterId;

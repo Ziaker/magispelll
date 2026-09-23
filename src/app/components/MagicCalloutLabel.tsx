@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 
 /**
  * MagicCalloutLabel - rótulo flutuante com o NOME da magia, por cima do

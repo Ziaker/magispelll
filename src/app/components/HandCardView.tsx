@@ -1,3 +1,5 @@
+import { towerEligibleValue } from '../lib/towerRules';
+import type { Phase } from '../lib/gameTypes';
 import type { CSSProperties, MouseEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { motion, useMotionTemplate, useMotionValue, useSpring } from 'motion/react';
@@ -9,7 +11,8 @@ import { AceTransformBurst } from './AceTransformBurst';
 import { CardRejectFlash } from './CardRejectFlash';
 import type { Card } from '../lib/cardUtils';
 import type { FusionPartnerPreview } from '../lib/handQol';
-import { towerEligibleValue, type CharacterId, type Phase } from '../lib/gameEngine';
+
+import type { CharacterId } from '../lib/characterRegistry';
 import type { SpotlightState } from '../lib/spotlight';
 import { CARD_ITEM_TYPE, CARD_SNAP_RADIUS, type CardDragItem } from '../lib/dnd';
 import { findNearestDropTarget } from '../lib/dropTargetRegistry';

@@ -10,7 +10,7 @@ import { getMagicCardInfo, type MagicCardType } from '../lib/magicCards';
 import { getMonsterEffect } from '../lib/monsterCards';
 import { getNumeralSpellInfo, formatNumeralRequirement, numeralDisplayLabel } from '../lib/numeralSpells';
 import { PHASE_DISPLAY } from './PlayingCard';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 import { PreGameSteps } from './PreGameSteps';
 import { loadRecentCharacters } from '../lib/gamePreferences';
 

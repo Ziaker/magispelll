@@ -17,8 +17,11 @@
  * handLimitBonus, bloodRage, spreadArmed). Os helpers abaixo são genéricos
  * sobre `WithStatusEffects`, então funcionam para os dois sem duplicação.
  */
+import type { FieldSlot } from './gameStateTypes';
+import type { Phase } from './gameTypes';
 import type { Card } from './cardUtils';
-import type { CharacterId, FieldSlot, Phase } from './gameEngine';
+
+import type { CharacterId } from './characterRegistry';
 
 /**
  * União fechada dos kinds já conhecidos + trapdoor de string literal

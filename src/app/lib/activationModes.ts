@@ -1,4 +1,4 @@
-import type { CharacterId } from './gameEngine';
+import type { CharacterId } from './characterRegistry';
 import type { MagicCardType } from './magicCards';
 
 /**

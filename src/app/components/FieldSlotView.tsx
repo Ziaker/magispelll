@@ -1,3 +1,5 @@
+import type { FieldSlot } from '../lib/gameStateTypes';
+import { isTowerSlot, isBrotoSlot } from '../lib/fieldLifecycle';
 import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
@@ -13,8 +15,9 @@ import { CoringaSmokeBurst } from './CoringaSmokeBurst';
 import { CardImpactBurst } from './CardImpactBurst';
 import { CardKeywords } from './CardKeywords';
 import { getDisplayValue, type Card } from '../lib/cardUtils';
-import type { FieldSlot, CharacterId } from '../lib/gameEngine';
-import { isTowerSlot, isBrotoSlot } from '../lib/gameEngine';
+
+import type { CharacterId } from '../lib/characterRegistry';
+
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { CARD_ITEM_TYPE, type CardDragItem } from '../lib/dnd';
 import { registerDropTarget, unregisterDropTarget } from '../lib/dropTargetRegistry';

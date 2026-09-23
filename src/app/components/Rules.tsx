@@ -5,7 +5,7 @@ import { ArrowLeft, Search, Check, Wand2, Crosshair, Flame, Sprout, Snowflake } 
 import { ScrollArea } from './ui/scroll-area';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { getCharacterTheme } from '../lib/characterThemes';
-import type { CharacterId } from '../lib/gameEngine';
+import { ALL_CHARACTER_IDS, type CharacterId } from '../lib/characterRegistry';
 
 interface RulesProps {
   onBack: () => void;
@@ -55,7 +55,7 @@ interface RuleSection {
   title: string;
   content: string;
   /** FIX (pedido do usuário: "prévia visual... selo/ícone de personagem ao lado de cada seção específica") - só as seções que falam de personagem(ns) específico(s) ganham selos; seções gerais (Objetivo, Fases do Turno etc.) ficam sem. */
-  characters?: CharacterId[];
+  characters?: readonly CharacterId[];
 }
 
 export function Rules({ onBack, onViewCharacter, initialSearch }: RulesProps) {
@@ -82,7 +82,7 @@ export function Rules({ onBack, onViewCharacter, initialSearch }: RulesProps) {
       id: 'intro',
       title: 'Introdução',
       content:
-        'Magispelll é um jogo de duelo estratégico para dois jogadores usando cartas de baralho. Cada jogador escolhe um personagem (MAGO, BESTA, ANJO, MOSQUETEIRO, CORINGA, PIROMANTE ou DRUIDA) com magias e habilidades únicas.',
+        'Magispelll é um jogo de duelo estratégico para dois jogadores usando cartas de baralho. Cada jogador escolhe um personagem (MAGO, BESTA, ANJO, MOSQUETEIRO, CORINGA, PIROMANTE, DRUIDA ou GLACIAL) com magias e habilidades únicas.',
     },
     {
       id: 'objetivo',
@@ -445,7 +445,7 @@ CRIOGÊNESE (Magia Numeral, A, A, A) - ver seção "Magias Numerais" para detalh
     {
       id: 'numeral',
       title: 'Magias Numerais',
-      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida', 'glacial'],
+      characters: ALL_CHARACTER_IDS,
       content: `Reúna 3 cartas de números específicos para ativar efeitos poderosos - na maioria dos personagens as 3 são o MESMO número, mas o Druida (Fotossíntese) exige 3 valores DIFERENTES.
 
 CONDIÇÕES:
@@ -518,7 +518,7 @@ AO ATIVAR:
     {
       id: 'monstro',
       title: 'Cartas Monstro (Coringas)',
-      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida', 'glacial'],
+      characters: ALL_CHARACTER_IDS,
       content: `Existem 2 Monstros no baralho Comum (4 no Temático). O nome "Coringas" aqui é sobre as cartas físicas JOKER do baralho - não confundir com o personagem PALHAÇO, que tem seu próprio efeito de Monstro chamado "Carta Palhaço" logo abaixo.
 
 Cada jogador (exceto o próprio Palhaço - ver abaixo) tem uma ZONA PRÓPRIA e separada pro seu Monstro (ao lado do Slot 3) - ele NUNCA entra em disputa de combate sozinho, só fica ali para ativar sua habilidade.
@@ -685,7 +685,7 @@ DESISTÊNCIA:
     {
       id: 'estrategias',
       title: 'Dicas e Estratégias',
-      characters: ['mago', 'besta', 'anjo', 'mosqueteiro', 'coringa', 'piromante', 'druida'],
+      characters: ALL_CHARACTER_IDS,
       content: `GERAIS:
 • Gerencie bem os descartes (máximo 4 por turno)
 • Observe quais cartas o oponente descarta
@@ -728,7 +728,13 @@ DRUIDA:
 • Plante o Broto o quanto antes - cada troca de fase que ele passa em campo é valor acumulado, e ele nunca se descarta sozinho
 • Empilhar outro Valete no Broto acelera o crescimento (aumenta a taxa, não só o valor de uma vez)
 • Simbiose (Q) e Urtiga (K) sempre oferecem a escolha: sacrificar metade do Broto por um marcador imediato, ou deixá-lo crescer +2 pra colher mais depois
-• Fotossíntese (A,3,7) é permanente e reativável - reunir A, 3 e 7 de novo (com campo vazio) empilha ainda mais o bônus em tudo relacionado ao Broto`,
+• Fotossíntese (A,3,7) é permanente e reativável - reunir A, 3 e 7 de novo (com campo vazio) empilha ainda mais o bônus em tudo relacionado ao Broto
+
+GLACIAL:
+• Congelar uma magia do oponente força um custo de tempo ou de carta para ela voltar a funcionar
+• Crioespinho (Q) rende mais quando o congelamento também altera uma disputa importante de campo
+• Crioescudo (K) recompensa preparar várias cartas congeladas antes do Combate, em vez de usá-lo sem setup
+• Criogênese (A,A,A) fica mais forte quando as duas mãos ainda concentram várias cartas mágicas`,
     },
   ];
 

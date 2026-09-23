@@ -1,3 +1,9 @@
+import { getEffectiveDiscardLimit, getEffectiveDrawLimit } from '../lib/gameLimits';
+import { towerEligibleValue } from '../lib/towerRules';
+import { isFrozenMagicActivationBlocked } from '../lib/glacialRules';
+import type { PlayerState, PendingReaction } from '../lib/gameStateTypes';
+import { isBrotoSlot } from '../lib/fieldLifecycle';
+import type { Phase } from '../lib/gameTypes';
 import type { CSSProperties } from 'react';
 import { motion } from 'motion/react';
 import { Wand2, Heart as HeartIcon, Flame, Check, X as XIcon, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Hand, MousePointerClick, Eye, EyeOff, Sprout, Snowflake, Zap } from 'lucide-react';
@@ -14,8 +20,9 @@ import { HandCardView } from './HandCardView';
 import { ReadyStamp, BothReadyPulse } from './ReadyStamp';
 import { LastLifeImpact } from './LastLifeImpact';
 import { getCharacterTheme, getCharacterIconBackground, getCharacterPanelBackground } from '../lib/characterThemes';
-import type { PlayerState, CharacterId, Phase, PendingReaction } from '../lib/gameEngine';
-import { getEffectiveDiscardLimit, getEffectiveDrawLimit, isBrotoSlot, isFrozenMagicActivationBlocked, towerEligibleValue } from '../lib/gameEngine';
+
+import type { CharacterId } from '../lib/characterRegistry';
+
 import { hasStatus } from '../lib/statusEffects';
 import { useEffect, useRef, useState } from 'react';
 import { canActivateMagic, getMagicCardInfo, type MagicActivationContext } from '../lib/magicCards';

@@ -6,7 +6,7 @@ import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { ArrowLeft } from 'lucide-react';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../lib/gameConfig';
-import type { CharacterId } from '../lib/gameEngine';
+import type { CharacterId } from '../lib/characterRegistry';
 
 const CHARACTER_LABELS: Record<CharacterId, string> = {
   mago: 'Mago',

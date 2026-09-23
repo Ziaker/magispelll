@@ -1,10 +1,13 @@
+import type { LogEntry } from '../lib/gameLogTypes';
+import type { PlayerNumber } from '../lib/gameTypes';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { getCharacterTheme } from '../lib/characterThemes';
 import { getLogColor, getLogEffectInfo, getLogIcon, LOG_FILTER_BUCKETS } from '../lib/logFormat';
-import type { CharacterId, LogEntry, PlayerNumber } from '../lib/gameEngine';
+
+import type { CharacterId } from '../lib/characterRegistry';
 
 interface LogPanelProps {
   log: LogEntry[];

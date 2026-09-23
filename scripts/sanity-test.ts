@@ -6,22 +6,8 @@
  * suíte de testes formal (não há framework de testes configurado no projeto),
  * apenas um script de verificação executado uma vez via `npx tsx scripts/sanity-test.ts`.
  */
-import {
-  gameReducer,
-  createInitialState,
-  playerKeyOf,
-  opponentOf,
-  isSlotProtected,
-  getMagicActivationContext,
-  getFireballCap,
-  canFormOrReinforceTower,
-  isTowerSlot,
-  ALL_CHARACTER_IDS,
-  type CharacterId,
-  type GameState,
-  type PlayerNumber,
-  type GameAction,
-} from '../src/app/lib/gameEngine';
+import { createInitialState } from '../src/app/lib/gameStateFactory';
+import { gameReducer, playerKeyOf, opponentOf, isSlotProtected, getMagicActivationContext, getFireballCap, canFormOrReinforceTower, isTowerSlot, ALL_CHARACTER_IDS, type CharacterId, type GameState, type PlayerNumber, type GameAction } from '../src/app/lib/gameEngine';
 import { getDisplayValue, resetCardForDiscard, revealCard, type Card } from '../src/app/lib/cardUtils';
 import { applyStatus, applyTimedCombatModifier, getCombatModifierStatuses, getStatus, getStatusMagnitude, hasStatus } from '../src/app/lib/statusEffects';
 import { DEFAULT_GAME_CONFIG, MIN_DISCARD_LIMIT, type GameConfig } from '../src/app/lib/gameConfig';
