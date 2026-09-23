@@ -1,3 +1,4 @@
+import { getMagicActivationContext } from '../lib/magicActivationContext';
 import type { GameState } from '../lib/gameStateTypes';
 import { playerKeyOf } from '../lib/gameSelectors';
 import type { PlayerNumber } from '../lib/gameTypes';
@@ -7,7 +8,7 @@ import { getMagicCardInfo, canActivateMagic, type Character, type MagicCardType 
 import { getNumeralSpellInfo, formatNumeralRequirement, getMatchingNumeralCards, canActivateNumeralSpell } from '../lib/numeralSpells';
 import { getMonsterEffect } from '../lib/monsterCards';
 import { PHASE_DISPLAY } from './PlayingCard';
-import { getMagicActivationContext } from '../lib/gameEngine';
+
 
 interface CharacterMagicReferenceProps {
   character: Character;
