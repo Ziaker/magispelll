@@ -1,0 +1,167 @@
+name: Temporary direct game state type migration
+
+on:
+  push:
+    branches: [overhaul/direct-game-state-type-imports]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/direct-game-state-type-imports
+      - name: Migrate state type imports
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          TARGETS = {
+              'FieldSlot',
+              'PlayerState',
+              'CombatResolution',
+              'NumeralSpellPending',
+              'PendingReaction',
+              'GameState',
+          }
+          import_re = re.compile(
+              r"import\s+(?P<type_only>type\s+)?\{(?P<body>[^}]*)\}\s+from\s+(?P<quote>['\"])(?P<source>[^'\"]*gameEngine)(?P=quote);",
+              re.DOTALL,
+          )
+
+          changed = []
+          moved_total = 0
+
+          for path in sorted(Path('src/app').rglob('*')):
+              if path.suffix not in {'.ts', '.tsx'} or not path.is_file() or path.name in {'gameEngine.ts', 'gameStateTypes.ts'}:
+                  continue
+              text = path.read_text(encoding='utf-8')
+              pending = []
+              state_source = None
+
+              def repl(match):
+                  nonlocal state_source
+                  parts = [p.strip() for p in match.group('body').split(',') if p.strip()]
+                  remaining = []
+                  moved = False
+                  source = match.group('source')
+                  candidate = source[:-len('gameEngine')] + 'gameStateTypes'
+                  for part in parts:
+                      base = re.sub(r'^type\s+', '', part).strip()
+                      imported_name = re.split(r'\s+as\s+', base)[0].strip()
+                      if imported_name in TARGETS:
+                          if state_source is not None and state_source != candidate:
+                              raise SystemExit(f'{path}: inconsistent gameStateTypes source path')
+                          state_source = candidate
+                          normalized = base
+                          if normalized not in pending:
+                              pending.append(normalized)
+                          moved = True
+                      else:
+                          remaining.append(part)
+                  if not moved:
+                      return match.group(0)
+                  if not remaining:
+                      return ''
+                  prefix = 'import type' if match.group('type_only') else 'import'
+                  quote = match.group('quote')
+                  return f"{prefix} {{ {', '.join(remaining)} }} from {quote}{source}{quote};"
+
+              next_text = import_re.sub(repl, text)
+              if not pending:
+                  continue
+
+              existing_re = re.compile(
+                  r"import\s+type\s+\{(?P<body>[^}]*)\}\s+from\s+['\"]" + re.escape(state_source) + r"['\"];",
+                  re.DOTALL,
+              )
+              existing = set()
+              for found in existing_re.finditer(next_text):
+                  for raw in found.group('body').split(','):
+                      normalized = raw.strip()
+                      if normalized:
+                          existing.add(normalized)
+              missing = [name for name in pending if name not in existing]
+              if missing:
+                  first_import = re.search(r'^import\s', next_text, re.MULTILINE)
+                  if not first_import:
+                      raise SystemExit(f'{path}: no import insertion point')
+                  insert_at = first_import.start()
+                  line = f"import type {{ {', '.join(missing)} }} from '{state_source}';\n"
+                  next_text = next_text[:insert_at] + line + next_text[insert_at:]
+
+              for match in import_re.finditer(next_text):
+                  for raw in match.group('body').split(','):
+                      base = re.sub(r'^type\s+', '', raw.strip()).strip()
+                      imported_name = re.split(r'\s+as\s+', base)[0].strip()
+                      if imported_name in TARGETS:
+                          raise SystemExit(f'{path}: {imported_name} still imported through gameEngine')
+
+              path.write_text(next_text, encoding='utf-8')
+              changed.append(str(path))
+              moved_total += len(pending)
+
+          if moved_total == 0:
+              raise SystemExit('no game state type imports found through gameEngine')
+          print(f'Moved {moved_total} state type import(s) across {len(changed)} file(s):')
+          for item in changed:
+              print(f' - {item}')
+          PY
+      - name: Extend import boundary contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/import-boundaries-test.ts')
+          text = path.read_text(encoding='utf-8')
+
+          doc_anchor = " * - GameAction/MagicSelection -> gameActionTypes.ts\n"
+          doc_line = " * - FieldSlot/PlayerState/CombatResolution/NumeralSpellPending/PendingReaction/GameState -> gameStateTypes.ts\n"
+          if text.count(doc_anchor) != 1:
+              raise SystemExit('boundary documentation anchor not found exactly once')
+          text = text.replace(doc_anchor, doc_anchor + doc_line, 1)
+
+          array_anchor = "  'MagicSelection',\n"
+          array_lines = """  'MagicSelection',
+  'FieldSlot',
+  'PlayerState',
+  'CombatResolution',
+  'NumeralSpellPending',
+  'PendingReaction',
+  'GameState',
+"""
+          if text.count(array_anchor) != 1:
+              raise SystemExit('boundary symbol anchor not found exactly once')
+          text = text.replace(array_anchor, array_lines, 1)
+
+          old_help = "Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameSelectors.ts ou monsterLifecycle.ts conforme o símbolo."
+          new_help = "Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts ou fieldLifecycle.ts conforme o símbolo."
+          if text.count(old_help) != 1:
+              raise SystemExit('boundary help text not found exactly once')
+          text = text.replace(old_help, new_help, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Validate migration
+        run: |
+          npm ci
+          npm run typecheck
+          npm run test:boundaries
+          npm run test:actions
+          npm run test:exhaustiveness
+          npm test
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app scripts/import-boundaries-test.ts; then
+            echo "No state import migration diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app scripts/import-boundaries-test.ts
+          git commit -m "refactor: import game state types directly"
+          git push origin HEAD:overhaul/direct-game-state-type-imports
