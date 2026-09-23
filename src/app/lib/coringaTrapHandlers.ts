@@ -98,7 +98,7 @@ export function applyCoringaTrapReaction(
       hostCard
         ? `O Valete armadilha de Jogador ${owner} ${triggerVerb} e se dissipou em fumaça - deixou um escudo de +5 na carta que protegia!`
         : `O Valete armadilha de Jogador ${owner} ${triggerVerb} e se dissipou em fumaça!`,
-      { player: owner, slotIndex }
+      { player: owner, slotIndex, trigger: 'coringa-trap-j' }
     );
     const { deck: ensuredDeck, discardPile: ensuredDiscard, reshuffled } = ensureDeckHasCards({ ...state, deck, discardPile });
     if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`);
@@ -138,7 +138,7 @@ export function applyCoringaTrapReaction(
       state.log,
       'magic',
       `${label} de Jogador ${owner} ${card.revealed ? 'foi revelado(a)' : 'foi alvejado(a)'} e voltou oculto(a) pra mão - a mão foi embaralhada`,
-      { player: owner }
+      { player: owner, trigger: card.value === 'Q' ? 'coringa-trap-q' : undefined }
     );
     return {
       ...state,
@@ -155,7 +155,7 @@ export function applyCoringaTrapReaction(
       state.log,
       'magic',
       `O Rei armadilha de Jogador ${owner} ${triggerVerb} e explodiu em fumaça e nuvens!`,
-      { player: owner, slotIndex }
+      { player: owner, slotIndex, trigger: 'coringa-trap-k' }
     );
 
     let aceDeck = deck;

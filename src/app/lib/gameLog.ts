@@ -6,7 +6,7 @@
  */
 import { getCharacterTheme } from './characterThemes';
 import type { Phase, PlayerNumber } from './gameTypes';
-import type { LogEntry, LogEventType } from './gameLogTypes';
+import type { LogEntry, LogEventType, LogTrigger } from './gameLogTypes';
 import type { GameState } from './gameStateTypes';
 interface LogOptions {
   player?: PlayerNumber;
@@ -26,6 +26,8 @@ interface LogOptions {
   phaseOverride?: Phase;
   /** Ver LogEntry.burnedCardIds acima. */
   burnedCardIds?: string[];
+  /** Ver LogEntry.trigger/LogTrigger acima. */
+  trigger?: LogTrigger;
 }
 
 /**
@@ -68,6 +70,7 @@ export function appendLog(state: GameState, log: LogEntry[], type: LogEventType,
     cardSuit: opts.cardSuit,
     slotIndex: opts.slotIndex,
     burnedCardIds: opts.burnedCardIds,
+    trigger: opts.trigger,
   };
   return [...log, entry].slice(-30);
 }
