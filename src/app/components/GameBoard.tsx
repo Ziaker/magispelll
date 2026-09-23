@@ -17,6 +17,7 @@
  * de cartas que ela resolve.
  */
 
+import type { PlayerNumber } from '../lib/gameTypes';
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { MagicToast } from './MagicToast';
@@ -77,7 +78,7 @@ import { useSettings } from '../context/SettingsContext';
 import { getAnimationDurationScale, getAiThinkTimeScale } from '../lib/settings';
 import { soundManager, magicSoundFor, monsterSoundFor, numeralSoundFor } from '../lib/soundManager';
 import { motion } from 'motion/react';
-import { gameReducer, createInitialState, playerKeyOf, opponentKeyOf, opponentOf, characterOf, isSlotProtected, getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots, canActivateMonsterEffect, canSelectCombatSlot, MAX_MONSTER_USES, getMagicActivationContext, canFormOrReinforceTower, isCoringaRawTrapCard, getFireballCap, canMagicTriggerReactionAnnouncement, isBrotoSlot, getGlacialGolemValue, type GameAction, type GameState, type MagicSelection, type PlayerNumber } from '../lib/gameEngine';
+import { gameReducer, createInitialState, playerKeyOf, opponentKeyOf, opponentOf, characterOf, isSlotProtected, getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots, canActivateMonsterEffect, canSelectCombatSlot, MAX_MONSTER_USES, getMagicActivationContext, canFormOrReinforceTower, isCoringaRawTrapCard, getFireballCap, canMagicTriggerReactionAnnouncement, isBrotoSlot, getGlacialGolemValue, type GameAction, type GameState, type MagicSelection } from '../lib/gameEngine';
 import type { CharacterId } from '../lib/characterRegistry';
 import { decideAiAction, decideAiActionTraced, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
 import { simulateSteps, fuzzSteps } from '../lib/simulateGame';
