@@ -65,7 +65,7 @@ import { playerKeyOf, opponentKeyOf, characterOf } from './gameSelectors';
 import type { GameAction, MagicSelection } from './gameActionTypes';
 import type { PlayerNumber } from './gameTypes';
 
-import { evaluateAction } from './actionValidation';
+import { evaluateAction, type ActionEvaluation } from './actionValidation';
 import { canActivateMagic, type MagicCardType } from './magicCards';
 import { canActivateNumeralSpell, type NumeralCharacter } from './numeralSpells';
 import { canFuseCards } from './fusion';
@@ -371,6 +371,35 @@ export function enumerateCandidateActions(state: GameState, player: PlayerNumber
   return actions;
 }
 
+/**
+ * Candidato sintaticamente plausível já avaliado pelo reducer real.
+ * `nextState` é preservado para consumidores (debug/IA/simulação) não
+ * precisarem executar a mesma ação uma segunda vez só para inspecionar o
+ * resultado.
+ */
+export interface EvaluatedCandidateAction extends ActionEvaluation {
+  action: GameAction;
+}
+
+/**
+ * Avalia, uma única vez cada, os candidatos bounded gerados por
+ * `enumerateCandidateActions`. Esta é a fronteira reducer-backed do espaço de
+ * ações: completude continua limitada pelo gerador de candidatos, mas
+ * LEGALIDADE nunca é inferida por `canX` aqui.
+ */
+export function enumerateEvaluatedCandidateActions(state: GameState, player: PlayerNumber): EvaluatedCandidateAction[] {
+  return enumerateCandidateActions(state, player).map((action) => ({ action, ...evaluateAction(state, action) }));
+}
+
+/**
+ * Subconjunto realmente aceito pelo reducer entre os candidatos gerados.
+ * Use esta função quando correção/autoridade for mais importante que o fast
+ * path preditivo de `enumerateLegalActions`.
+ */
+export function enumerateAcceptedActions(state: GameState, player: PlayerNumber): EvaluatedCandidateAction[] {
+  return enumerateEvaluatedCandidateActions(state, player).filter(({ accepted }) => accepted);
+}
+
 /** Um item do relatório de `checkActionDivergence` - ver comentário do módulo. */
 export interface DivergenceReport {
   action: GameAction;
@@ -409,13 +438,13 @@ export function checkActionDivergence(state: GameState, player: PlayerNumber): D
   // só reporta divergência quando NENHUMA variante bate com o que
   // `canActivateMagic` previu.
   const magicCandidatesByCard = new Map<string, { magicType: MagicCardType; anyAccepted: boolean; sample: GameAction }>();
-  const otherCandidates: GameAction[] = [];
+  const otherCandidates: EvaluatedCandidateAction[] = [];
 
-  for (const action of enumerateCandidateActions(state, player)) {
+  for (const evaluated of enumerateEvaluatedCandidateActions(state, player)) {
+    const { action, accepted } = evaluated;
     if (action.type === 'EXECUTE_MAGIC' || action.type === 'ACTIVATE_SIMPLE_MAGIC') {
       const card = state[playerKeyOf(player)].hand.find((c) => c.id === action.cardId);
       if (!card || (card.value !== 'J' && card.value !== 'Q' && card.value !== 'K')) continue;
-      const accepted = evaluateAction(state, action).accepted;
       const entry = magicCandidatesByCard.get(action.cardId);
       if (!entry) {
         magicCandidatesByCard.set(action.cardId, { magicType: card.value, anyAccepted: accepted, sample: action });
@@ -423,7 +452,7 @@ export function checkActionDivergence(state: GameState, player: PlayerNumber): D
         magicCandidatesByCard.set(action.cardId, { magicType: card.value, anyAccepted: true, sample: action });
       }
     } else {
-      otherCandidates.push(action);
+      otherCandidates.push(evaluated);
     }
   }
 
@@ -434,8 +463,7 @@ export function checkActionDivergence(state: GameState, player: PlayerNumber): D
     }
   }
 
-  for (const action of otherCandidates) {
-    const reducerAccepted = evaluateAction(state, action).accepted;
+  for (const { action, accepted: reducerAccepted } of otherCandidates) {
 
     let predicateSaidLegal: boolean | undefined;
     if (action.type === 'FUSE_CARDS') {
