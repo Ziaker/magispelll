@@ -1,0 +1,53 @@
+name: Temporary core game types migration
+
+on:
+  push:
+    branches: [overhaul/core-game-types]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/core-game-types
+      - name: Move core game types out of gameEngine
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/lib/gameEngine.ts')
+          text = path.read_text(encoding='utf-8')
+          import_line = "import type { Phase, PlayerNumber, PlayerKey } from './gameTypes';"
+
+          if import_line not in text:
+              anchor = "import { isSameGameplayState } from './gameplayState';\n"
+              if anchor not in text:
+                  raise SystemExit('gameplayState import anchor not found; refusing unsafe migration')
+              text = text.replace(anchor, anchor + import_line + "\n", 1)
+
+          old = (
+              "export type Phase = 'draw' | 'strategy' | 'combat';\n"
+              "export type PlayerNumber = 1 | 2;\n"
+              "export type PlayerKey = 'player1' | 'player2';\n"
+          )
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one core type block, found {text.count(old)}; refusing unsafe migration')
+          text = text.replace(old, "export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';\n", 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app/lib/gameEngine.ts; then
+            echo "No engine diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/lib/gameEngine.ts
+          git commit -m "refactor: make gameEngine consume core game types"
+          git push origin HEAD:overhaul/core-game-types
