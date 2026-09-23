@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 /**
- * Contrato arquitetural dos tipos já extraídos do gameEngine.
+ * Contrato arquitetural dos símbolos já extraídos do gameEngine.
  *
  * O motor continua reexportando estes símbolos por compatibilidade histórica,
  * mas o código da aplicação deve depender das fontes leves/canônicas:
@@ -11,11 +11,13 @@ import { join, relative } from 'node:path';
  * - Phase/PlayerNumber/PlayerKey -> gameTypes.ts
  * - LogEntry/LogEventType -> gameLogTypes.ts
  * - GameAction/MagicSelection -> gameActionTypes.ts
+ * - playerKeyOf/opponentKeyOf/opponentOf/characterOf -> gameSelectors.ts
+ * - MAX_MONSTER_USES -> monsterLifecycle.ts
  *
  * Assim uma mudança futura não volta a transformar gameEngine.ts em hub de
  * tipos por acidente.
  */
-const EXTRACTED_TYPES = new Set([
+const EXTRACTED_SYMBOLS = new Set([
   'CharacterId',
   'Phase',
   'PlayerNumber',
@@ -24,6 +26,11 @@ const EXTRACTED_TYPES = new Set([
   'LogEventType',
   'GameAction',
   'MagicSelection',
+  'playerKeyOf',
+  'opponentKeyOf',
+  'opponentOf',
+  'characterOf',
+  'MAX_MONSTER_USES',
 ]);
 
 const sourceRoot = join(process.cwd(), 'src', 'app');
@@ -46,7 +53,7 @@ function scanDirectory(directory: string): void {
       for (const rawSpecifier of body.split(',')) {
         const specifier = rawSpecifier.trim().replace(/^type\s+/, '');
         const importedName = specifier.split(/\s+as\s+/)[0]?.trim();
-        if (importedName && EXTRACTED_TYPES.has(importedName)) {
+        if (importedName && EXTRACTED_SYMBOLS.has(importedName)) {
           violations.push(`${relative(process.cwd(), path)}: ${importedName}`);
         }
       }
@@ -59,10 +66,10 @@ assert.deepEqual(
   violations,
   [],
   [
-    'Tipos extraídos não devem ser importados através de gameEngine.ts.',
-    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts ou gameActionTypes.ts conforme o tipo.',
+    'Símbolos extraídos não devem ser importados através de gameEngine.ts.',
+    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameSelectors.ts ou monsterLifecycle.ts conforme o símbolo.',
     `Violações: ${violations.join(', ')}`,
   ].join(' ')
 );
 
-console.log(`✓ import boundaries: ${EXTRACTED_TYPES.size} tipos extraídos protegidos contra reacoplamento ao gameEngine`);
+console.log(`✓ import boundaries: ${EXTRACTED_SYMBOLS.size} símbolos extraídos protegidos contra reacoplamento ao gameEngine`);

@@ -53,9 +53,10 @@
  * cópia da regra; `buildSelection` monta a `MagicSelection` exatamente como
  * o diálogo de clique já monta pro mesmo caso.
  */
+import { playerKeyOf } from './gameSelectors';
 import type { MagicSelection } from './gameActionTypes';
 import type { PlayerNumber } from './gameTypes';
-import { getDestroyableReinforcementSlots, isBrotoSlot, isSlotProtected, playerKeyOf, type GameState } from './gameEngine';
+import { getDestroyableReinforcementSlots, isBrotoSlot, isSlotProtected, type GameState } from './gameEngine';
 import type { CharacterId } from './characterRegistry';
 import { hasStatus } from './statusEffects';
 import type { MagicCardType } from './magicCards';
