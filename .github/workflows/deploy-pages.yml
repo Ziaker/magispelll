@@ -32,6 +32,8 @@ jobs:
         run: npm run test:exhaustiveness
       - name: Action validation tests
         run: npm run test:actions
+      - name: Character registry tests
+        run: npm run test:characters
       - name: Build
         run: npm run build
       - name: Upload Pages artifact

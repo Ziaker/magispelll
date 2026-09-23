@@ -1,15 +1,24 @@
 /**
- * characterRegistry.ts - fachada canônica de identidade dos personagens.
+ * characterRegistry.ts - fonte canônica da identidade dos personagens.
  *
- * A lista/tipo ainda são reexportados do gameEngine durante esta etapa para
- * preservar compatibilidade e evitar mexer no arquivo monolítico de regras
- * antes da decomposição do motor. Novos consumidores devem importar daqui.
+ * Este módulo é deliberadamente pequeno e sem dependências do motor. Tipos,
+ * roster e validação de entradas externas vivem aqui para que UI, IA, scripts
+ * e o próprio gameEngine possam depender da mesma definição sem criar ciclos.
  */
-import { ALL_CHARACTER_IDS, type CharacterId } from './gameEngine';
+export const ALL_CHARACTER_IDS = [
+  'mago',
+  'besta',
+  'anjo',
+  'mosqueteiro',
+  'coringa',
+  'piromante',
+  'druida',
+  'glacial',
+] as const;
 
-export { ALL_CHARACTER_IDS, type CharacterId };
+export type CharacterId = (typeof ALL_CHARACTER_IDS)[number];
 
-/** Metadados mínimos derivados da única lista canônica existente hoje. */
+/** Metadados mínimos derivados da lista canônica. */
 export const CHARACTER_DEFINITIONS = ALL_CHARACTER_IDS.map((id) => ({ id })) as readonly {
   readonly id: CharacterId;
 }[];

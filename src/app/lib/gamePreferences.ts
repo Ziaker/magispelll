@@ -1,5 +1,5 @@
 import { DEFAULT_GAME_CONFIG, type GameConfig } from './gameConfig';
-import type { CharacterId } from './gameEngine';
+import { isCharacterId, type CharacterId } from './characterRegistry';
 
 /**
  * gamePreferences.ts - lembra a última configuração de partida escolhida
@@ -68,14 +68,14 @@ export function saveRecentCharacter(characterId: CharacterId): void {
   }
 }
 
-/** Lê o histórico salvo (mais recente primeiro). Array vazio quando não há nada salvo ainda ou o JSON é inválido. */
+/** Lê o histórico salvo (mais recente primeiro), descartando ids desconhecidos de versões antigas/corrompidas. Array vazio quando não há nada salvo ainda ou o JSON é inválido. */
 export function loadRecentCharacters(): CharacterId[] {
   try {
     const raw = localStorage.getItem(RECENT_CHARACTERS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((id): id is CharacterId => typeof id === 'string');
+    return parsed.filter((id): id is CharacterId => typeof id === 'string' && isCharacterId(id));
   } catch {
     return [];
   }

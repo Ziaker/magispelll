@@ -35,7 +35,7 @@
 
 import type { Card } from './cardUtils';
 import { getSpotlightAdjustedValue, type SpotlightState } from './spotlight';
-import type { CharacterId } from './gameEngine';
+import type { CharacterId } from './characterRegistry';
 
 /** FIX (endurecimento, ver comentário completo em characterThemes.ts): alias do `CharacterId` canônico. */
 export type NumeralCharacter = CharacterId;
