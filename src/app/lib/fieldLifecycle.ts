@@ -6,7 +6,7 @@
  * fase, UI, IA ou a implementação do reducer.
  */
 import type { Card } from './cardUtils';
-import type { FieldSlot } from './gameEngine';
+import type { FieldSlot } from './gameStateTypes';
 /** Verdadeiro quando este slot é uma torre do Modo Towers (tem reserva empilhada abaixo do topo). */
 export function isTowerSlot(slot: FieldSlot): boolean {
   return Boolean(slot.towerReserve && slot.towerReserve.length > 0);

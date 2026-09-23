@@ -14,7 +14,7 @@ import {
   tickStatuses,
 } from './statusEffects';
 import type { Phase } from './gameTypes';
-import type { PlayerState } from './gameEngine';
+import type { PlayerState } from './gameStateTypes';
 
 export interface PlayerPhaseTransitionContext {
   newTurn: number;

@@ -5,7 +5,7 @@
  * devolve o campo atualizado para uma única transição de fase.
  */
 import { isBrotoSlot } from './fieldLifecycle';
-import type { FieldSlot } from './gameEngine';
+import type { FieldSlot } from './gameStateTypes';
 /**
  * Druida (personagem novo) - crescimento do Broto a cada TROCA DE FASE.
  *
