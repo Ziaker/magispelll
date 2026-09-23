@@ -1,0 +1,97 @@
+name: Temporary monster lifecycle migration
+
+on:
+  push:
+    branches: [overhaul/monster-lifecycle]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/monster-lifecycle
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract monster lifecycle rule with TypeScript AST
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/monsterLifecycle.ts';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('monsterLifecycle.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          let maxUsesStmt = null;
+          let resolveFn = null;
+          for (const stmt of sf.statements) {
+            if (ts.isVariableStatement(stmt)) {
+              for (const decl of stmt.declarationList.declarations) {
+                if (ts.isIdentifier(decl.name) && decl.name.text === 'MAX_MONSTER_USES') maxUsesStmt = stmt;
+              }
+            }
+            if (ts.isFunctionDeclaration(stmt) && stmt.name?.text === 'resolveMonsterCardAtTurnEnd') resolveFn = stmt;
+          }
+          if (!maxUsesStmt) throw new Error('MAX_MONSTER_USES declaration not found');
+          if (!resolveFn) throw new Error('resolveMonsterCardAtTurnEnd declaration not found');
+
+          const ranges = [
+            [maxUsesStmt.getFullStart(), maxUsesStmt.end],
+            [resolveFn.getFullStart(), resolveFn.end],
+          ].sort((a, b) => b[0] - a[0]);
+
+          const maxBlock = source.slice(maxUsesStmt.getFullStart(), maxUsesStmt.end).trim();
+          let resolveBlock = source.slice(resolveFn.getFullStart(), resolveFn.end).trim();
+          if (!resolveBlock.startsWith('export ')) resolveBlock = resolveBlock.replace(/^function\s+/, 'export function ');
+
+          let next = source;
+          for (const [start, end] of ranges) next = next.slice(0, start) + next.slice(end);
+
+          const importAnchor = "import { getNextPhaseTransition } from './phaseRules';\n";
+          const importLine = "import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd } from './monsterLifecycle';\n";
+          if (!next.includes(importAnchor)) throw new Error('phaseRules import anchor not found');
+          next = next.replace(importAnchor, importAnchor + importLine);
+
+          const exportAnchor = "export { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';\n";
+          const exportLine = "export { MAX_MONSTER_USES } from './monsterLifecycle';\n";
+          if (!next.includes(exportAnchor)) throw new Error('gameSelectors export anchor not found');
+          next = next.replace(exportAnchor, exportAnchor + exportLine);
+
+          const header = [
+            '/**',
+            ' * monsterLifecycle.ts - regras de duração da carta Monstro entre turnos.',
+            ' *',
+            ' * Mantém num ponto único o orçamento total de usos e a decisão de manter',
+            ' * ou descartar a carta ao terminar um turno. Não conhece fase, UI nem IA.',
+            ' */',
+            "import type { Card } from './cardUtils';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + maxBlock + '\n\n' + resolveBlock + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:boundaries
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app/lib/gameEngine.ts src/app/lib/monsterLifecycle.ts; then
+            echo "No monster lifecycle diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/lib/gameEngine.ts src/app/lib/monsterLifecycle.ts
+          git commit -m "refactor: extract monster lifecycle from engine"
+          git push origin HEAD:overhaul/monster-lifecycle
