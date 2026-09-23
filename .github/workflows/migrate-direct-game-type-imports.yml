@@ -35,10 +35,9 @@ jobs:
 
               text = path.read_text(encoding='utf-8')
               moved_names = []
-              registry_source = None
+              state = {'source': None}
 
               def repl(match):
-                  nonlocal registry_source
                   body = match.group('body')
                   parts = [p.strip() for p in body.split(',') if p.strip()]
                   moved_here = []
@@ -54,9 +53,9 @@ jobs:
 
                   source = match.group('source')
                   candidate_source = source[:-len('gameEngine')] + 'gameTypes'
-                  if registry_source is None:
-                      registry_source = candidate_source
-                  elif registry_source != candidate_source:
+                  if state['source'] is None:
+                      state['source'] = candidate_source
+                  elif state['source'] != candidate_source:
                       raise SystemExit(f'{path}: inconsistent gameEngine import paths')
 
                   for name in moved_here:
@@ -74,27 +73,29 @@ jobs:
               if not moved_names:
                   continue
 
+              game_types_source = state['source']
+              if game_types_source is None:
+                  raise SystemExit(f'{path}: moved types but gameTypes import path was not resolved')
+
               existing_names = set()
-              if registry_source:
-                  existing_re = re.compile(
-                      r"import\s+(?:type\s+)?\{(?P<body>[^}]*)\}\s+from\s+['\"]"
-                      + re.escape(registry_source)
-                      + r"['\"];",
-                      re.DOTALL,
-                  )
-                  for match in existing_re.finditer(next_text):
-                      for part in match.group('body').split(','):
-                          base = re.sub(r'^type\s+', '', part.strip()).strip()
-                          if base:
-                              existing_names.add(base)
+              existing_re = re.compile(
+                  r"import\s+(?:type\s+)?\{(?P<body>[^}]*)\}\s+from\s+['\"]"
+                  + re.escape(game_types_source)
+                  + r"['\"];",
+                  re.DOTALL,
+              )
+              for match in existing_re.finditer(next_text):
+                  for part in match.group('body').split(','):
+                      base = re.sub(r'^type\s+', '', part.strip()).strip()
+                      if base:
+                          existing_names.add(base)
 
               missing = [name for name in moved_names if name not in existing_names]
               if missing:
                   first_import = re.search(r'^import\s', next_text, re.MULTILINE)
                   if not first_import:
                       raise SystemExit(f'{path}: no import insertion point found')
-                  quote = "'"
-                  line = f"import type {{ {', '.join(missing)} }} from {quote}{registry_source}{quote};\n"
+                  line = f"import type {{ {', '.join(missing)} }} from '{game_types_source}';\n"
                   next_text = next_text[:first_import.start()] + line + next_text[first_import.start():]
 
               leftovers = []
