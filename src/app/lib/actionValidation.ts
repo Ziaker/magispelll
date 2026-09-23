@@ -4,8 +4,8 @@
  *
  * O motor às vezes rejeita uma ação adicionando apenas uma entrada ao log
  * para explicar o motivo. Comparar referências (`next !== state`) considera
- * esse caso erroneamente como uma ação aceita. A regra abaixo ignora somente
- * `log`, preservando o reducer como autoridade final sobre legalidade.
+ * esse caso erroneamente como uma ação aceita. A regra compartilhada ignora
+ * somente `log`, preservando o reducer como autoridade final sobre legalidade.
  *
  * Este módulo é intencionalmente pequeno: ele não duplica nenhum `canX` e
  * não tenta adivinhar regras. Ele apenas executa o reducer real e classifica
@@ -13,14 +13,10 @@
  * semântica durante o Legal Actions Overhaul.
  */
 import { gameReducer, type GameAction, type GameState } from './gameEngine';
+import { isSameGameplayState } from './gameplayState';
 
-/** Compara o estado de gameplay ignorando somente o log explicativo. */
-export function isSameGameplayState<T extends { log: unknown }>(a: T, b: T): boolean {
-  if (a === b) return true;
-  const { log: _logA, ...restA } = a;
-  const { log: _logB, ...restB } = b;
-  return JSON.stringify(restA) === JSON.stringify(restB);
-}
+/** Compatibilidade: consumidores existentes podem continuar importando daqui. */
+export { isSameGameplayState } from './gameplayState';
 
 export interface ActionEvaluation {
   /** `true` quando alguma parte do gameplay mudou, não apenas o log. */
