@@ -5,9 +5,10 @@
  * fora do reducer evita usar gameEngine.ts como ponto obrigatório para
  * operações que não dependem da implementação dos handlers.
  */
+import type { GameState } from './gameStateTypes';
 import type { PlayerKey, PlayerNumber } from './gameTypes';
 import type { CharacterId } from './characterRegistry';
-import type { GameState } from './gameEngine';
+
 export function playerKeyOf(player: PlayerNumber): PlayerKey {
   return player === 1 ? 'player1' : 'player2';
 }

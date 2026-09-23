@@ -23,7 +23,8 @@
  * exaustivamente toda janela de exceção primeiro, o risco de um alarme
  * ruidoso e não-confiável é maior que o valor de ter a checagem.
  */
-import { type GameState } from './gameEngine';
+
+import type { GameState } from './gameStateTypes';
 import { type Card } from './cardUtils';
 
 /**

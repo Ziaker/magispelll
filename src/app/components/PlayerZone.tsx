@@ -1,3 +1,4 @@
+import type { PlayerState, PendingReaction } from '../lib/gameStateTypes';
 import { isBrotoSlot } from '../lib/fieldLifecycle';
 import type { Phase } from '../lib/gameTypes';
 import type { CSSProperties } from 'react';
@@ -16,7 +17,7 @@ import { HandCardView } from './HandCardView';
 import { ReadyStamp, BothReadyPulse } from './ReadyStamp';
 import { LastLifeImpact } from './LastLifeImpact';
 import { getCharacterTheme, getCharacterIconBackground, getCharacterPanelBackground } from '../lib/characterThemes';
-import type { PlayerState, PendingReaction } from '../lib/gameEngine';
+
 import type { CharacterId } from '../lib/characterRegistry';
 import { getEffectiveDiscardLimit, getEffectiveDrawLimit, isFrozenMagicActivationBlocked, towerEligibleValue } from '../lib/gameEngine';
 import { hasStatus } from '../lib/statusEffects';
