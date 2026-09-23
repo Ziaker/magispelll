@@ -1,0 +1,135 @@
+name: Temporary direct log type import migration
+
+on:
+  push:
+    branches: [overhaul/direct-log-type-imports]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/direct-log-type-imports
+      - name: Move log type imports out of gameEngine
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          TARGETS = {'LogEntry', 'LogEventType'}
+          import_re = re.compile(
+              r"import\s+(?P<type_only>type\s+)?\{(?P<body>[^}]*)\}\s+from\s+(?P<quote>['\"])(?P<source>[^'\"]*gameEngine)(?P=quote);",
+              re.DOTALL,
+          )
+
+          changed_files = []
+          moved_total = 0
+
+          for path in sorted(Path('src/app').rglob('*')):
+              if path.suffix not in {'.ts', '.tsx'} or not path.is_file():
+                  continue
+
+              text = path.read_text(encoding='utf-8')
+              moved_names = []
+              state = {'source': None}
+
+              def repl(match):
+                  body = match.group('body')
+                  parts = [p.strip() for p in body.split(',') if p.strip()]
+                  moved_here = []
+                  remaining = []
+                  for part in parts:
+                      base = re.sub(r'^type\s+', '', part).strip()
+                      if base in TARGETS:
+                          moved_here.append(base)
+                      else:
+                          remaining.append(part)
+                  if not moved_here:
+                      return match.group(0)
+
+                  source = match.group('source')
+                  candidate_source = source[:-len('gameEngine')] + 'gameLogTypes'
+                  if state['source'] is None:
+                      state['source'] = candidate_source
+                  elif state['source'] != candidate_source:
+                      raise SystemExit(f'{path}: inconsistent gameEngine import paths')
+
+                  for name in moved_here:
+                      if name not in moved_names:
+                          moved_names.append(name)
+
+                  if not remaining:
+                      return ''
+
+                  prefix = 'import type' if match.group('type_only') else 'import'
+                  quote = match.group('quote')
+                  return f"{prefix} {{ {', '.join(remaining)} }} from {quote}{source}{quote};"
+
+              next_text = import_re.sub(repl, text)
+              if not moved_names:
+                  continue
+
+              log_types_source = state['source']
+              if log_types_source is None:
+                  raise SystemExit(f'{path}: moved types but gameLogTypes import path was not resolved')
+
+              existing_names = set()
+              existing_re = re.compile(
+                  r"import\s+(?:type\s+)?\{(?P<body>[^}]*)\}\s+from\s+['\"]"
+                  + re.escape(log_types_source)
+                  + r"['\"];",
+                  re.DOTALL,
+              )
+              for match in existing_re.finditer(next_text):
+                  for part in match.group('body').split(','):
+                      base = re.sub(r'^type\s+', '', part.strip()).strip()
+                      if base:
+                          existing_names.add(base)
+
+              missing = [name for name in moved_names if name not in existing_names]
+              if missing:
+                  first_import = re.search(r'^import\s', next_text, re.MULTILINE)
+                  if not first_import:
+                      raise SystemExit(f'{path}: no import insertion point found')
+                  line = f"import type {{ {', '.join(missing)} }} from '{log_types_source}';\n"
+                  next_text = next_text[:first_import.start()] + line + next_text[first_import.start():]
+
+              leftovers = []
+              for match in import_re.finditer(next_text):
+                  for part in match.group('body').split(','):
+                      base = re.sub(r'^type\s+', '', part.strip()).strip()
+                      if base in TARGETS:
+                          leftovers.append(base)
+              if leftovers:
+                  raise SystemExit(f'{path}: log types still imported through gameEngine: {leftovers}')
+
+              path.write_text(next_text, encoding='utf-8')
+              changed_files.append(str(path))
+              moved_total += len(moved_names)
+
+          if moved_total == 0:
+              raise SystemExit('no LogEntry/LogEventType imports through gameEngine found; refusing empty migration')
+
+          print(f'Moved {moved_total} log type import(s) across {len(changed_files)} file(s):')
+          for path in changed_files:
+              print(f' - {path}')
+          PY
+      - name: Typecheck migration
+        run: |
+          npm ci
+          npm run typecheck
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No source diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: import log types directly from gameLogTypes"
+          git push origin HEAD:overhaul/direct-log-type-imports
