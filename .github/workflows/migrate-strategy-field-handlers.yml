@@ -1,0 +1,105 @@
+name: Temporary strategy field handler migration
+
+on:
+  push:
+    branches: [overhaul/strategy-field-handlers]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/strategy-field-handlers
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract strategy field handlers
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/strategyFieldHandlers.ts';
+          const names = ['handleReturnCardToHand', 'handleReturnHorizontalCardToHand', 'handleSwapFieldCard'];
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('strategyFieldHandlers.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const nodes = names.map((name) => {
+            const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === name);
+            if (!node) throw new Error(`${name} not found`);
+            return node;
+          });
+
+          const snippets = nodes.map((node, index) => {
+            const name = names[index];
+            const text = source.slice(node.getFullStart(), node.end).trim();
+            return text.replace(`function ${name}`, `export function ${name}`);
+          });
+
+          const first = nodes[0];
+          const last = nodes[nodes.length - 1];
+          let next = source.slice(0, first.getFullStart()) + source.slice(last.end);
+
+          const fieldOpsImport = "import { resolveCombatSlot, returnSlotToHand, updateFieldSlot } from './fieldOperations';";
+          const nextFieldOpsImport = "import { resolveCombatSlot, updateFieldSlot } from './fieldOperations';";
+          if (next.split(fieldOpsImport).length !== 2) throw new Error('fieldOperations import anchor not found exactly once');
+          next = next.replace(fieldOpsImport, nextFieldOpsImport);
+
+          const drawHandlersImport = "import { handleDiscardCards, handleDrawCards } from './drawPhaseHandlers';\n";
+          const strategyHandlersImport = "import { handleReturnCardToHand, handleReturnHorizontalCardToHand, handleSwapFieldCard } from './strategyFieldHandlers';\n";
+          if (next.split(drawHandlersImport).length !== 2) throw new Error('drawPhaseHandlers import anchor not found exactly once');
+          next = next.replace(drawHandlersImport, drawHandlersImport + strategyHandlersImport);
+
+          const header = [
+            '/**',
+            ' * strategyFieldHandlers.ts - reposicionamento reversível de campo na Estratégia.',
+            ' *',
+            ' * Estes handlers cuidam apenas de desfazer/trocar posicionamentos antes',
+            ' * do combate. Regras de magia e resolução de combate ficam fora daqui.',
+            ' */',
+            "import { revealCard } from './cardUtils';",
+            "import { isBrotoSlot, isTowerSlot } from './fieldLifecycle';",
+            "import { returnSlotToHand, updateFieldSlot } from './fieldOperations';",
+            "import { appendLog } from './gameLog';",
+            "import { playerKeyOf } from './gameSelectors';",
+            "import { hasStatus } from './statusEffects';",
+            "import type { GameState } from './gameStateTypes';",
+            "import type { PlayerNumber } from './gameTypes';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + snippets.join('\n\n') + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+          npm run build
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No strategy-field diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: extract strategy field handlers"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/strategy-field-handlers; then
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
