@@ -69,6 +69,7 @@ import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelec
 import { getNextPhaseTransition } from './phaseRules';
 import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd } from './monsterLifecycle';
 import { isTowerSlot, isBrotoSlot, keepPersistentFieldSlots, nonPersistentFieldCards } from './fieldLifecycle';
+import { growDruidaBrotoField } from './druidaLifecycle';
 
 export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
@@ -790,35 +791,6 @@ function returnSlotToHand(
     hand: newHand,
     clearedSlot: { faceDownCard: undefined, horizontalCards: [], towerReserve: undefined, brotoReserve: undefined, revealed: false },
   };
-}
-
-/**
- * Druida (personagem novo) - crescimento do Broto a cada TROCA DE FASE.
- *
- * FIX (pedido do usuário: "volte atrás com a ideia de ser um acúmulo por
- * turno, é pra ser um acúmulo por fase") - reversão de uma decisão anterior
- * (1x por turno, só na virada Combate->Compra) - agora cresce nas 3
- * transições de fase do turno (Compra->Estratégia, Estratégia->Combate,
- * Combate->Compra), chamada de `resetForNewTurn` a cada uma delas (dentro de
- * advancePhaseState) - aqui só ajusta o VALOR do topo (`transformedValue`),
- * nunca move nenhuma carta.
- *
- * `taxa` = 1 (o Broto sozinho) + 1 por Valete extra empilhado em
- * `brotoReserve` - um Broto de 3 Valetes (1 topo + 2 na reserva) cresce +3
- * por FASE, não +1. Fotossíntese soma seu nível diretamente por cima,
- * empilhando a cada reativação (ver handleFinalizeNumeralSpell).
- */
-function growDruidaBrotoField(field: [FieldSlot, FieldSlot, FieldSlot], photosynthesisLevel: number): [FieldSlot, FieldSlot, FieldSlot] {
-  const brotoIndex = field.findIndex(isBrotoSlot);
-  if (brotoIndex === -1) return field;
-  const slot = field[brotoIndex];
-  const top = slot.faceDownCard;
-  if (!top) return field;
-  const growthRate = 1 + (slot.brotoReserve?.length ?? 0);
-  const newValue = (top.transformedValue ?? 1) + growthRate + photosynthesisLevel;
-  const newField = [...field] as [FieldSlot, FieldSlot, FieldSlot];
-  newField[brotoIndex] = { ...slot, faceDownCard: { ...top, transformedValue: newValue } };
-  return newField;
 }
 
 function resolveCombatSlot(slot: FieldSlot, erodeOnly: boolean): { newSlot: FieldSlot; discarded: Card[] } {
