@@ -1,0 +1,143 @@
+name: Temporary play card handler migration
+
+on:
+  push:
+    branches: [overhaul/play-card-handler]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/play-card-handler
+      - name: Install dependencies
+        run: npm ci
+      - name: Move play card handler
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const targetPath = 'src/app/lib/strategyFieldHandlers.ts';
+          const functionName = 'handlePlayCard';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          const targetSource = fs.readFileSync(targetPath, 'utf8');
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const targetSf = ts.createSourceFile(targetPath, targetSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === functionName);
+          if (!node) throw new Error(`${functionName} not found as top-level function`);
+
+          const imported = new Map();
+          for (const stmt of sf.statements) {
+            if (!ts.isImportDeclaration(stmt) || !stmt.importClause || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+            const module = stmt.moduleSpecifier.text;
+            const clause = stmt.importClause;
+            if (clause.name) imported.set(clause.name.text, { module, default: true, importedName: 'default', typeOnly: clause.isTypeOnly });
+            const bindings = clause.namedBindings;
+            if (bindings && ts.isNamedImports(bindings)) {
+              for (const spec of bindings.elements) {
+                imported.set(spec.name.text, {
+                  module,
+                  default: false,
+                  importedName: spec.propertyName?.text ?? spec.name.text,
+                  localName: spec.name.text,
+                  typeOnly: clause.isTypeOnly || spec.isTypeOnly,
+                });
+              }
+            }
+          }
+
+          const topLevelDeclared = new Set();
+          for (const stmt of sf.statements) {
+            if (ts.isFunctionDeclaration(stmt) && stmt.name) topLevelDeclared.add(stmt.name.text);
+            if (ts.isClassDeclaration(stmt) && stmt.name) topLevelDeclared.add(stmt.name.text);
+            if (ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt) || ts.isEnumDeclaration(stmt)) topLevelDeclared.add(stmt.name.text);
+            if (ts.isVariableStatement(stmt)) {
+              for (const decl of stmt.declarationList.declarations) if (ts.isIdentifier(decl.name)) topLevelDeclared.add(decl.name.text);
+            }
+          }
+
+          const refs = new Set();
+          function walk(n) {
+            if (ts.isIdentifier(n)) refs.add(n.text);
+            ts.forEachChild(n, walk);
+          }
+          walk(node);
+          const privateDeps = [...refs].filter((name) => topLevelDeclared.has(name) && name !== functionName);
+          if (privateDeps.length) throw new Error(`Private gameEngine dependencies remain: ${privateDeps.sort().join(', ')}`);
+
+          const existingImports = new Set();
+          for (const stmt of targetSf.statements) {
+            if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
+            if (stmt.importClause.name) existingImports.add(stmt.importClause.name.text);
+            const bindings = stmt.importClause.namedBindings;
+            if (bindings && ts.isNamedImports(bindings)) for (const spec of bindings.elements) existingImports.add(spec.name.text);
+          }
+
+          const needed = [...refs]
+            .filter((name) => imported.has(name) && !existingImports.has(name))
+            .map((name) => [name, imported.get(name)]);
+          const groups = new Map();
+          for (const [localName, info] of needed) {
+            if (info.default) throw new Error(`Unhandled default import: ${localName} from ${info.module}`);
+            const key = `${info.module}|${info.typeOnly ? 'type' : 'value'}`;
+            if (!groups.has(key)) groups.set(key, { module: info.module, typeOnly: info.typeOnly, specs: [] });
+            groups.get(key).specs.push({ importedName: info.importedName, localName });
+          }
+          const importLines = [];
+          for (const group of [...groups.values()].sort((a,b) => a.module.localeCompare(b.module) || Number(a.typeOnly)-Number(b.typeOnly))) {
+            group.specs.sort((a,b) => a.localName.localeCompare(b.localName));
+            const specs = group.specs.map(({importedName, localName}) => importedName === localName ? localName : `${importedName} as ${localName}`);
+            importLines.push(`import ${group.typeOnly ? 'type ' : ''}{ ${specs.join(', ')} } from '${group.module}';`);
+          }
+
+          let snippet = source.slice(node.getFullStart(), node.end).trim();
+          snippet = snippet.replace(`function ${functionName}`, `export function ${functionName}`);
+          let next = source.slice(0, node.getFullStart()) + source.slice(node.end);
+          const engineImport = "import { handleReturnCardToHand, handleReturnHorizontalCardToHand, handleSwapFieldCard } from './strategyFieldHandlers';";
+          const newEngineImport = "import { handlePlayCard, handleReturnCardToHand, handleReturnHorizontalCardToHand, handleSwapFieldCard } from './strategyFieldHandlers';";
+          if (next.split(engineImport).length !== 2) throw new Error('strategyFieldHandlers engine import anchor not found exactly once');
+          next = next.replace(engineImport, newEngineImport);
+
+          let target = targetSource;
+          if (importLines.length) {
+            const firstExport = target.indexOf('export function ');
+            if (firstExport < 0) throw new Error('target export marker not found');
+            target = target.slice(0, firstExport) + importLines.join('\n') + '\n' + target.slice(firstExport);
+          }
+          target = target.trimEnd() + '\n\n' + snippet + '\n';
+
+          fs.writeFileSync(enginePath, next);
+          fs.writeFileSync(targetPath, target);
+          console.log(`Added imports: ${importLines.join(' | ') || '(none)'}`);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+          npm run build
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No play-card diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: extract play card handler"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/play-card-handler; then exit 0; fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
