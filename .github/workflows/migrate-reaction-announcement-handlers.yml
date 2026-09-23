@@ -52,7 +52,6 @@ jobs:
           if (next.split(actionImport).length !== 2) throw new Error('gameActionTypes import anchor not found exactly once');
           next = next.replace(actionImport, actionImport + handlerImport);
 
-          // Preserve the old public export surface from gameEngine.ts.
           const exportAnchor = "export { getMagicActivationContext } from './magicActivationContext';\n";
           const exportLine = "export { canMagicTriggerReactionAnnouncement } from './reactionHandlers';\n";
           if (next.split(exportAnchor).length !== 2) throw new Error('public export anchor not found exactly once');
@@ -68,7 +67,7 @@ jobs:
             "import { pushToDiscard } from './deckLifecycle';",
             "import { appendLog } from './gameLog';",
             "import type { GameAction } from './gameActionTypes';",
-            "import { opponentOf, playerKeyOf } from './gameSelectors';",
+            "import { characterOf, opponentOf, playerKeyOf } from './gameSelectors';",
             "import { isSameGameplayState } from './gameplayState';",
             "import type { GameState } from './gameStateTypes';",
             "import type { PlayerNumber } from './gameTypes';",
