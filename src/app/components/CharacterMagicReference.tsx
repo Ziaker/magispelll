@@ -1,3 +1,4 @@
+import { playerKeyOf } from '../lib/gameSelectors';
 import type { PlayerNumber } from '../lib/gameTypes';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { getCharacterTheme } from '../lib/characterThemes';
@@ -5,7 +6,7 @@ import { getMagicCardInfo, canActivateMagic, type Character, type MagicCardType 
 import { getNumeralSpellInfo, formatNumeralRequirement, getMatchingNumeralCards, canActivateNumeralSpell } from '../lib/numeralSpells';
 import { getMonsterEffect } from '../lib/monsterCards';
 import { PHASE_DISPLAY } from './PlayingCard';
-import { playerKeyOf, getMagicActivationContext, type GameState } from '../lib/gameEngine';
+import { getMagicActivationContext, type GameState } from '../lib/gameEngine';
 
 interface CharacterMagicReferenceProps {
   character: Character;

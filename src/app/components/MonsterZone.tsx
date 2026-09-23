@@ -1,3 +1,4 @@
+import { MAX_MONSTER_USES } from '../lib/monsterLifecycle';
 import type { CSSProperties } from 'react';
 import { useEffect, useRef } from 'react';
 import { useDrop } from 'react-dnd';
@@ -9,7 +10,7 @@ import type { CharacterId } from '../lib/characterRegistry';
 import { getDisplayValue, getEffectiveCardValue } from '../lib/cardUtils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { getMonsterEffect } from '../lib/monsterCards';
-import { MAX_MONSTER_USES } from '../lib/gameEngine';
+
 import { CARD_ITEM_TYPE, type CardDragItem } from '../lib/dnd';
 import { registerDropTarget, unregisterDropTarget } from '../lib/dropTargetRegistry';
 
