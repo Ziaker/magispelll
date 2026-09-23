@@ -58,7 +58,7 @@ import { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
 import { isSameGameplayState } from './gameplayState';
 import type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 import { appendLog } from './gameLog';
-import { handleDrawCards } from './drawPhaseHandlers';
+import { handleDiscardCards, handleDrawCards } from './drawPhaseHandlers';
 import type { GameAction, MagicSelection } from './gameActionTypes';
 import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
 import { getNextPhaseTransition } from './phaseRules';
@@ -653,47 +653,6 @@ function reduceGameAction(state: GameState, action: GameAction): GameState {
     default:
       return state;
   }
-}
-
-function handleDiscardCards(state: GameState, player: PlayerNumber, cardIds: string[]): GameState {
-  if (state.phase !== 'draw') return state;
-  // FIX (pedido do usuário: "opção do pré-jogo para decidir o limite de
-  // cartas que podem serem descartadas por turno... com o mínimo sendo 4
-  // como no jogo normal") - `gameConfig.discardLimit` no lugar do antigo "4"
-  // fixo (o próprio config já garante mínimo 4 - ver MIN_DISCARD_LIMIT em
-  // gameConfig.ts e o clamp no seletor em GameConfig.tsx).
-  const discardLimit = getEffectiveDiscardLimit(state.gameConfig);
-  if (cardIds.length === 0 || cardIds.length > discardLimit) return state;
-
-  const playerKey = playerKeyOf(player);
-  const playerState = state[playerKey];
-
-  if (playerState.discardsThisTurn + cardIds.length > discardLimit) {
-    return { ...state, log: appendLog(state, state.log, 'warning', `Limite de ${discardLimit} descartes por turno atingido!`) };
-  }
-
-  // Cartas reveladas nunca podem ser descartadas, mesmo que o chamador tente.
-  const idsSet = new Set(cardIds);
-  const discardable = playerState.hand.filter((c) => idsSet.has(c.id) && !c.revealed);
-  if (discardable.length === 0) return state;
-
-  const discardableIds = new Set(discardable.map((c) => c.id));
-  const newHand = playerState.hand.filter((c) => !discardableIds.has(c.id));
-
-  const { deck, discardPile } = pushToDiscard(state, discardable);
-  const log = appendLog(state, state.log, 'discard', `Jogador ${player} descartou ${discardable.length} carta(s)`, { player });
-
-  return {
-    ...state,
-    deck,
-    discardPile,
-    log,
-    [playerKey]: {
-      ...playerState,
-      hand: newHand,
-      discardsThisTurn: playerState.discardsThisTurn + discardable.length,
-    },
-  };
 }
 
 /**
