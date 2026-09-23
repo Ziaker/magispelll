@@ -85,7 +85,7 @@ jobs:
            * sem depender conceitualmente do reducer inteiro. Este módulo contém só
            * tipos, sem lógica nem efeitos colaterais.
            */
-          import type { PlayerNumber } from './gameTypes';
+          import type { Phase, PlayerNumber } from './gameTypes';
 
           """
           log_types_path.write_text(header + event_block + '\n\n' + entry_block + '\n', encoding='utf-8')
