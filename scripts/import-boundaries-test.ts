@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import ts from 'typescript';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
@@ -113,3 +114,31 @@ assert.deepEqual(
 );
 
 console.log(`✓ import boundaries: ${EXTRACTED_SYMBOLS.size} símbolos extraídos protegidos contra reacoplamento ao gameEngine`);
+
+// gameEngine coordinator boundary: depois da decomposição do motor, o arquivo
+// principal só pode declarar o reducer público e seu dispatcher privado.
+// Regras/handlers novos devem nascer no módulo de domínio correspondente.
+const enginePathForBoundary = join(process.cwd(), 'src', 'app', 'lib', 'gameEngine.ts');
+const engineSourceForBoundary = readFileSync(enginePathForBoundary, 'utf8');
+const engineAstForBoundary = ts.createSourceFile(
+  enginePathForBoundary,
+  engineSourceForBoundary,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TS
+);
+const allowedEngineFunctions = new Set(['gameReducer', 'reduceGameAction']);
+const unexpectedEngineFunctions = engineAstForBoundary.statements
+  .filter(ts.isFunctionDeclaration)
+  .map((statement) => statement.name?.text ?? '<anonymous>')
+  .filter((name) => !allowedEngineFunctions.has(name));
+assert.deepEqual(
+  unexpectedEngineFunctions,
+  [],
+  [
+    'gameEngine.ts deve permanecer um coordenador fino.',
+    'Mova novos handlers/regras para módulos de domínio e apenas faça o dispatch pelo reducer.',
+    `Funções top-level inesperadas: ${unexpectedEngineFunctions.join(', ')}`,
+  ].join(' ')
+);
+console.log('✓ gameEngine coordinator boundary: apenas gameReducer/reduceGameAction permanecem como funções top-level');

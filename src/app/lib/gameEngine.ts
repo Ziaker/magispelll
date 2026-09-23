@@ -1,61 +1,19 @@
 /**
- * gameEngine.ts - Motor de regras do Magispelll
+ * gameEngine.ts - coordenador puro do Magispelll.
  *
- * Toda a lógica de jogo mora aqui, como um reducer puro: (GameState, GameAction) => GameState.
- * Nenhuma função neste arquivo chama setTimeout, lê o relógio, ou tem qualquer
- * efeito colateral - dado o mesmo estado e a mesma ação, sempre produz o mesmo
- * resultado. Isso existe para eliminar uma classe inteira de bugs de estado
- * que existia na versão anterior do jogo, em que a lógica ficava misturada
- * com timers e chamadas de setState aninhadas dentro do próprio componente
- * React (o que causava, por exemplo, cartas sendo simultaneamente "no campo"
- * e "na pilha de descarte" depois de vencer uma disputa de combate).
+ * Este arquivo preserva a API histórica do motor e roteia GameAction para
+ * handlers de domínio. Regras de compra, estratégia, magias, personagens,
+ * reações, fases e combate vivem em módulos próprios em src/app/lib.
  *
- * GameBoard.tsx (a camada de UI) é responsável apenas por:
- * - despachar ações em resposta a cliques
- * - decidir QUANDO mostrar popups/animações e agendar a próxima ação depois
- *   de um tempo (ex.: mostrar o resultado do combate por 2.5s antes de
- *   despachar FINALIZE_COMBAT)
- * - renderizar o estado atual
+ * A fronteira intencional aqui é pequena: gameReducer aplica o sweep global
+ * pós-ação e reduceGameAction mantém apenas guards globais + dispatch.
+ * Nenhum handler/regra de domínio deve voltar a ser implementado neste arquivo.
  *
- * O estado em si (quem tem quantas vidas, quais cartas estão em qual mão ou
- * campo, etc.) é sempre 100% consistente logo após qualquer dispatch - nunca
- * existe uma janela onde o estado está "temporariamente errado" esperando um
- * timer terminar.
+ * O reducer continua totalmente puro e determinístico: mesmo estado + mesma
+ * ação produzem o mesmo próximo estado; timers/animações permanecem na UI.
  */
 
-import {
-  drawCards,
-  getDisplaySuit,
-  getDisplayValue,
-  getEffectiveCardValue,
-  isNumeralCard,
-  isPlainNumeralCard,
-  revealCard,
-  reshuffleDiscardIntoDeck,
-  resetCardForDiscard,
-  shuffle,
-  type Card,
-} from './cardUtils';
-import { DEFAULT_GAME_CONFIG, type GameConfig } from './gameConfig';
-import { getEffectiveDrawLimit, getEffectiveDiscardLimit } from './gameLimits';
-import { canActivateMagic, type MagicCardType } from './magicCards';
-import { canActivateNumeralSpell, formatNumeralRequirement, getMatchingNumeralCards, getNumeralSpellInfo } from './numeralSpells';
 import { handleActivateNumeralSpell, handleFinalizeNumeralSpell } from './numeralSpellHandlers';
-import { getSpotlightAdjustedValue } from './spotlight';
-import {
-  applyCombatModifierStatuses,
-  applyStatus,
-  applyTimedCombatModifier,
-  getCombatModifierStatuses,
-  getStatusMagnitude,
-  hasStatus,
-  removeStatus,
-  removeStatusFromField,
-} from './statusEffects';
-import { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
-import { isSameGameplayState } from './gameplayState';
-import type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
-import { appendLog } from './gameLog';
 import { applyBestaBloodRageSweep } from './bestaLifecycle';
 import { handleDiscardCards, handleDrawCards } from './drawPhaseHandlers';
 import { handlePlayCard, handleReturnCardToHand, handleReturnHorizontalCardToHand, handleSwapFieldCard } from './strategyFieldHandlers';
@@ -66,26 +24,13 @@ import { handlePlaceMonsterCard } from './monsterHandlers';
 import { handleActivateMonsterEffectSimple, handleExecuteMagoMonsterEffect } from './monsterEffectHandlers';
 import { handleFuseCards } from './fusionHandlers';
 import { handleTransformCoringaMagicCard } from './coringaHandlers';
-import { resolveCoringaTrapTargeting, tryCoringaJShieldBlock } from './coringaTrapHandlers';
 import { handleFinalizeCombat, handleResolveCombat, handleSelectCombatSlot } from './combatHandlers';
 import { handleActivateSimpleMagic, handleExecuteMagic } from './magicHandlers';
-import type { GameAction, MagicSelection } from './gameActionTypes';
+import type { GameAction } from './gameActionTypes';
 import { handleReactToMagic, handleResolvePendingReaction, maybeDeferForReaction } from './reactionHandlers';
-import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
-import { advancePhaseState, handleToggleReady } from './phaseHandlers';
-import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd, canActivateMonsterEffect } from './monsterLifecycle';
-import { pushToDiscard, ensureDeckHasCards, ensureDeckHasAtLeast } from './deckLifecycle';
-import { isTowerSlot, isBrotoSlot } from './fieldLifecycle';
-import { resolveCombatSlot, updateFieldSlot } from './fieldOperations';
-import { fieldCards, wasEverTowerSlot, getUnbattledHorizontalSlots, getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots } from './fieldQueries';
-import { getGlacialGolemValue, isFrozenPlayBlocked, isFrozenMagicActivationBlocked } from './glacialRules';
-import { isSlotProtected } from './anjoRules';
-import { getFireballCap } from './piromanteRules';
-import { applyCoringaTrapCombatValue, isCoringaRawTrapCard } from './coringaRules';
-import { getMagicActivationContext } from './magicActivationContext';
-import { growDruidaBrotoField } from './druidaLifecycle';
-import type { FieldSlot, PlayerState, CombatResolution, NumeralSpellPending, PendingReaction, GameState } from './gameStateTypes';
-import { emptyField, createPlayerState, createInitialState } from './gameStateFactory';
+import { handleToggleReady } from './phaseHandlers';
+import type { GameState } from './gameStateTypes';
+import { createInitialState } from './gameStateFactory';
 
 export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
