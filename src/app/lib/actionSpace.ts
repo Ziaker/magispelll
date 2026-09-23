@@ -53,6 +53,7 @@
  * (lógica de clique da UI) e o motor - isso exigiria renderizar o componente
  * de verdade e simular cliques.
  */
+import { canSelectCombatSlot } from './combatRules';
 import { isSlotProtected } from './anjoRules';
 import { canActivateMonsterEffect } from './monsterLifecycle';
 import { getEffectiveDiscardLimit } from './gameLimits';
@@ -62,7 +63,7 @@ import { isTowerSlot } from './fieldLifecycle';
 import { playerKeyOf, opponentKeyOf, characterOf } from './gameSelectors';
 import type { GameAction, MagicSelection } from './gameActionTypes';
 import type { PlayerNumber } from './gameTypes';
-import { getMagicActivationContext, canSelectCombatSlot } from './gameEngine';
+import { getMagicActivationContext } from './gameEngine';
 import { evaluateAction } from './actionValidation';
 import { canActivateMagic, type MagicCardType } from './magicCards';
 import { canActivateNumeralSpell, type NumeralCharacter } from './numeralSpells';
