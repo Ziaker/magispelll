@@ -1166,12 +1166,12 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // Combate, Rainha copiando valor em Combate) sem duplicar a checagem
       // em cada dispatch. Same-signal reuse do diff de log já existente
       // acima para o toast - não precisa de outro useEffect.
-      if (entry.type === 'magic' && entry.text.includes('Valete armadilha')) {
+      if (entry.trigger === 'coringa-trap-j') {
         soundManager.play(magicSoundFor('coringa', 'J'));
         if (entry.player && entry.slotIndex !== undefined) triggerSmokeBurst({ player: entry.player, slotIndex: entry.slotIndex });
-      } else if (entry.type === 'magic' && entry.text.includes('Rainha armadilha')) {
+      } else if (entry.trigger === 'coringa-trap-q') {
         soundManager.play(magicSoundFor('coringa', 'Q'));
-      } else if (entry.type === 'magic' && entry.text.includes('Rei armadilha')) {
+      } else if (entry.trigger === 'coringa-trap-k') {
         soundManager.play(magicSoundFor('coringa', 'K'));
         // FIX: só a revelação na ESTRATÉGIA (applyCoringaTrapReaction) grava
         // `slotIndex` no log - a explosão em COMBATE (coringaKForcedTie) não

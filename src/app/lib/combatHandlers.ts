@@ -171,10 +171,10 @@ export function handleResolveCombat(state: GameState, coringaQCopyTargetId?: str
   // `transformedValue` (só marca `coringaTransformedToNumeral`, nunca
   // setado neste caminho) - por isso dá pra checar depois da reatribuição.
   if (p1Slot.faceDownCard && p1Slot.faceDownCard.value === 'Q' && isCoringaRawTrapCard(state, 1, p1Slot.faceDownCard)) {
-    log = appendLog(state, log, 'magic', `A Rainha armadilha de Jogador 1 copiou o valor ${p1Slot.faceDownCard.transformedValue} nesta disputa`, { player: 1 });
+    log = appendLog(state, log, 'magic', `A Rainha armadilha de Jogador 1 copiou o valor ${p1Slot.faceDownCard.transformedValue} nesta disputa`, { player: 1, trigger: 'coringa-trap-q' });
   }
   if (p2Slot.faceDownCard && p2Slot.faceDownCard.value === 'Q' && isCoringaRawTrapCard(state, 2, p2Slot.faceDownCard)) {
-    log = appendLog(state, log, 'magic', `A Rainha armadilha de Jogador 2 copiou o valor ${p2Slot.faceDownCard.transformedValue} nesta disputa`, { player: 2 });
+    log = appendLog(state, log, 'magic', `A Rainha armadilha de Jogador 2 copiou o valor ${p2Slot.faceDownCard.transformedValue} nesta disputa`, { player: 2, trigger: 'coringa-trap-q' });
   }
 
   // FIX (item 10 da 2ª rodada): campo vazio (jogador não posicionou carta
@@ -237,7 +237,7 @@ export function handleResolveCombat(state: GameState, coringaQCopyTargetId?: str
       log,
       'magic',
       `O Rei armadilha de Jogador ${koPlayer} explodiu em fumaça e nuvens - a disputa é um empate e a carta do oponente volta pra mão dele!`,
-      { player: koPlayer }
+      { player: koPlayer, trigger: 'coringa-trap-k' }
     );
   } else if (p1Total > p2Total) {
     winner = 1;

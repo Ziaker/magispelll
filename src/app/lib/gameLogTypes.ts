@@ -30,6 +30,27 @@ export type LogEventType =
   | 'spotlight';
 
 /**
+ * Overhaul de Event System (item 5 do roadmap arquitetural, "regras
+ * produzem eventos, apresentação decide como mostrar") - marcador
+ * ESTRUTURAL opcional pra UI decidir qual efeito visual/sonoro disparar em
+ * reação a uma entrada, sem inspecionar `text` (ver GameBoard.tsx). Existe
+ * porque algumas reações (armadilhas do Coringa, hoje) são efeito COLATERAL
+ * da ação de outro personagem/fase - não têm um dispatch próprio pra
+ * `applyMagicEffectPresentation` reconhecer, então antes o único sinal era
+ * casar substring da mensagem (`text.includes('Valete armadilha')`), frágil
+ * a qualquer reformulação de texto. Complementa `type`, não substitui: mais
+ * de um `type`/call site pode compartilhar o mesmo `trigger` (ex.: a Rainha
+ * armadilha reage tanto revelada na Estratégia quanto copiando valor em
+ * Combate - mesmo som nos dois, gatilhos de motor bem diferentes). Migração
+ * incremental: só as reações já convertidas têm um `trigger`; as que ainda
+ * não foram têm `undefined` aqui e continuam no texto por enquanto.
+ */
+export type LogTrigger =
+  | 'coringa-trap-j'
+  | 'coringa-trap-q'
+  | 'coringa-trap-k';
+
+/**
  * FIX (pedido do usuário: "reformule completamente o sistema de log de
  * jogo... a lógica do jogo pare de conhecer cores/formatação") - antes cada
  * entrada já vinha com HTML pronto (cores, spans, tooltips) montado dentro
@@ -93,4 +114,6 @@ export interface LogEntry {
    * outra entrada.
    */
   burnedCardIds?: string[];
+  /** Ver LogTrigger acima. */
+  trigger?: LogTrigger;
 }
