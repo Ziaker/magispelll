@@ -1,5 +1,6 @@
+import type { Phase } from '../lib/gameTypes';
 import { PHASE_DISPLAY } from './PlayingCard';
-import type { Phase } from '../lib/gameEngine';
+
 
 const PHASE_ORDER: Phase[] = ['draw', 'strategy', 'combat'];
 const SHORT_LABEL: Record<Phase, string> = { draw: 'Compra', strategy: 'Estratégia', combat: 'Combate' };

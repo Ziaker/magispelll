@@ -35,8 +35,9 @@
  * função abaixo para o raciocínio por trás de cada decisão.
  */
 
+import type { PlayerNumber } from './gameTypes';
 import { random } from './rng';
-import { characterOf, fieldCards, getDestroyableReinforcementSlots, getFilledFieldSlots, getMagicActivationContext, getUnbattledHorizontalSlots, getUnrevealedFieldSlots, isSlotProtected, MAX_MONSTER_USES, opponentKeyOf, opponentOf, playerKeyOf, canActivateMonsterEffect, canFormOrReinforceTower, canSelectCombatSlot, getEffectiveDiscardLimit, getEffectiveDrawLimit, towerEligibleValue, isTowerSlot, isBrotoSlot, getFireballCap, isFrozenPlayBlocked, isFrozenMagicActivationBlocked, type GameAction, type GameState, type PlayerNumber, type PlayerState, type FieldSlot } from './gameEngine';
+import { characterOf, fieldCards, getDestroyableReinforcementSlots, getFilledFieldSlots, getMagicActivationContext, getUnbattledHorizontalSlots, getUnrevealedFieldSlots, isSlotProtected, MAX_MONSTER_USES, opponentKeyOf, opponentOf, playerKeyOf, canActivateMonsterEffect, canFormOrReinforceTower, canSelectCombatSlot, getEffectiveDiscardLimit, getEffectiveDrawLimit, towerEligibleValue, isTowerSlot, isBrotoSlot, getFireballCap, isFrozenPlayBlocked, isFrozenMagicActivationBlocked, type GameAction, type GameState, type PlayerState, type FieldSlot } from './gameEngine';
 import type { CharacterId } from './characterRegistry';
 import { getEffectiveCardValue, isFieldEligible, isNumeralCard, isPlainNumeralCard, isValidAceTransformTarget, type Card } from './cardUtils';
 import { applyCombatModifierStatuses, getCombatModifierStatuses, hasStatus } from './statusEffects';

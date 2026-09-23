@@ -14,14 +14,8 @@
  * (`scripts/sanity-test.ts` só usa o objeto devolvido; `GameBoard.tsx`
  * aplica via `forceState` + pausa, ver o comentário de `fastForward` lá).
  */
-import {
-  gameReducer,
-  playerKeyOf,
-  opponentOf,
-  type GameAction,
-  type GameState,
-  type PlayerNumber,
-} from './gameEngine';
+import type { PlayerNumber } from './gameTypes';
+import { gameReducer, playerKeyOf, opponentOf, type GameAction, type GameState } from './gameEngine';
 import { decideAiAction, decideReactionToMagic } from './aiPlayer';
 import { enumerateLegalActions } from './actionSpace';
 import { checkInvariants } from './invariants';

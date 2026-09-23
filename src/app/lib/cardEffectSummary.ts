@@ -10,11 +10,12 @@
  * resolução de combate - `getSpotlightAdjustedValue`/`applyCombatModifierStatuses`,
  * nunca uma soma reimplementada aqui.
  */
+import type { PlayerNumber } from './gameTypes';
 import { ArrowDown, ArrowUp, Clock, Eye, Layers, Lock, Snowflake, type LucideIcon } from 'lucide-react';
 import { getEffectiveCardValue, type Card } from './cardUtils';
 import { applyCombatModifierStatuses, getCombatModifierStatuses, hasStatus } from './statusEffects';
 import { getSpotlightAdjustedValue, getSpotlightEntry, type SpotlightState } from './spotlight';
-import { characterOf, isBrotoSlot, isCoringaRawTrapCard, isTowerSlot, type FieldSlot, type GameState, type PlayerNumber } from './gameEngine';
+import { characterOf, isBrotoSlot, isCoringaRawTrapCard, isTowerSlot, type FieldSlot, type GameState } from './gameEngine';
 
 export type CardTypeTag = 'trap' | 'magic' | 'summon' | 'numeralToken' | 'magicToken' | 'numeral';
 
