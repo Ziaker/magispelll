@@ -23,7 +23,7 @@ import { getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFie
 import type { GameState } from '../lib/gameStateTypes';
 import { isBrotoSlot } from '../lib/fieldLifecycle';
 import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from '../lib/gameSelectors';
-import { MAX_MONSTER_USES } from '../lib/monsterLifecycle';
+import { MAX_MONSTER_USES, canActivateMonsterEffect } from '../lib/monsterLifecycle';
 import type { GameAction, MagicSelection } from '../lib/gameActionTypes';
 import type { PlayerNumber } from '../lib/gameTypes';
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
@@ -86,7 +86,7 @@ import { useSettings } from '../context/SettingsContext';
 import { getAnimationDurationScale, getAiThinkTimeScale } from '../lib/settings';
 import { soundManager, magicSoundFor, monsterSoundFor, numeralSoundFor } from '../lib/soundManager';
 import { motion } from 'motion/react';
-import { gameReducer, createInitialState, isSlotProtected, canActivateMonsterEffect, canSelectCombatSlot, getMagicActivationContext, isCoringaRawTrapCard, getFireballCap, canMagicTriggerReactionAnnouncement } from '../lib/gameEngine';
+import { gameReducer, createInitialState, isSlotProtected, canSelectCombatSlot, getMagicActivationContext, isCoringaRawTrapCard, getFireballCap, canMagicTriggerReactionAnnouncement } from '../lib/gameEngine';
 import type { CharacterId } from '../lib/characterRegistry';
 import { decideAiAction, decideAiActionTraced, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
 import { simulateSteps, fuzzSteps } from '../lib/simulateGame';
