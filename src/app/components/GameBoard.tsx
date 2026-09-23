@@ -17,6 +17,7 @@
  * de cartas que ela resolve.
  */
 
+import { canFormOrReinforceTower } from '../lib/towerRules';
 import { getGlacialGolemValue } from '../lib/glacialRules';
 import { getDestroyableReinforcementSlots, getUnrevealedFieldSlots, getFilledFieldSlots } from '../lib/fieldQueries';
 import type { GameState } from '../lib/gameStateTypes';
@@ -85,7 +86,7 @@ import { useSettings } from '../context/SettingsContext';
 import { getAnimationDurationScale, getAiThinkTimeScale } from '../lib/settings';
 import { soundManager, magicSoundFor, monsterSoundFor, numeralSoundFor } from '../lib/soundManager';
 import { motion } from 'motion/react';
-import { gameReducer, createInitialState, isSlotProtected, canActivateMonsterEffect, canSelectCombatSlot, getMagicActivationContext, canFormOrReinforceTower, isCoringaRawTrapCard, getFireballCap, canMagicTriggerReactionAnnouncement } from '../lib/gameEngine';
+import { gameReducer, createInitialState, isSlotProtected, canActivateMonsterEffect, canSelectCombatSlot, getMagicActivationContext, isCoringaRawTrapCard, getFireballCap, canMagicTriggerReactionAnnouncement } from '../lib/gameEngine';
 import type { CharacterId } from '../lib/characterRegistry';
 import { decideAiAction, decideAiActionTraced, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
 import { simulateSteps, fuzzSteps } from '../lib/simulateGame';

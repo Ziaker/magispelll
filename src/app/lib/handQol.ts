@@ -7,10 +7,11 @@
  * aqui (em vez de inline em PlayerZone.tsx) pra cada uma poder ser testada
  * isoladamente sem precisar montar um componente inteiro.
  */
+import { towerEligibleValue } from './towerRules';
 import type { Card } from './cardUtils';
 import { getDisplayValue, getEffectiveCardValue, isPlainNumeralCard } from './cardUtils';
 import { computeFusionResult, isUntransformedAce, type FusionResult } from './fusion';
-import { towerEligibleValue } from './gameEngine';
+
 import type { Phase } from './magicCards';
 
 /**
