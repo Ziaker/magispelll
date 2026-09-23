@@ -19,7 +19,8 @@
  *                                                 impresso automaticamente quando uma falha é encontrada -
  *                                                 nunca depende de índice de loop, só desses 4 valores).
  */
-import { createInitialState, ALL_CHARACTER_IDS } from '../src/app/lib/gameEngine';
+import { createInitialState } from '../src/app/lib/gameStateFactory';
+import { ALL_CHARACTER_IDS } from '../src/app/lib/gameEngine';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../src/app/lib/gameConfig';
 import { fuzzSteps } from '../src/app/lib/simulateGame';
 import { checkActionDivergence } from '../src/app/lib/actionSpace';

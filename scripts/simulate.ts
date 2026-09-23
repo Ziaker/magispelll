@@ -23,7 +23,8 @@
  * quantas vezes CADA combinação personagem+magia (J/Q/K) foi de fato
  * ATIVADA (EXECUTE_MAGIC aceito pelo motor) ao longo de todas as partidas.
  */
-import { createInitialState, gameReducer, type GameAction, type PlayerNumber } from '../src/app/lib/gameEngine';
+import { createInitialState } from '../src/app/lib/gameStateFactory';
+import { gameReducer, type GameAction, type PlayerNumber } from '../src/app/lib/gameEngine';
 import { ALL_CHARACTER_IDS, type CharacterId } from '../src/app/lib/characterRegistry';
 import { evaluateAction } from '../src/app/lib/actionValidation';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../src/app/lib/gameConfig';
