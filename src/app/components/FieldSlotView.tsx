@@ -1,3 +1,4 @@
+import { isTowerSlot, isBrotoSlot } from '../lib/fieldLifecycle';
 import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
@@ -15,7 +16,7 @@ import { CardKeywords } from './CardKeywords';
 import { getDisplayValue, type Card } from '../lib/cardUtils';
 import type { FieldSlot } from '../lib/gameEngine';
 import type { CharacterId } from '../lib/characterRegistry';
-import { isTowerSlot, isBrotoSlot } from '../lib/gameEngine';
+
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { CARD_ITEM_TYPE, type CardDragItem } from '../lib/dnd';
 import { registerDropTarget, unregisterDropTarget } from '../lib/dropTargetRegistry';

@@ -1,7 +1,8 @@
+import { isTowerSlot } from '../lib/fieldLifecycle';
 import { motion } from 'motion/react';
 import { Pause, Play } from 'lucide-react';
 import { getCharacterTheme } from '../lib/characterThemes';
-import { isTowerSlot, type FieldSlot } from '../lib/gameEngine';
+import { type FieldSlot } from '../lib/gameEngine';
 import type { CharacterId } from '../lib/characterRegistry';
 import type { Card } from '../lib/cardUtils';
 import { FieldSlotView } from './FieldSlotView';

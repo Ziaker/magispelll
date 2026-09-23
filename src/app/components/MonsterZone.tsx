@@ -1,3 +1,4 @@
+import { isBrotoSlot } from '../lib/fieldLifecycle';
 import { MAX_MONSTER_USES } from '../lib/monsterLifecycle';
 import type { CSSProperties } from 'react';
 import { useEffect, useRef } from 'react';
@@ -5,7 +6,7 @@ import { useDrop } from 'react-dnd';
 import { PlayingCard, PHASE_DISPLAY } from './PlayingCard';
 import { getCharacterTheme } from '../lib/characterThemes';
 import type { Card } from '../lib/cardUtils';
-import { isBrotoSlot, type FieldSlot } from '../lib/gameEngine';
+import { type FieldSlot } from '../lib/gameEngine';
 import type { CharacterId } from '../lib/characterRegistry';
 import { getDisplayValue, getEffectiveCardValue } from '../lib/cardUtils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
