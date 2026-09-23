@@ -19,6 +19,7 @@ import { join, relative } from 'node:path';
  * - getGlacialGolemValue/isFrozenPlayBlocked/isFrozenMagicActivationBlocked -> glacialRules.ts
  * - isSlotProtected -> anjoRules.ts
  * - canSelectCombatSlot -> combatRules.ts
+ * - getFireballCap -> piromanteRules.ts
  * - towerEligibleValue/canFormOrReinforceTower -> towerRules.ts
  * - getEffectiveDrawLimit/getEffectiveDiscardLimit -> gameLimits.ts
  *
@@ -59,6 +60,7 @@ const EXTRACTED_SYMBOLS = new Set([
   'isFrozenMagicActivationBlocked',
   'isSlotProtected',
   'canSelectCombatSlot',
+  'getFireballCap',
   'towerEligibleValue',
   'canFormOrReinforceTower',
   'getEffectiveDrawLimit',
@@ -99,7 +101,7 @@ assert.deepEqual(
   [],
   [
     'Símbolos extraídos não devem ser importados através de gameEngine.ts.',
-    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts, fieldLifecycle.ts, fieldQueries.ts, glacialRules.ts, anjoRules.ts, combatRules.ts, towerRules.ts ou gameLimits.ts conforme o símbolo.',
+    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts, fieldLifecycle.ts, fieldQueries.ts, glacialRules.ts, anjoRules.ts, combatRules.ts, piromanteRules.ts, towerRules.ts ou gameLimits.ts conforme o símbolo.',
     `Violações: ${violations.join(', ')}`,
   ].join(' ')
 );

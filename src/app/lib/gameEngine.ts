@@ -71,6 +71,7 @@ import { fieldCards, wasEverTowerSlot, getUnbattledHorizontalSlots, getDestroyab
 import { getGlacialGolemValue, isFrozenPlayBlocked, isFrozenMagicActivationBlocked } from './glacialRules';
 import { isSlotProtected } from './anjoRules';
 import { canSelectCombatSlot } from './combatRules';
+import { getFireballCap } from './piromanteRules';
 import { computeLoneTowerForCombat, towerEligibleValue, canFormOrReinforceTower } from './towerRules';
 import { growDruidaBrotoField } from './druidaLifecycle';
 import { resetPlayerForPhaseTransition } from './playerPhaseLifecycle';
@@ -90,6 +91,7 @@ export { fieldCards, wasEverTowerSlot, getUnbattledHorizontalSlots, getDestroyab
 export { getGlacialGolemValue, isFrozenPlayBlocked, isFrozenMagicActivationBlocked } from './glacialRules';
 export { isSlotProtected } from './anjoRules';
 export { canSelectCombatSlot } from './combatRules';
+export { getFireballCap } from './piromanteRules';
 export { towerEligibleValue, canFormOrReinforceTower } from './towerRules';
 export { getEffectiveDrawLimit, getEffectiveDiscardLimit } from './gameLimits';
 
@@ -2001,11 +2003,6 @@ function handleActivateSimpleMagic(state: GameState, player: PlayerNumber, cardI
   }
 
   return state;
-}
-
-/** Piromante - teto da Bola de Fogo (30 no Modo Towers, 20 normalmente - pedido do usuário). */
-export function getFireballCap(gameConfig: GameConfig): number {
-  return gameConfig.towersMode ? 30 : 20;
 }
 
 /**
