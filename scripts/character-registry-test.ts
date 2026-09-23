@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { ALL_CHARACTER_IDS, CHARACTER_DEFINITIONS, isCharacterId } from '../src/app/lib/characterRegistry';
 import { ALL_CHARACTER_IDS as ENGINE_CHARACTER_IDS } from '../src/app/lib/gameEngine';
 
@@ -23,4 +25,34 @@ assert.deepEqual(
   'gameEngine e Character Registry não podem divergir durante a migração'
 );
 
-console.log(`✓ characterRegistry: ${ALL_CHARACTER_IDS.length} personagens canônicos e contrato íntegro`);
+/**
+ * Fronteira arquitetural: CharacterId nasce no registry. O gameEngine ainda
+ * reexporta o tipo por compatibilidade, mas novos consumidores em src/app não
+ * devem criar dependência do monólito só para obter a identidade do personagem.
+ */
+const sourceRoot = join(process.cwd(), 'src', 'app');
+const characterIdViaEngine = /import\s+(?:type\s+)?\{[^}]*\b(?:type\s+)?CharacterId\b[^}]*\}\s+from\s+['"][^'"]*gameEngine['"];/gs;
+const violations: string[] = [];
+
+function scanDirectory(directory: string): void {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      scanDirectory(path);
+      continue;
+    }
+    if (!entry.isFile() || (!entry.name.endsWith('.ts') && !entry.name.endsWith('.tsx'))) continue;
+    const source = readFileSync(path, 'utf8');
+    if (characterIdViaEngine.test(source)) violations.push(path.replace(`${process.cwd()}/`, ''));
+    characterIdViaEngine.lastIndex = 0;
+  }
+}
+
+scanDirectory(sourceRoot);
+assert.deepEqual(
+  violations,
+  [],
+  `CharacterId deve ser importado de characterRegistry, não de gameEngine. Violações: ${violations.join(', ')}`
+);
+
+console.log(`✓ characterRegistry: ${ALL_CHARACTER_IDS.length} personagens canônicos, dados válidos e fronteira de imports íntegra`);
