@@ -79,4 +79,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/app
           git commit -m "refactor: extract draw phase handler"
-          git push origin HEAD:overhaul/draw-phase-handler
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/draw-phase-handler; then
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
