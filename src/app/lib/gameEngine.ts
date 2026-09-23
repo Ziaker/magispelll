@@ -65,11 +65,13 @@ import { isSameGameplayState } from './gameplayState';
 import type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 import type { LogEntry, LogEventType } from './gameLogTypes';
 import type { GameAction, MagicSelection } from './gameActionTypes';
+import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
 
 export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
 export type { LogEntry, LogEventType } from './gameLogTypes';
 export type { GameAction, MagicSelection } from './gameActionTypes';
+export { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
 
 export type FieldSlot = {
   faceDownCard?: Card;
@@ -515,19 +517,6 @@ export function createInitialState(
       { id: 1, turn: 1, phase: 'draw', type: 'phase', player: null, text: 'Turno 1 - Fase de Compra' },
     ],
   };
-}
-
-export function playerKeyOf(player: PlayerNumber): PlayerKey {
-  return player === 1 ? 'player1' : 'player2';
-}
-export function opponentKeyOf(player: PlayerNumber): PlayerKey {
-  return player === 1 ? 'player2' : 'player1';
-}
-export function opponentOf(player: PlayerNumber): PlayerNumber {
-  return player === 1 ? 2 : 1;
-}
-export function characterOf(state: GameState, player: PlayerNumber): CharacterId {
-  return player === 1 ? state.player1Character : state.player2Character;
 }
 
 interface LogOptions {
