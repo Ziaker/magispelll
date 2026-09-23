@@ -83,6 +83,7 @@ import type { CharacterId } from '../lib/characterRegistry';
 import { decideAiAction, decideAiActionTraced, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
 import { simulateSteps, fuzzSteps } from '../lib/simulateGame';
 import { enumerateLegalActions, checkActionDivergence } from '../lib/actionSpace';
+import { evaluateAction } from '../lib/actionValidation';
 import { checkInvariants, countAllCards } from '../lib/invariants';
 import { setSeed, getSeed, clearSeed } from '../lib/rng';
 import { decideHandCardSelection, toggleTowerCardSelection, groupCardsForTowerViaDrag } from '../lib/handSelection';
@@ -199,13 +200,11 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    * na origem quando encontrado, mas esta rede protege qualquer caso FUTURO
    * equivalente sem precisar conhecer a causa).
    *
-   * Detecta isso de forma DETERMINÍSTICA: chama `gameReducer` diretamente
-   * contra o `gameState` ATUAL, ANTES de despachar de verdade - a mesma
-   * função pura já usada em outros lugares deste arquivo pra "e se" sem
-   * efeito colateral (ex.: replay do log, ver mais abaixo). Se o resultado
-   * é idêntico ao estado atual (ignorando só `log`, que toda rejeição
-   * também anexa um aviso nele), a ação NÃO teria nenhum efeito - sabido já
-   * agora, sem precisar despachar e esperar repetir.
+   * Detecta isso de forma DETERMINÍSTICA via `evaluateAction`, a autoridade
+   * compartilhada de `actionValidation.ts`: ela executa o reducer real contra
+   * o `gameState` ATUAL e considera rejeição qualquer resultado que não altere
+   * gameplay, mesmo quando o motor acrescenta apenas uma linha ao log. Assim
+   * GameBoard, simuladores e action-space usam exatamente a mesma semântica.
    *
    * FIX (relatado pelo usuário: "a IA está finalizando sua fase antes de
    * fazer qualquer ação mínima ou posicionar no mínimo 2 cartas") - a
@@ -230,8 +229,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    * decidida ou despachada antes - só conta como rejeição quando ela
    * REALMENTE não muda nada AGORA.
    *
-   * NOTA (custo aceito): quando a ação NÃO é no-op, `gameReducer` roda aqui
-   * (só pra comparar) e roda de novo de verdade no dispatch real logo abaixo
+   * NOTA (custo aceito): quando a ação NÃO é no-op, `evaluateAction` executa
+   * `gameReducer` aqui e o reducer roda de novo no dispatch real logo abaixo
    * - qualquer `random()` (rng.ts) consumido nesta chamada especulativa é
    * jogado fora (nunca vira estado de verdade, só compara). Em produção
    * (`random()` = `Math.random()` cru) isso não importa. Só afeta
@@ -242,13 +241,8 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    * só a ordem interna de uma mão embaralhada nesse caso específico pode
    * variar por execução.
    */
-  const isNoOpAiAction = (action: GameAction): boolean => {
-    const next = gameReducer(gameState, action);
-    if (next === gameState) return true;
-    const { log: _prevLog, ...prevRest } = gameState;
-    const { log: _nextLog, ...nextRest } = next;
-    return JSON.stringify(nextRest) === JSON.stringify(prevRest);
-  };
+  const isNoOpAiAction = (action: GameAction): boolean =>
+    !evaluateAction(gameState, action).accepted;
   const rawDispatch = (action: GameAction) => {
     recordedActionsRef.current.push(action);
     reducerDispatch(action);
