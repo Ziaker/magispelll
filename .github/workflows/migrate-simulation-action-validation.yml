@@ -22,7 +22,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Apply migration
-        run: python3 .github/scripts/migrate_simulation_action_validation.py
+        run: |
+          python3 .github/scripts/migrate_simulation_action_validation.py
+          python3 .github/scripts/fix_piromante_fireball_phase.py
       - name: Validate migration
         run: |
           npm run typecheck
@@ -43,7 +45,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/app
-          git commit -m "refactor: use canonical action validation in simulations"
+          git commit -m "fix: align simulation rejection semantics and Piromante AI"
           for attempt in 1 2 3; do
             if git push origin HEAD:overhaul/simulation-action-validation; then
               exit 0
