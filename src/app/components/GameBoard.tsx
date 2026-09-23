@@ -17,6 +17,7 @@
  * de cartas que ela resolve.
  */
 
+import { isCoringaRawTrapCard } from '../lib/coringaRules';
 import { getFireballCap } from '../lib/piromanteRules';
 import { canSelectCombatSlot } from '../lib/combatRules';
 import { isSlotProtected } from '../lib/anjoRules';
@@ -89,7 +90,7 @@ import { useSettings } from '../context/SettingsContext';
 import { getAnimationDurationScale, getAiThinkTimeScale } from '../lib/settings';
 import { soundManager, magicSoundFor, monsterSoundFor, numeralSoundFor } from '../lib/soundManager';
 import { motion } from 'motion/react';
-import { gameReducer, createInitialState, getMagicActivationContext, isCoringaRawTrapCard, canMagicTriggerReactionAnnouncement } from '../lib/gameEngine';
+import { gameReducer, createInitialState, getMagicActivationContext, canMagicTriggerReactionAnnouncement } from '../lib/gameEngine';
 import type { CharacterId } from '../lib/characterRegistry';
 import { decideAiAction, decideAiActionTraced, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
 import { simulateSteps, fuzzSteps } from '../lib/simulateGame';
