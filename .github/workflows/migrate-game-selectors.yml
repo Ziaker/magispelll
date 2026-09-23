@@ -1,0 +1,98 @@
+name: Temporary game selector migration
+
+on:
+  push:
+    branches: [overhaul/game-selectors]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/game-selectors
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract player selectors with TypeScript AST
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/gameSelectors.ts';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('gameSelectors.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const names = ['playerKeyOf', 'opponentKeyOf', 'opponentOf', 'characterOf'];
+          const found = new Map();
+          for (const stmt of sf.statements) {
+            if (ts.isFunctionDeclaration(stmt) && stmt.name && names.includes(stmt.name.text)) {
+              found.set(stmt.name.text, stmt);
+            }
+          }
+          for (const name of names) if (!found.has(name)) throw new Error(`${name} not found`);
+
+          const blocks = [];
+          const ranges = [];
+          for (const name of names) {
+            const node = found.get(name);
+            const start = node.getFullStart();
+            const end = node.end;
+            blocks.push(source.slice(start, end).trim());
+            ranges.push([start, end]);
+          }
+
+          let next = source;
+          for (const [start, end] of ranges.sort((a, b) => b[0] - a[0])) {
+            next = next.slice(0, start) + next.slice(end);
+          }
+
+          const importAnchor = "import type { GameAction, MagicSelection } from './gameActionTypes';\n";
+          const importLine = "import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';\n";
+          if (!next.includes(importAnchor)) throw new Error('gameActionTypes import anchor not found');
+          next = next.replace(importAnchor, importAnchor + importLine);
+
+          const exportAnchor = "export type { GameAction, MagicSelection } from './gameActionTypes';\n";
+          const exportLine = "export { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';\n";
+          if (!next.includes(exportAnchor)) throw new Error('gameActionTypes export anchor not found');
+          next = next.replace(exportAnchor, exportAnchor + exportLine);
+
+          const header = [
+            '/**',
+            ' * gameSelectors.ts - seletores básicos e puros de identidade de jogador.',
+            ' *',
+            ' * São helpers de domínio usados por motor, UI, IA e ferramentas. Mantê-los',
+            ' * fora do reducer evita usar gameEngine.ts como ponto obrigatório para',
+            ' * operações que não dependem da implementação dos handlers.',
+            ' */',
+            "import type { PlayerKey, PlayerNumber } from './gameTypes';",
+            "import type { CharacterId } from './characterRegistry';",
+            "import type { GameState } from './gameEngine';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + blocks.join('\n\n') + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm run test:actions
+          npm run test:boundaries
+          npm run test:exhaustiveness
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app/lib/gameEngine.ts src/app/lib/gameSelectors.ts; then
+            echo "No selector migration diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/lib/gameEngine.ts src/app/lib/gameSelectors.ts
+          git commit -m "refactor: extract player selectors from engine"
+          git push origin HEAD:overhaul/game-selectors
