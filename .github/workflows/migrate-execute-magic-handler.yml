@@ -1,0 +1,168 @@
+name: Temporary execute magic handler migration
+
+on:
+  push:
+    branches: [overhaul/execute-magic-handler]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/execute-magic-handler
+      - name: Install dependencies
+        run: npm ci
+      - name: Move execute magic handler cluster
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const handlerPath = 'src/app/lib/magicHandlers.ts';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          const handlerSource = fs.readFileSync(handlerPath, 'utf8');
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const handlerSf = ts.createSourceFile(handlerPath, handlerSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const moveNames = ['executeFireballLaunch', 'resolveGlacialCardConsumption', 'handleExecuteMagic'];
+          const moveSet = new Set(moveNames);
+
+          const movedNodes = [];
+          for (const name of moveNames) {
+            const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === name);
+            if (!node) throw new Error(`${name} not found as top-level function`);
+            movedNodes.push(node);
+          }
+
+          const imported = new Map();
+          for (const stmt of sf.statements) {
+            if (!ts.isImportDeclaration(stmt) || !stmt.importClause || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+            const module = stmt.moduleSpecifier.text;
+            const clause = stmt.importClause;
+            if (clause.name) imported.set(clause.name.text, { module, default: true, importedName: 'default', typeOnly: clause.isTypeOnly });
+            const bindings = clause.namedBindings;
+            if (bindings && ts.isNamedImports(bindings)) {
+              for (const spec of bindings.elements) {
+                imported.set(spec.name.text, {
+                  module,
+                  default: false,
+                  importedName: spec.propertyName?.text ?? spec.name.text,
+                  localName: spec.name.text,
+                  typeOnly: clause.isTypeOnly || spec.isTypeOnly,
+                });
+              }
+            }
+          }
+
+          const topLevelDeclared = new Set();
+          for (const stmt of sf.statements) {
+            if (ts.isFunctionDeclaration(stmt) && stmt.name) topLevelDeclared.add(stmt.name.text);
+            if (ts.isClassDeclaration(stmt) && stmt.name) topLevelDeclared.add(stmt.name.text);
+            if (ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt) || ts.isEnumDeclaration(stmt)) topLevelDeclared.add(stmt.name.text);
+            if (ts.isVariableStatement(stmt)) {
+              for (const decl of stmt.declarationList.declarations) {
+                if (ts.isIdentifier(decl.name)) topLevelDeclared.add(decl.name.text);
+              }
+            }
+          }
+
+          const refs = new Set();
+          function walk(node) {
+            if (ts.isIdentifier(node)) refs.add(node.text);
+            ts.forEachChild(node, walk);
+          }
+          movedNodes.forEach(walk);
+
+          const privateDeps = [...refs].filter((name) => topLevelDeclared.has(name) && !moveSet.has(name));
+          if (privateDeps.length) {
+            throw new Error(`Private gameEngine dependencies remain: ${privateDeps.sort().join(', ')}`);
+          }
+
+          const existingHandlerImports = new Set();
+          for (const stmt of handlerSf.statements) {
+            if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
+            if (stmt.importClause.name) existingHandlerImports.add(stmt.importClause.name.text);
+            const bindings = stmt.importClause.namedBindings;
+            if (bindings && ts.isNamedImports(bindings)) for (const spec of bindings.elements) existingHandlerImports.add(spec.name.text);
+          }
+
+          const needed = [...refs]
+            .filter((name) => imported.has(name) && !existingHandlerImports.has(name))
+            .map((name) => [name, imported.get(name)]);
+
+          const groups = new Map();
+          for (const [localName, info] of needed) {
+            if (info.default) throw new Error(`Unhandled default import dependency: ${localName} from ${info.module}`);
+            const key = `${info.module}|${info.typeOnly ? 'type' : 'value'}`;
+            if (!groups.has(key)) groups.set(key, { module: info.module, typeOnly: info.typeOnly, specs: [] });
+            groups.get(key).specs.push({ importedName: info.importedName, localName });
+          }
+
+          const importLines = [];
+          for (const group of [...groups.values()].sort((a, b) => a.module.localeCompare(b.module) || Number(a.typeOnly) - Number(b.typeOnly))) {
+            group.specs.sort((a, b) => a.localName.localeCompare(b.localName));
+            const specs = group.specs.map(({ importedName, localName }) => importedName === localName ? localName : `${importedName} as ${localName}`);
+            importLines.push(`import ${group.typeOnly ? 'type ' : ''}{ ${specs.join(', ')} } from '${group.module}';`);
+          }
+
+          const snippets = movedNodes.map((node) => {
+            let text = source.slice(node.getFullStart(), node.end).trim();
+            const name = node.name.text;
+            text = text.replace(`function ${name}`, `export function ${name}`);
+            return text;
+          });
+
+          let next = source;
+          const spans = movedNodes.map((node) => [node.getFullStart(), node.end]).sort((a, b) => b[0] - a[0]);
+          for (const [start, end] of spans) next = next.slice(0, start) + next.slice(end);
+
+          const engineImport = "import { handleActivateSimpleMagic } from './magicHandlers';";
+          const newEngineImport = "import { handleActivateSimpleMagic, handleExecuteMagic } from './magicHandlers';";
+          if (next.split(engineImport).length !== 2) throw new Error('magicHandlers engine import anchor not found exactly once');
+          next = next.replace(engineImport, newEngineImport);
+
+          let nextHandler = handlerSource;
+          if (importLines.length) {
+            const marker = '// ---------------------------------------------------------------------------\n// Magias (J, Q, K)';
+            const markerIndex = nextHandler.indexOf(marker);
+            if (markerIndex < 0) throw new Error('magicHandlers marker not found');
+            nextHandler = nextHandler.slice(0, markerIndex) + importLines.join('\n') + '\n\n' + nextHandler.slice(markerIndex);
+          }
+          nextHandler = nextHandler.trimEnd() + '\n\n' + snippets.join('\n\n') + '\n';
+
+          fs.writeFileSync(enginePath, next);
+          fs.writeFileSync(handlerPath, nextHandler);
+          console.log(`Moved ${moveNames.join(', ')}`);
+          console.log(`Added imports: ${importLines.join(' | ') || '(none)'}`);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+          npm run build
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No execute-magic diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: extract execute magic handler"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/execute-magic-handler; then
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
