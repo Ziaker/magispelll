@@ -1,0 +1,92 @@
+name: Temporary combat selection handler migration
+
+on:
+  push:
+    branches: [overhaul/combat-selection-handler]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/combat-selection-handler
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract combat selection handler
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/combatHandlers.ts';
+          const functionName = 'handleSelectCombatSlot';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('combatHandlers.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === functionName);
+          if (!node) throw new Error(`${functionName} not found`);
+
+          let snippet = source.slice(node.getFullStart(), node.end).trim();
+          snippet = snippet.replace(`function ${functionName}`, `export function ${functionName}`);
+          let next = source.slice(0, node.getFullStart()) + source.slice(node.end);
+
+          const combatRulesImport = "import { canSelectCombatSlot } from './combatRules';\n";
+          if (next.split(combatRulesImport).length !== 2) throw new Error('combatRules runtime import anchor not found exactly once');
+          next = next.replace(combatRulesImport, '');
+
+          const coringaHandlerImport = "import { handleTransformCoringaMagicCard } from './coringaHandlers';\n";
+          const handlerImport = "import { handleSelectCombatSlot } from './combatHandlers';\n";
+          if (next.split(coringaHandlerImport).length !== 2) throw new Error('coringa handler import anchor not found exactly once');
+          next = next.replace(coringaHandlerImport, coringaHandlerImport + handlerImport);
+
+          const header = [
+            '/**',
+            ' * combatHandlers.ts - transições de estado da fase de Combate.',
+            ' *',
+            ' * Começa pela seleção de slot. Resolução/finalização continuam no',
+            ' * motor até suas dependências de domínio estarem suficientemente isoladas.',
+            ' */',
+            "import { canSelectCombatSlot } from './combatRules';",
+            "import { appendLog } from './gameLog';",
+            "import { playerKeyOf } from './gameSelectors';",
+            "import type { GameState } from './gameStateTypes';",
+            "import type { PlayerNumber } from './gameTypes';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + snippet + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+          npm run build
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No combat-selection diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: extract combat selection handler"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/combat-selection-handler; then
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
