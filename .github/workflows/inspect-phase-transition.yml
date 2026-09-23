@@ -23,16 +23,13 @@ jobs:
           const path = 'src/app/lib/gameEngine.ts';
           const source = fs.readFileSync(path, 'utf8');
           const sf = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const targets = new Set(['advancePhaseState', 'handleToggleReady']);
           const matches = [];
           for (const stmt of sf.statements) {
-            if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-              const n = stmt.name.text;
-              if (/phase|ready|turn/i.test(n)) matches.push(stmt);
-            }
+            if (ts.isFunctionDeclaration(stmt) && stmt.name && targets.has(stmt.name.text)) matches.push(stmt);
           }
-          console.log('PHASE_RELATED_FUNCTIONS=' + matches.map(m => m.name.text).join(','));
+          console.log('FOUND=' + matches.map(m => m.name.text).join(','));
           for (const stmt of matches) {
-            if (!['advancePhase','handleToggleReady'].includes(stmt.name.text)) continue;
             console.log(`\n===== ${stmt.name.text} =====`);
             console.log(source.slice(stmt.getFullStart(), stmt.end));
             const ids = new Set();
