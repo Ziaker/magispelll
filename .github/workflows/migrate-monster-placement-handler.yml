@@ -1,0 +1,87 @@
+name: Temporary monster placement handler migration
+
+on:
+  push:
+    branches: [overhaul/monster-placement-handler]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/monster-placement-handler
+      - name: Install dependencies
+        run: npm ci
+      - name: Extract monster placement handler
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('fs');
+          const ts = require('typescript');
+
+          const enginePath = 'src/app/lib/gameEngine.ts';
+          const outPath = 'src/app/lib/monsterHandlers.ts';
+          const functionName = 'handlePlaceMonsterCard';
+          const source = fs.readFileSync(enginePath, 'utf8');
+          if (fs.existsSync(outPath)) throw new Error('monsterHandlers.ts already exists');
+
+          const sf = ts.createSourceFile(enginePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+          const node = sf.statements.find((stmt) => ts.isFunctionDeclaration(stmt) && stmt.name?.text === functionName);
+          if (!node) throw new Error(`${functionName} not found`);
+          const block = source.slice(node.getFullStart(), node.end).trim().replace(`function ${functionName}`, `export function ${functionName}`);
+          let next = source.slice(0, node.getFullStart()) + source.slice(node.end);
+
+          const aceImport = "import { handleTransformAce } from './aceHandlers';\n";
+          const monsterImport = "import { handlePlaceMonsterCard } from './monsterHandlers';\n";
+          if (next.split(aceImport).length !== 2) throw new Error('aceHandlers import anchor not found exactly once');
+          next = next.replace(aceImport, aceImport + monsterImport);
+
+          const header = [
+            '/**',
+            ' * monsterHandlers.ts - transições de estado da Zona Monstro.',
+            ' *',
+            ' * Este primeiro corte concentra apenas posicionamento. A lifecycle de',
+            ' * uso/expiração continua em monsterLifecycle e efeitos ficam separados.',
+            ' */',
+            "import { appendLog } from './gameLog';",
+            "import { characterOf, playerKeyOf } from './gameSelectors';",
+            "import { MAX_MONSTER_USES } from './monsterLifecycle';",
+            "import { hasStatus } from './statusEffects';",
+            "import type { GameState } from './gameStateTypes';",
+            "import type { PlayerNumber } from './gameTypes';",
+            '',
+          ].join('\n');
+
+          fs.writeFileSync(outPath, header + block + '\n');
+          fs.writeFileSync(enginePath, next);
+          NODE
+      - name: Validate migration
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:exhaustiveness
+          npm run test:actions
+          npm run test:characters
+          npm run test:boundaries
+          npm run build
+      - name: Commit migration
+        run: |
+          if git diff --quiet -- src/app; then
+            echo "No monster-placement diff to commit."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app
+          git commit -m "refactor: extract monster placement handler"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:overhaul/monster-placement-handler; then
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}); retrying..."
+            sleep $((attempt * 2))
+          done
+          exit 1
