@@ -66,6 +66,7 @@ import type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 import type { LogEntry, LogEventType } from './gameLogTypes';
 import type { GameAction, MagicSelection } from './gameActionTypes';
 import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
+import { getNextPhaseTransition } from './phaseRules';
 
 export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
@@ -5990,9 +5991,10 @@ function handleToggleReady(state: GameState, player: PlayerNumber): GameState {
  * turno seguinte, só com `monsterUsed` resetado para poder ativar de novo.
  */
 function advancePhaseState(state: GameState): GameState {
-  let newPhase: Phase;
-  let newFirstToFlip = state.firstToFlip;
-  let newTurn = state.turn;
+  const transition = getNextPhaseTransition(state);
+  const newPhase = transition.phase;
+  const newFirstToFlip = transition.firstToFlip;
+  const newTurn = transition.turn;
   let log = state.log;
   let deck = state.deck;
   let newCombatLoneTower: GameState['combatLoneTower'] = null;
@@ -6002,10 +6004,8 @@ function advancePhaseState(state: GameState): GameState {
   let newSpotlight = state.spotlight;
 
   if (state.phase === 'draw') {
-    newPhase = 'strategy';
     log = appendLog(state, log, 'phase', `Turno ${state.turn} - Fase de Estratégia`, { phaseOverride: 'strategy' });
   } else if (state.phase === 'strategy') {
-    newPhase = 'combat';
     newCombatLoneTower = computeLoneTowerForCombat(state);
     log = appendLog(
       state,
@@ -6015,9 +6015,6 @@ function advancePhaseState(state: GameState): GameState {
       { phaseOverride: 'combat' }
     );
   } else {
-    newPhase = 'draw';
-    newFirstToFlip = state.firstToFlip === 1 ? 2 : 1;
-    newTurn = state.turn + 1;
     log = appendLog(state, log, 'phase', `Turno ${newTurn} - Jogador ${newFirstToFlip} vira primeiro - Fase de Compra`, {
       turnOverride: newTurn,
       phaseOverride: 'draw',
