@@ -1,0 +1,59 @@
+name: Temporary engine character registry migration
+
+on:
+  push:
+    branches: [overhaul/engine-character-registry]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: overhaul/engine-character-registry
+      - name: Patch gameEngine character identity source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/app/lib/gameEngine.ts')
+          text = path.read_text(encoding='utf-8')
+          registry_import = "import { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';"
+
+          if registry_import in text and "export type CharacterId = 'mago'" not in text:
+              print('gameEngine already consumes characterRegistry; nothing to change')
+              raise SystemExit(0)
+
+          import_anchor = "} from './statusEffects';\n\n"
+          if import_anchor not in text:
+              raise SystemExit('statusEffects import anchor not found; refusing unsafe migration')
+          text = text.replace(import_anchor, "} from './statusEffects';\n" + registry_import + "\n\n", 1)
+
+          pattern = re.compile(
+              r"export type CharacterId = 'mago'[^\n]+;\n"
+              r"/\*\*\n \* Lista canônica de todo CharacterId.*?\n \*/\n"
+              r"export const ALL_CHARACTER_IDS:[^\n]+\n",
+              re.DOTALL,
+          )
+          replacement = "export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';\n"
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'expected exactly one CharacterId/roster block, found {count}; refusing unsafe migration')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit migration when needed
+        run: |
+          if git diff --quiet -- src/app/lib/gameEngine.ts; then
+            echo "No migration diff to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/lib/gameEngine.ts
+          git commit -m "refactor: make gameEngine consume character registry"
+          git push origin HEAD:overhaul/engine-character-registry
