@@ -21,6 +21,7 @@ import { join, relative } from 'node:path';
  * - canSelectCombatSlot -> combatRules.ts
  * - getFireballCap -> piromanteRules.ts
  * - isCoringaRawTrapCard -> coringaRules.ts
+ * - getMagicActivationContext -> magicActivationContext.ts
  * - towerEligibleValue/canFormOrReinforceTower -> towerRules.ts
  * - getEffectiveDrawLimit/getEffectiveDiscardLimit -> gameLimits.ts
  *
@@ -63,6 +64,7 @@ const EXTRACTED_SYMBOLS = new Set([
   'canSelectCombatSlot',
   'getFireballCap',
   'isCoringaRawTrapCard',
+  'getMagicActivationContext',
   'towerEligibleValue',
   'canFormOrReinforceTower',
   'getEffectiveDrawLimit',
@@ -103,7 +105,7 @@ assert.deepEqual(
   [],
   [
     'Símbolos extraídos não devem ser importados através de gameEngine.ts.',
-    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts, fieldLifecycle.ts, fieldQueries.ts, glacialRules.ts, anjoRules.ts, combatRules.ts, piromanteRules.ts, coringaRules.ts, towerRules.ts ou gameLimits.ts conforme o símbolo.',
+    'Use characterRegistry.ts, gameTypes.ts, gameLogTypes.ts, gameActionTypes.ts, gameStateTypes.ts, gameSelectors.ts, monsterLifecycle.ts, fieldLifecycle.ts, fieldQueries.ts, glacialRules.ts, anjoRules.ts, combatRules.ts, piromanteRules.ts, coringaRules.ts, magicActivationContext.ts, towerRules.ts ou gameLimits.ts conforme o símbolo.',
     `Violações: ${violations.join(', ')}`,
   ].join(' ')
 );
