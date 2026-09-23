@@ -62,10 +62,9 @@ import {
 } from './statusEffects';
 import { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
 import { isSameGameplayState } from './gameplayState';
+import type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 
-export type Phase = 'draw' | 'strategy' | 'combat';
-export type PlayerNumber = 1 | 2;
-export type PlayerKey = 'player1' | 'player2';
+export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
 
 export type FieldSlot = {
