@@ -68,6 +68,7 @@ import type { GameAction, MagicSelection } from './gameActionTypes';
 import { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
 import { getNextPhaseTransition } from './phaseRules';
 import { MAX_MONSTER_USES, resolveMonsterCardAtTurnEnd } from './monsterLifecycle';
+import { isTowerSlot, isBrotoSlot, keepPersistentFieldSlots, nonPersistentFieldCards } from './fieldLifecycle';
 
 export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
@@ -75,6 +76,7 @@ export type { LogEntry, LogEventType } from './gameLogTypes';
 export type { GameAction, MagicSelection } from './gameActionTypes';
 export { playerKeyOf, opponentKeyOf, opponentOf, characterOf } from './gameSelectors';
 export { MAX_MONSTER_USES } from './monsterLifecycle';
+export { isTowerSlot, isBrotoSlot } from './fieldLifecycle';
 
 export type FieldSlot = {
   faceDownCard?: Card;
@@ -662,11 +664,6 @@ export function fieldCards(field: [FieldSlot, FieldSlot, FieldSlot]): Card[] {
     .filter((c): c is Card => Boolean(c));
 }
 
-/** Verdadeiro quando este slot é uma torre do Modo Towers (tem reserva empilhada abaixo do topo). */
-export function isTowerSlot(slot: FieldSlot): boolean {
-  return Boolean(slot.towerReserve && slot.towerReserve.length > 0);
-}
-
 /**
  * Verdadeiro quando este slot JÁ FOI uma torre em algum momento (mesmo que
  * agora só reste a carta do topo sozinha, `isTowerSlot` falso) - pedido do
@@ -703,17 +700,6 @@ export function getGlacialGolemValue(state: GameState): number {
     fieldCards(state.player1.field).filter((c) => hasStatus(c, 'frozen')).length +
     fieldCards(state.player2.field).filter((c) => hasStatus(c, 'frozen')).length;
   return 8 + frozenCount;
-}
-
-/**
- * Verdadeiro quando este slot tem um Broto do Druida ativo - ao contrário de
- * `isTowerSlot`, testa PRESENÇA (`!== undefined`), nunca o comprimento: um
- * Broto plantado sozinho (sem nenhum Valete extra empilhado) já é um Broto
- * de verdade, com `brotoReserve: []` (ver comentário completo em
- * FieldSlot.brotoReserve).
- */
-export function isBrotoSlot(slot: FieldSlot): boolean {
-  return slot.brotoReserve !== undefined;
 }
 
 /**
@@ -804,22 +790,6 @@ function returnSlotToHand(
     hand: newHand,
     clearedSlot: { faceDownCard: undefined, horizontalCards: [], towerReserve: undefined, brotoReserve: undefined, revealed: false },
   };
-}
-
-function keepPersistentFieldSlots(field: [FieldSlot, FieldSlot, FieldSlot]): [FieldSlot, FieldSlot, FieldSlot] {
-  return field.map((slot) => (isTowerSlot(slot) || isBrotoSlot(slot) ? slot : { revealed: false, horizontalCards: [] })) as [
-    FieldSlot,
-    FieldSlot,
-    FieldSlot
-  ];
-}
-
-/** Contrapartida de `keepPersistentFieldSlots`: as cartas que ELE descarta (tudo que não está num slot de torre nem de Broto). */
-function nonPersistentFieldCards(field: [FieldSlot, FieldSlot, FieldSlot]): Card[] {
-  return field
-    .filter((slot) => !isTowerSlot(slot) && !isBrotoSlot(slot))
-    .flatMap((slot) => [slot.faceDownCard, ...slot.horizontalCards])
-    .filter((c): c is Card => Boolean(c));
 }
 
 /**
