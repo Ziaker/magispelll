@@ -12,7 +12,7 @@ import { getDisplayValue, resetCardForDiscard, revealCard, type Card } from '../
 import { applyStatus, applyTimedCombatModifier, getCombatModifierStatuses, getStatus, getStatusMagnitude, hasStatus } from '../src/app/lib/statusEffects';
 import { DEFAULT_GAME_CONFIG, MIN_DISCARD_LIMIT, type GameConfig } from '../src/app/lib/gameConfig';
 import { getLogEffectInfo } from '../src/app/lib/logFormat';
-import { decideAiAction, decideReactionToMagic } from '../src/app/lib/aiPlayer';
+import { decideAiAction, decideAiActionTraced, decideReactionToMagic } from '../src/app/lib/aiPlayer';
 import { simulateSteps } from '../src/app/lib/simulateGame';
 import { countAllCards } from '../src/app/lib/invariants';
 import { canActivateNumeralSpell } from '../src/app/lib/numeralSpells';
@@ -6498,6 +6498,34 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   assert(
     !(decision.type === 'action' && decision.action.type === 'PAY_TO_UNFREEZE'),
     `FIX Glacial IA: nunca propõe PAY_TO_UNFREEZE na própria carta (recebido: ${JSON.stringify(decision)})`
+  );
+})();
+
+// ---------------------------------------------------------------------------
+// FIX (bug relatado ao vivo: window.__debug.decideAiActionTraced(state, ai)
+// sempre devolvia o character do player2, mesmo chamado com ai=1) - a causa
+// era o WRAPPER em GameBoard.tsx que expõe isto em window.__debug, com
+// assinatura incompatível (`(player)`, 1 parâmetro) com a função real abaixo
+// (`(state, ai)`, 2 parâmetros); ver o comentário da correção lá. A função
+// real sempre esteve certa, mas nada travava o contrato dela - este teste
+// faz isso: numa disputa assimétrica (characters diferentes), o `character`
+// do trace pedido pra cada `ai` tem que bater com o character DAQUELE
+// jogador, nunca sempre o do player2.
+(function testDecideAiActionTracedReportsRequestedPlayerCharacter() {
+  const state = createInitialState('piromante', 'glacial', DEFAULT_GAME_CONFIG);
+  const trace1 = decideAiActionTraced(state, 1);
+  const trace2 = decideAiActionTraced(state, 2);
+  assert(
+    trace1.character === state.player1Character,
+    `decideAiActionTraced(state, 1).character deve ser o do player1 (${state.player1Character}), recebido: ${trace1.character}`
+  );
+  assert(
+    trace2.character === state.player2Character,
+    `decideAiActionTraced(state, 2).character deve ser o do player2 (${state.player2Character}), recebido: ${trace2.character}`
+  );
+  assert(
+    trace1.character !== trace2.character,
+    `matchup assimétrico do teste deveria ter characters diferentes entre si (recebido ${trace1.character} para os 2)`
   );
 })();
 

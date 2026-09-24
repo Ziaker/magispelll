@@ -149,14 +149,30 @@ export function maybeDeferForReaction(
     state.log,
     'magic',
     `Jogador ${player} anunciou uma magia (${card.value}) - Jogador ${opponent} pode reagir!`,
-    { player, cardValue: card.value, cardSuit: card.suit }
+    {
+      player,
+      cardValue: card.value,
+      cardSuit: card.suit,
+      // Fase 0.2 do roadmap de overhaul de animações - marcador estrutural
+      // pro estado "anunciado, pode ser negado" (ver LogTrigger,
+      // gameLogTypes.ts), em vez de casar a string "anunciou" no texto.
+      trigger: 'reaction-announced',
+      source: { kind: 'special-mode', mode: 'reactions' },
+      target: opponent,
+      // A carta É revelada nesta função (newHand acima) - o valor pode
+      // aparecer com a face pra cima numa animação a partir deste instante.
+      visibility: 'public',
+    }
   );
+  // `chainId` reusa o id desta entrada - liga o anúncio à confirmação/negação
+  // que vem depois (ver PendingReaction.chainId, gameStateTypes.ts).
+  const chainId = log[log.length - 1].id;
 
   return {
     ...state,
     log,
     [playerKey]: { ...playerState, hand: newHand },
-    pendingReaction: { casterPlayer: player, character, cardValue: card.value, cardId, originalAction },
+    pendingReaction: { casterPlayer: player, character, cardValue: card.value, cardId, originalAction, chainId },
   };
 }
 
@@ -192,7 +208,14 @@ export function handleReactToMagic(state: GameState, player: PlayerNumber, cardI
     state.log,
     'magic',
     `Jogador ${player} REAGIU com ${reactingCard.value}${reactingCard.suit} - a magia de Jogador ${pending.casterPlayer} foi negada! Ambas as cartas foram descartadas.`,
-    { player, cardValue: reactingCard.value }
+    {
+      player,
+      cardValue: reactingCard.value,
+      trigger: 'reaction-denied',
+      source: { kind: 'special-mode', mode: 'reactions' },
+      target: pending.casterPlayer,
+      chainId: pending.chainId,
+    }
   );
 
   return {

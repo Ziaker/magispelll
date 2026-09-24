@@ -90,14 +90,17 @@ export interface UseDebugToolsParams {
  *   Configuração nem recriar o useReducer - mescla por cima (null limpa
  *   tudo). Nunca afeta gameState.gameConfig (a cópia congelada usada pelo
  *   reducer para regras determinísticas).
- * window.__debug.enumerateActions(player?) -> lista TODA ação legal agora
- *   pro player (padrão 1) - reaproveita os predicados canX do motor
+ * window.__debug.enumerateActions(player?) / (state, player?) -> lista TODA
+ *   ação legal pro player (padrão 1), no estado atual OU num `state`
+ *   explícito passado como 1º argumento (dispatch por tipo - ver FIX no
+ *   corpo da função) - reaproveita os predicados canX do motor
  *   (actionSpace.ts, modo "legal"). Não despacha nada, só lista.
- * window.__debug.tryEveryAction(player?) -> roda o modo EXAUSTIVO
- *   (actionSpace.ts) contra uma cópia local do estado ATUAL - despacha toda
- *   ação sintaticamente plausível direto contra gameReducer (NUNCA via
- *   rawDispatch/dispatch, então NUNCA muda a partida ao vivo). Pode ser
- *   lento - comando manual de console, nunca chame num loop/useEffect.
+ * window.__debug.tryEveryAction(player?) / (state, player?) -> roda o modo
+ *   EXAUSTIVO (actionSpace.ts) contra uma cópia local do estado (atual, ou o
+ *   `state` explícito passado) - despacha toda ação sintaticamente plausível
+ *   direto contra gameReducer (NUNCA via rawDispatch/dispatch, então NUNCA
+ *   muda a partida ao vivo). Pode ser lento - comando manual de console,
+ *   nunca chame num loop/useEffect.
  * window.__debug.checkInvariants()  -> checagem de saúde (conservação de
  *   cartas + ids duplicados, invariants.ts) contra o estado atual.
  * window.__debug.fuzz(steps?, opts?) -> versão interativa do fuzzer
@@ -119,9 +122,12 @@ export interface UseDebugToolsParams {
  * window.__debug.replayToStep(n?)   -> redespacha o log carregado (ou o
  *   desta sessão) do zero até o passo n e aplica via forceState, sempre
  *   pausado.
- * window.__debug.decideAiActionTraced(player?) -> mesma função usada pelo
- *   painel visual de inspeção de IA, exposta aqui pra inspecionar via
- *   console/script sem abrir o painel. Ver AiDecisionTrace em aiPlayer.ts.
+ * window.__debug.decideAiActionTraced(player?) / (state, player?) -> mesma
+ *   função usada pelo painel visual de inspeção de IA, exposta aqui pra
+ *   inspecionar via console/script sem abrir o painel. Aceita o atalho de
+ *   console (só `player`, usa o estado atual) OU a assinatura real espelhada
+ *   1:1 (`state` explícito primeiro - dispatch por tipo do 1º argumento, ver
+ *   FIX no corpo da função). Ver AiDecisionTrace em aiPlayer.ts.
  */
 export function useDebugTools({
   gameState,
@@ -194,8 +200,29 @@ export function useDebugTools({
       setAnimationsEnabled: (enabled: boolean) => updateSetting('animations', enabled),
       setGameConfig: (partial: Partial<GameConfig> | null) =>
         setDebugGameConfigOverride((prev) => (partial === null ? null : { ...prev, ...partial })),
-      enumerateActions: (player: PlayerNumber = 1) => enumerateLegalActions(gameState, player),
-      tryEveryAction: (player: PlayerNumber = 1) => checkActionDivergence(gameState, player),
+      // FIX (bug relatado ao vivo, achado testando os 3 wrappers abaixo:
+      // window.__debug.decideAiActionTraced(window.__debug.state, 1) e (...,
+      // 2) sempre devolviam o character do player2): as 3 funções abaixo
+      // tinham assinatura `(player = 1)` - UM parâmetro só - enquanto as
+      // funções reais que envolvem (enumerateLegalActions/checkActionDivergence
+      // em actionSpace.ts, decideAiActionTraced em aiPlayer.ts) são todas
+      // `(state, player)`, DOIS. Chamar do jeito mais óbvio, espelhando o
+      // nome e a função real, fazia `state` (um objeto) cair na posição de
+      // `player`, e o número real virar um 3º argumento IGNORADO -
+      // `player === 1` então dava sempre `false` (objeto !== número).
+      // Corrigido aceitando as DUAS formas de chamada (dispatch por tipo do
+      // 1º argumento): `fn(player?)` (atalho de console, usa o estado
+      // atual) e `fn(state, player?)` (assinatura real, espelhada 1:1).
+      enumerateActions: (stateOrPlayer: GameState | PlayerNumber = gameState, player?: PlayerNumber) => {
+        const [state, p]: [GameState, PlayerNumber] =
+          typeof stateOrPlayer === 'number' ? [gameState, stateOrPlayer] : [stateOrPlayer, player ?? 1];
+        return enumerateLegalActions(state, p);
+      },
+      tryEveryAction: (stateOrPlayer: GameState | PlayerNumber = gameState, player?: PlayerNumber) => {
+        const [state, p]: [GameState, PlayerNumber] =
+          typeof stateOrPlayer === 'number' ? [gameState, stateOrPlayer] : [stateOrPlayer, player ?? 1];
+        return checkActionDivergence(state, p);
+      },
       checkInvariants: () => checkInvariants(gameState, initialCardTotal),
       fuzz,
       setSeed,
@@ -205,7 +232,11 @@ export function useDebugTools({
       getReplayLog,
       loadReplayLog,
       replayToStep,
-      decideAiActionTraced: (player: PlayerNumber = 1) => decideAiActionTraced(gameState, player),
+      decideAiActionTraced: (stateOrAi: GameState | PlayerNumber = gameState, ai?: PlayerNumber) => {
+        const [state, player]: [GameState, PlayerNumber] =
+          typeof stateOrAi === 'number' ? [gameState, stateOrAi] : [stateOrAi, ai ?? 1];
+        return decideAiActionTraced(state, player);
+      },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState]);

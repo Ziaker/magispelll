@@ -4,13 +4,13 @@
  * As definições/consultas puras continuam em numeralSpells.ts; este módulo
  * aplica as mudanças de estado sem depender de gameEngine.ts.
  */
-import { drawCards, type Card } from './cardUtils';
+import { drawCards, getDisplayValue, getDisplaySuit, type Card } from './cardUtils';
 import { pushToDiscard, ensureDeckHasAtLeast } from './deckLifecycle';
 import { fieldCards } from './fieldQueries';
 import { appendLog } from './gameLog';
 import { opponentKeyOf, opponentOf, playerKeyOf, characterOf } from './gameSelectors';
 import { emptyField } from './gameStateFactory';
-import type { FieldSlot, GameState, PlayerState } from './gameStateTypes';
+import type { FieldSlot, GameState, NumeralSpellCardSnapshot, PlayerState } from './gameStateTypes';
 import type { PlayerNumber } from './gameTypes';
 import { resolveMonsterCardAtTurnEnd } from './monsterLifecycle';
 import { canActivateNumeralSpell, formatNumeralRequirement, getMatchingNumeralCards, getNumeralSpellInfo } from './numeralSpells';
@@ -119,12 +119,30 @@ export function handleActivateNumeralSpell(state: GameState, player: PlayerNumbe
     log = appendLog(state, log, 'monster', `Carta Monstro de Jogador ${opponent} já esgotou os usos e foi descartada`);
   }
 
+  // Fase 0.2 do roadmap de overhaul de animações - snapshot das 3 cartas
+  // ANTES de saírem da mão (matchingCards ainda são as cartas físicas reais
+  // aqui), na mesma ordem de `requiredNumbers` (getMatchingNumeralCards
+  // empurra na ordem do `for` sobre requiredNumbers, numeralSpells.ts) -
+  // sem isto a UI não teria como montar as cartas de verdade (ver comentário
+  // de NumeralSpellCardSnapshot, gameStateTypes.ts). `chainId` reusa o id da
+  // entrada de ativação que acabou de ser criada acima.
+  const chainId = log[log.length - 1].id;
+  const [snapshot0, snapshot1, snapshot2] = matchingCards.map(
+    (card): NumeralSpellCardSnapshot => ({
+      id: card.id,
+      suit: getDisplaySuit(card),
+      displayValue: getDisplayValue(card),
+      revealed: card.revealed ?? false,
+      owner: player,
+    })
+  );
+
   return {
     ...state,
     log,
     deck: deckAfterMonsterDiscard,
     discardPile: discardPileAfterMonsterDiscard,
-    numeralSpellPending: { playerNumber: player, character },
+    numeralSpellPending: { playerNumber: player, character, chainId, cardSnapshots: [snapshot0, snapshot1, snapshot2] },
     [playerKey]: { ...playerState, hand: newHand, field: newField },
     [opponentKey]: {
       ...opponentState,
