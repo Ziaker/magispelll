@@ -18,6 +18,7 @@
     "simulate": "tsx scripts/simulate.ts",
     "tierlist": "tsx scripts/tierlist.ts",
     "generate-replay-fixture": "tsx scripts/generate-replay-fixture.ts",
+    "ai-score-vs-heuristic": "tsx scripts/ai-score-vs-heuristic.ts",
     "build:exe": "vite build && node scripts/build-exe.mjs"
   },
   "dependencies": {

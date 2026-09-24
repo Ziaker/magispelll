@@ -221,7 +221,13 @@ function coringaRawTrapValue(card: Card, opponentField: [FieldSlot, FieldSlot, F
   return undefined;
 }
 
-function combatValue(card: Card, spotlight: SpotlightState | null, opponentField?: [FieldSlot, FieldSlot, FieldSlot]): number {
+/**
+ * Exportada pra ser reaproveitada por aiScoring.ts (overhaul de IA 2.0, item
+ * 3 do roadmap arquitetural) - a MESMA regra de valor de planejamento que a
+ * árvore heurística já usa aqui, sem duplicar. Puramente uma mudança de
+ * visibilidade (`export` adicionado); nenhum comportamento muda.
+ */
+export function combatValue(card: Card, spotlight: SpotlightState | null, opponentField?: [FieldSlot, FieldSlot, FieldSlot]): number {
   if (card.value === 'A' && card.transformedValue === undefined) {
     return AVERAGE_FIELD_CARD_VALUE;
   }
@@ -270,7 +276,8 @@ function isCoringaTrapFieldEligible(character: CharacterId, card: Card, asHorizo
   return false;
 }
 
-function livesDelta(state: GameState, ai: PlayerNumber): number {
+/** Exportada pra aiScoring.ts (IA 2.0) - ver comentário de `combatValue` acima. */
+export function livesDelta(state: GameState, ai: PlayerNumber): number {
   return state[playerKeyOf(ai)].lives - state[opponentKeyOf(ai)].lives;
 }
 
@@ -293,7 +300,8 @@ function monsterChargesRemaining(me: PlayerState): number {
  * mesmo sem entrar em campo ainda, e uma carta que combina com a Magia Numeral
  * do personagem ganha um bônus extra.
  */
-function cardPriority(card: Card, character: CharacterId, spotlight: SpotlightState | null): number {
+/** Exportada pra aiScoring.ts (IA 2.0) - ver comentário de `combatValue` acima. */
+export function cardPriority(card: Card, character: CharacterId, spotlight: SpotlightState | null): number {
   if (card.isMonster) return 100;
   if (card.value === 'A') return 90;
   const requiredNumber = getNumeralSpellInfo(character).requiredNumbers[0];
@@ -374,7 +382,8 @@ function cardPriority(card: Card, character: CharacterId, spotlight: SpotlightSt
  * de `coringaQueenCopyValue` (sem alvo revelado, mesma regra seja qual for
  * o motivo do campo estar ausente).
  */
-function trueSlotValue(
+/** Exportada pra aiScoring.ts (IA 2.0) - ver comentário de `combatValue` acima. */
+export function trueSlotValue(
   playerState: PlayerState,
   slotIndex: number,
   character: CharacterId,
@@ -3272,7 +3281,8 @@ const FIELD_ELIGIBLE_VALUES = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10'
  * tem como distinguir os dois casos sem espiar, então assume o cenário mais
  * perigoso/conservador.
  */
-function buildUnseenCombatValuePool(state: GameState, ai: PlayerNumber): number[] {
+/** Exportada pra aiScoring.ts (IA 2.0) - ver comentário de `combatValue` acima. */
+export function buildUnseenCombatValuePool(state: GameState, ai: PlayerNumber): number[] {
   const aiKey = playerKeyOf(ai);
   const opponentKey = opponentKeyOf(ai);
   const remaining = new Map<string, number>(FIELD_ELIGIBLE_VALUES.map((v) => [v, 4]));
