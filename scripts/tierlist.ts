@@ -104,15 +104,33 @@ interface CharStats {
   games: number;
 }
 
+/**
+ * Overhaul do Balance Lab (item 8 do roadmap arquitetural) - vantagem de
+ * posição AGREGADA, independente de personagem: `c1` é sempre quem joga a
+ * partida como "primeiro jogador" (seat 1) em `runOneGame`, então somar
+ * p1Wins/p2Wins de TODA partida do round-robin (não só por matchup) responde
+ * "jogar primeiro é uma vantagem sistêmica no jogo?", uma pergunta diferente
+ * de "personagem X é forte?" (essa segunda já era respondida pelo `overall`
+ * abaixo, mas só depois do fix de agregação logo ali).
+ */
+interface SeatStats {
+  seat1Wins: number;
+  seat2Wins: number;
+  unfinished: number;
+  games: number;
+}
+
 function main() {
   const opts = parseArgs();
   const config = CONFIGS[opts.configName];
   const overall = new Map<CharacterId, CharStats>(ALL_CHARACTERS.map((c) => [c, { wins: 0, losses: 0, unfinished: 0, games: 0 }]));
   const perMagicUsage = new Map<string, MagicUsage>();
-  const matchupResults: { c1: CharacterId; c2: CharacterId; p1Wins: number; p2Wins: number; unfinished: number }[] = [];
+  const matchupResults: { c1: CharacterId; c2: CharacterId; p1Wins: number; p2Wins: number; unfinished: number; avgSteps: number }[] = [];
+  const seatStats: SeatStats = { seat1Wins: 0, seat2Wins: 0, unfinished: 0, games: 0 };
 
   const startedAt = Date.now();
   let totalGames = 0;
+  let totalStepsAll = 0;
 
   for (const c1 of ALL_CHARACTERS) {
     for (const c2 of ALL_CHARACTERS) {
@@ -120,27 +138,56 @@ function main() {
       let p1Wins = 0;
       let p2Wins = 0;
       let unfinished = 0;
+      let stepsForMatchup = 0;
       for (let i = 0; i < opts.games; i++) {
-        const { winner, finished } = runOneGame(c1, c2, config, opts.maxSteps, perMagicUsage);
+        const { steps, winner, finished } = runOneGame(c1, c2, config, opts.maxSteps, perMagicUsage);
         totalGames++;
+        stepsForMatchup += steps;
         if (!finished) unfinished++;
         else if (winner === 1) p1Wins++;
         else if (winner === 2) p2Wins++;
       }
-      matchupResults.push({ c1, c2, p1Wins, p2Wins, unfinished });
+      matchupResults.push({ c1, c2, p1Wins, p2Wins, unfinished, avgSteps: stepsForMatchup / opts.games });
+      totalStepsAll += stepsForMatchup;
 
+      seatStats.seat1Wins += p1Wins;
+      seatStats.seat2Wins += p2Wins;
+      seatStats.unfinished += unfinished;
+      seatStats.games += opts.games;
+
+      // FIX (bug real: o comentário do topo do arquivo promete "ambos os
+      // lados de cada matchup, pra anular vantagem de quem joga primeiro",
+      // mas só `overall.get(c1)` era atualizado aqui - cada personagem
+      // entrava na tierlist só com os jogos em que foi `c1` (seat 1) contra
+      // cada oponente; os jogos em que o MESMO personagem era `c2` (seat 2)
+      // na iteração espelhada só contavam pro adversário, nunca pra ele
+      // mesmo. A ranking geral media metade dos dados de cada personagem -
+      // agora os dois lados do round-robin já em curso (o dobro de partidas
+      // não precisou rodar de novo) contam pros dois personagens envolvidos.
       const s1 = overall.get(c1)!;
       s1.wins += p1Wins;
       s1.losses += p2Wins;
       s1.unfinished += unfinished;
       s1.games += opts.games;
+
+      const s2 = overall.get(c2)!;
+      s2.wins += p2Wins;
+      s2.losses += p1Wins;
+      s2.unfinished += unfinished;
+      s2.games += opts.games;
     }
   }
 
   const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
-  console.log(`\n=== ${totalGames} partidas simuladas em ${elapsed}s (${opts.games} por matchup, config=${opts.configName}) ===\n`);
+  const avgStepsAll = (totalStepsAll / totalGames).toFixed(1);
+  console.log(`\n=== ${totalGames} partidas simuladas em ${elapsed}s (${opts.games} por matchup, config=${opts.configName}) - duração média: ${avgStepsAll} passos/partida ===\n`);
 
-  console.log(`--- TIERLIST GERAL (winrate agregado contra todos os outros ${ALL_CHARACTERS.length - 1}) ---`);
+  console.log('--- VANTAGEM DE POSIÇÃO (seat 1 vs seat 2, agregado entre TODOS os personagens) ---');
+  const seat1Rate = ((seatStats.seat1Wins / seatStats.games) * 100).toFixed(1);
+  const seat2Rate = ((seatStats.seat2Wins / seatStats.games) * 100).toFixed(1);
+  console.log(`Seat 1 (joga primeiro): ${seat1Rate}% | Seat 2: ${seat2Rate}% | não terminou: ${seatStats.unfinished} (${seatStats.games} partidas)\n`);
+
+  console.log(`--- TIERLIST GERAL (winrate agregado contra todos os outros ${ALL_CHARACTERS.length - 1}, os 2 lados de cada matchup) ---`);
   const ranked = [...overall.entries()].sort((a, b) => b[1].wins / b[1].games - a[1].wins / a[1].games);
   ranked.forEach(([char, s], i) => {
     const winrate = ((s.wins / s.games) * 100).toFixed(1);
@@ -164,7 +211,7 @@ function main() {
 
   console.log('\n--- MATCHUPS DETALHADOS ---');
   for (const m of matchupResults) {
-    console.log(`${m.c1} vs ${m.c2}: ${m.p1Wins}V / ${m.p2Wins}D / ${m.unfinished} não terminou`);
+    console.log(`${m.c1} vs ${m.c2}: ${m.p1Wins}V / ${m.p2Wins}D / ${m.unfinished} não terminou / ${m.avgSteps.toFixed(1)} passos médios`);
   }
 }
 
