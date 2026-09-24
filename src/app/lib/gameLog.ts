@@ -92,3 +92,57 @@ export function appendLog(state: GameState, log: LogEntry[], type: LogEventType,
   };
   return [...log, entry].slice(-30);
 }
+
+/**
+ * Fase 0.3 do roadmap de overhaul de animações ("arbitragem de cadeias
+ * visuais") - preenche `chainId`/`sequence` automaticamente pra toda entrada
+ * NOVA (nascida entre `previousLog` e `nextLog`) que ainda não os tem,
+ * centralizado aqui em vez de espalhar por cada um dos ~60 call sites de
+ * `appendLog` - nenhum handler precisa saber que `chainId` existe. Chamado
+ * pelo wrapper `gameReducer` (gameEngine.ts) depois de cada dispatch.
+ *
+ * Semântica de `chainId`: "quais entradas nasceram do MESMO dispatch de
+ * gameReducer", nada mais - não tenta capturar "de quem é a causa" (isso é
+ * papel de `source`, por entrada). Reusa o espaço de `LogEntry.id` (sempre
+ * monotônico, nunca colide, sobrevive ao corte de 30 entradas) como o
+ * próprio identificador da cadeia: por padrão, `chainId` = id da PRIMEIRA
+ * entrada nova deste dispatch.
+ *
+ * `forcedChainId` cobre o único caso real onde uma cadeia atravessa 2
+ * dispatches (Magia Numeral ativar->finalizar, Modo Reações anunciar-
+ * >confirmar/negar): o handler do 2º dispatch (que já tem acesso ao
+ * `chainId` gravado em `numeralSpellPending`/`pendingReaction` ANTES de
+ * limpar o pending) passa esse valor aqui em vez de deixar mintar um novo -
+ * documentado nos 2 únicos call sites que usam este parâmetro
+ * (handleFinalizeNumeralSpell via `appendLog` direto, handleResolvePendingReaction
+ * via este backfill local). Sem esse fio, as 2 metades da mesma cadeia
+ * ficariam sem nenhum jeito estruturado de se correlacionar.
+ *
+ * `sequence` é a ordem LOCAL a este lote (0, 1, 2...) - nunca um contador
+ * global entre dispatches diferentes (uma cadeia que atravessa 2 dispatches
+ * tem 2 lotes de `sequence` começando em 0 cada); quem precisar da ordem
+ * causal completa de uma cadeia inteira deve ordenar por `id` (sempre
+ * monotônico), não por `sequence`.
+ */
+export function backfillLogChainMetadata(previousLog: LogEntry[], nextLog: LogEntry[], forcedChainId?: number): LogEntry[] {
+  const lastPreviousId = previousLog.length > 0 ? previousLog[previousLog.length - 1].id : -1;
+  const newEntries = nextLog.filter((entry) => entry.id > lastPreviousId);
+  if (newEntries.length === 0) return nextLog;
+
+  const sharedChainId = forcedChainId ?? newEntries.find((entry) => entry.chainId !== undefined)?.chainId ?? newEntries[0].id;
+
+  const patchedById = new Map<number, LogEntry>();
+  newEntries.forEach((entry, index) => {
+    const needsChainId = entry.chainId === undefined;
+    const needsSequence = entry.sequence === undefined;
+    if (!needsChainId && !needsSequence) return;
+    patchedById.set(entry.id, {
+      ...entry,
+      chainId: needsChainId ? sharedChainId : entry.chainId,
+      sequence: needsSequence ? index : entry.sequence,
+    });
+  });
+  if (patchedById.size === 0) return nextLog;
+
+  return nextLog.map((entry) => patchedById.get(entry.id) ?? entry);
+}

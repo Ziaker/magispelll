@@ -5,7 +5,7 @@
  * original é reexecutada pelos handlers de magia já modularizados.
  */
 import { pushToDiscard } from './deckLifecycle';
-import { appendLog } from './gameLog';
+import { appendLog, backfillLogChainMetadata } from './gameLog';
 import type { GameAction } from './gameActionTypes';
 import { handleActivateSimpleMagic, handleExecuteMagic } from './magicHandlers';
 import { characterOf, opponentOf, playerKeyOf } from './gameSelectors';
@@ -245,12 +245,27 @@ export function handleResolvePendingReaction(state: GameState): GameState {
   if (!pending) return state;
   const stateWithoutPending: GameState = { ...state, pendingReaction: null };
 
-  switch (pending.originalAction.type) {
-    case 'ACTIVATE_SIMPLE_MAGIC':
-      return handleActivateSimpleMagic(stateWithoutPending, pending.originalAction.player, pending.originalAction.cardId);
-    case 'EXECUTE_MAGIC':
-      return handleExecuteMagic(stateWithoutPending, pending.originalAction);
-    default:
-      return stateWithoutPending;
-  }
+  const result = ((): GameState => {
+    switch (pending.originalAction.type) {
+      case 'ACTIVATE_SIMPLE_MAGIC':
+        return handleActivateSimpleMagic(stateWithoutPending, pending.originalAction.player, pending.originalAction.cardId);
+      case 'EXECUTE_MAGIC':
+        return handleExecuteMagic(stateWithoutPending, pending.originalAction);
+      default:
+        return stateWithoutPending;
+    }
+  })();
+
+  // Fase 0.3 do roadmap de overhaul de animações - `handleActivateSimpleMagic`/
+  // `handleExecuteMagic` não sabem nada sobre Reações (são os MESMOS handlers
+  // usados numa ativação normal, sem o modo ligado) e por isso nunca marcam
+  // `chainId` nas entradas que criam. Em vez de mudar a assinatura deles (~46
+  // call sites de appendLog, fora do escopo desta correção pontual), o link
+  // com o anúncio original acontece aqui de fora: mesmo `backfillLogChainMetadata`
+  // que o wrapper `gameReducer` usa, mas com o `chainId` já conhecido
+  // (`pending.chainId`, gravado no anúncio) forçado no lote inteiro de
+  // entradas novas que este dispatch está prestes a produzir.
+  if (result.log === stateWithoutPending.log) return result;
+  const log = backfillLogChainMetadata(stateWithoutPending.log, result.log, pending.chainId);
+  return log === result.log ? result : { ...result, log };
 }

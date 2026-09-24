@@ -43,7 +43,7 @@ export function handleReturnCardToHand(state: GameState, player: PlayerNumber, s
     (slot.faceDownCard.statusEffects?.length ?? 0) > 0 ||
     slot.horizontalCards.some((c) => c.revealed || (c.statusEffects?.length ?? 0) > 0)
   ) {
-    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta já foi revelada ou recebeu um efeito - não é mais possível desfazer o posicionamento.`) };
+    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta já foi revelada ou recebeu um efeito - não é mais possível desfazer o posicionamento.`, { animationPolicy: 'suppress' }) };
   }
 
   // FIX: ao devolver a carta principal do slot para a mão, quaisquer cartas
@@ -94,7 +94,7 @@ export function handleReturnHorizontalCardToHand(state: GameState, player: Playe
   // (as outras cartas do mesmo slot não importam aqui - cada horizontal é
   // independente).
   if (card.revealed || (card.statusEffects?.length ?? 0) > 0) {
-    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta já foi revelada ou recebeu um efeito - não é mais possível desfazer o posicionamento.`) };
+    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta já foi revelada ou recebeu um efeito - não é mais possível desfazer o posicionamento.`, { animationPolicy: 'suppress' }) };
   }
 
   const newHand = [...playerState.hand, card];
@@ -131,7 +131,7 @@ export function handleSwapFieldCard(state: GameState, player: PlayerNumber, card
   const isCoringaMainSlotTrap = character === 'coringa' && (card.value === 'Q' || card.value === 'K' || card.isMonster);
   if (!isCoringaMainSlotTrap) {
     if (card.value === 'J' || card.value === 'Q' || card.value === 'K') {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Cartas mágicas só podem ser usadas ativando sua magia, não posicionadas no campo!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Cartas mágicas só podem ser usadas ativando sua magia, não posicionadas no campo!`, { animationPolicy: 'suppress' }) };
     }
     // FIX (checagem extensa por bugs, sweep de consolidação de regras
     // duplicadas - ver isFieldEligible em cardUtils.ts): faltava aqui - a
@@ -140,14 +140,14 @@ export function handleSwapFieldCard(state: GameState, player: PlayerNumber, card
     // isso desde o item 4/7 da 3ª rodada, mas este caminho irmão nunca ganhou
     // a mesma guarda).
     if (card.isMonster) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Cartas Monstro só podem ser posicionadas na sua zona própria, não em um slot de combate!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Cartas Monstro só podem ser posicionadas na sua zona própria, não em um slot de combate!`, { animationPolicy: 'suppress' }) };
     }
     // FIX (pedido do usuário: "o Ás está podendo ser posicionado como carta
     // no campo/horizontal, corrija isso, não permita, em TODOS modos de
     // jogo") - mesma guarda de handlePlayCard acima, pro caminho irmão de
     // troca (SWAP_FIELD_CARD): um Ás CRU precisa ser transformado primeiro.
     if (card.value === 'A' && card.transformedValue === undefined) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Um Ás precisa ser transformado (arraste sobre outra carta) antes de ser posicionado!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Um Ás precisa ser transformado (arraste sobre outra carta) antes de ser posicionado!`, { animationPolicy: 'suppress' }) };
     }
   }
 
@@ -225,7 +225,7 @@ export function handlePlayCard(state: GameState, player: PlayerNumber, cardId: s
   }
 
   if (isFrozenPlayBlocked(character, card)) {
-    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta está congelada e não pode ser jogada!`) };
+    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta está congelada e não pode ser jogada!`, { animationPolicy: 'suppress' }) };
   }
 
   // FIX (pedido do usuário: "as correntes do anjo também devem proibir a
@@ -239,7 +239,7 @@ export function handlePlayCard(state: GameState, player: PlayerNumber, cardId: s
   // certo pra eles é aqui; os outros 5 personagens usam a Zona Monstro
   // (handlePlaceMonsterCard, guard irmão deste logo abaixo no arquivo).
   if (card.isMonster && hasStatus(card, 'magicLocked')) {
-    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta Monstro está trancada pela Visão Celestial e não pode ser jogada!`) };
+    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta Monstro está trancada pela Visão Celestial e não pode ser jogada!`, { animationPolicy: 'suppress' }) };
   }
 
   // Coringa (redesenho completo, pedido do usuário): diferente de todos os
@@ -294,7 +294,7 @@ export function handlePlayCard(state: GameState, player: PlayerNumber, cardId: s
     // transformada (`isCoringaTransformedCard`) - mesmo com `.value` ainda
     // 'J'/'Q'/'K', ela já é uma carta numeral de verdade agora.
     if (!isCoringaTransformedCard && (card.value === 'J' || card.value === 'Q' || card.value === 'K')) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Cartas mágicas só podem ser usadas ativando sua magia, não posicionadas no campo!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Cartas mágicas só podem ser usadas ativando sua magia, não posicionadas no campo!`, { animationPolicy: 'suppress' }) };
     }
 
     // FIX (itens 4 e 7 da 3ª rodada): cartas Monstro de qualquer OUTRO
@@ -304,7 +304,7 @@ export function handlePlayCard(state: GameState, player: PlayerNumber, cardId: s
     // lutando em combate com valor 0). Elas só podem ir para sua zona
     // própria (ver PLACE_MONSTER_CARD).
     if (card.isMonster) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Cartas Monstro só podem ser posicionadas na sua zona própria, não em um slot de combate!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Cartas Monstro só podem ser posicionadas na sua zona própria, não em um slot de combate!`, { animationPolicy: 'suppress' }) };
     }
 
     // FIX (pedido do usuário: "o Ás está podendo ser posicionado como carta
@@ -316,7 +316,7 @@ export function handlePlayCard(state: GameState, player: PlayerNumber, cardId: s
     // vale 14 e pode ser jogado direto"; ver isFieldEligible, cardUtils.ts,
     // pra mesma regra usada pela IA/UI).
     if (card.value === 'A' && card.transformedValue === undefined) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Um Ás precisa ser transformado (arraste sobre outra carta) antes de ser posicionado!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Um Ás precisa ser transformado (arraste sobre outra carta) antes de ser posicionado!`, { animationPolicy: 'suppress' }) };
     }
   } else if (isCoringaTrapCard) {
     // Valete: SÓ pode ir como horizontal ("Esta carta pode ser posicionada
@@ -325,17 +325,17 @@ export function handlePlayCard(state: GameState, player: PlayerNumber, cardId: s
     // campo"). Monstro (tratado como um "15"): qualquer uma das duas,
     // igual a uma carta numeral comum.
     if (card.value === 'J' && !asHorizontal) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `O Valete do Palhaço só pode ser posicionado como carta horizontal!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `O Valete do Palhaço só pode ser posicionado como carta horizontal!`, { animationPolicy: 'suppress' }) };
     }
     if ((card.value === 'Q' || card.value === 'K') && asHorizontal) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta do Palhaço só pode ser posicionada como carta principal, não horizontal!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta do Palhaço só pode ser posicionada como carta principal, não horizontal!`, { animationPolicy: 'suppress' }) };
     }
   } else if (isDruidaBrotoCard) {
     // "Não pode receber horizontais" também vale pra ele MESMO ser
     // posicionado como horizontal - o Broto só existe como carta principal
     // de um slot (plantado ou empilhado - ver mais abaixo).
     if (asHorizontal) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `O Broto do Druida só pode ser plantado como carta principal, não horizontal!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `O Broto do Druida só pode ser plantado como carta principal, não horizontal!`, { animationPolicy: 'suppress' }) };
     }
   } else if (isDruidaMonsterCard) {
     // "Pode ser jogada no campo como uma carta numeral" (sem restrição de
@@ -343,7 +343,7 @@ export function handlePlayCard(state: GameState, player: PlayerNumber, cardId: s
     // em algum slot do próprio campo (decisão confirmada com o usuário: sem
     // Broto, a carta fica bloqueada na mão).
     if (!playerState.field.some(isBrotoSlot)) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `O Monstro do Druida só pode ser jogado com um Broto ativo no campo!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `O Monstro do Druida só pode ser jogado com um Broto ativo no campo!`, { animationPolicy: 'suppress' }) };
     }
   }
 

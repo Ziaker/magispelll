@@ -6583,5 +6583,138 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 })();
 
 // ---------------------------------------------------------------------------
+// Fase 0.3 do roadmap de overhaul de animações ("arbitragem de cadeias
+// visuais") - chainId/sequence preenchidos automaticamente e centralizado no
+// wrapper `gameReducer` (backfillLogChainMetadata, gameLog.ts/gameEngine.ts),
+// e migração `type:'warning'` -> `animationPolicy:'suppress'`.
+// ---------------------------------------------------------------------------
+
+(function testChainIdAutoBackfillSharedAcrossOneDispatch() {
+  let state = createInitialState('besta', 'mago', DEFAULT_GAME_CONFIG);
+  const overLimitCard = makeCard('chain-besta-8', '8'); // numeral pura >6, elegível pro sweep de bloodRage
+  state = {
+    ...state,
+    phase: 'draw', // DISCARD_CARDS só é válido na fase de Compra (handleDiscardCards, drawPhaseHandlers.ts)
+    player1: { ...state.player1, discardsThisTurn: 999 }, // qualquer DISCARD_CARDS será rejeitado com aviso
+    player2: applyStatus({ ...state.player2, hand: [overLimitCard, ...state.player2.hand] }, {
+      kind: 'bloodRage',
+      source: 'besta',
+      label: 'Fúria Sanguinária',
+      duration: { type: 'untilTurn', turn: state.turn + 1 },
+    }),
+  };
+  const lastIdBefore = state.log.length > 0 ? state.log[state.log.length - 1].id : -1;
+
+  // 1 dispatch, 2 causas totalmente independentes na mesma "cadeia": o
+  // próprio DISCARD_CARDS (rejeitado, limite atingido) + o sweep incidental
+  // de bloodRage da Besta (roda depois de QUALQUER ação, gameEngine.ts).
+  state = gameReducer(state, { type: 'DISCARD_CARDS', player: 1, cardIds: ['chain-does-not-exist'] });
+
+  const newEntries = state.log.filter((e) => e.id > lastIdBefore);
+  assert(newEntries.length === 2, `Um DISCARD_CARDS rejeitado + o sweep incidental de bloodRage produzem 2 entradas novas no MESMO dispatch (recebido: ${newEntries.length})`);
+  assert(
+    newEntries[0].type === 'warning' && newEntries[0].animationPolicy === 'suppress',
+    `FIX (migração warning->suppress): aviso de limite de descarte vem com animationPolicy:"suppress" (recebido: ${newEntries[0].animationPolicy})`
+  );
+  assert(newEntries[1].burnedCardIds?.includes('chain-besta-8') ?? false, 'Pré-condição: a 2ª entrada é o sweep de bloodRage queimando a carta >6 do oponente');
+  assert(
+    newEntries[0].chainId !== undefined && newEntries[0].chainId === newEntries[1].chainId,
+    `FIX (Fase 0.3): as 2 entradas nascidas do MESMO dispatch compartilham um chainId, mesmo vindo de causas totalmente diferentes (recebido: ${newEntries[0].chainId} / ${newEntries[1].chainId})`
+  );
+  assert(newEntries[0].chainId === newEntries[0].id, `FIX (Fase 0.3): chainId recém-mintado é o id da PRIMEIRA entrada nova do dispatch (recebido chainId=${newEntries[0].chainId}, id=${newEntries[0].id})`);
+  assert(
+    newEntries[0].sequence === 0 && newEntries[1].sequence === 1,
+    `FIX (Fase 0.3): sequence é a ordem local ao dispatch, 0-indexada (recebido: ${newEntries[0].sequence}, ${newEntries[1].sequence})`
+  );
+})();
+
+(function testChainIdLinksNumeralSpellActivationToFinalization() {
+  let state = createInitialState('besta', 'mago', DEFAULT_GAME_CONFIG);
+  const sixes = [makeCard('chain-numeral-6a', '6'), makeCard('chain-numeral-6b', '6'), makeCard('chain-numeral-6c', '6')];
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [...sixes, ...state.player1.hand] } };
+
+  state = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
+  const activationChainId = state.numeralSpellPending?.chainId;
+  assert(activationChainId !== undefined, 'Pré-condição: a ativação mintou um chainId, gravado em numeralSpellPending');
+
+  // FINALIZE_NUMERAL_SPELL é um DISPATCH SEPARADO (despachado pela UI depois
+  // do popup de alguns segundos) - sem o `chainId` explícito em
+  // handleFinalizeNumeralSpell (numeralSpellHandlers.ts), as entradas daqui
+  // mintariam um chainId NOVO, desconectado da ativação.
+  state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
+
+  const chainEntries = state.log.filter((e) => e.chainId === activationChainId);
+  assert(
+    chainEntries.length >= 2,
+    `FIX (Fase 0.3): a finalização (dispatch separado) compartilha o MESMO chainId da ativação - esperava >=2 entradas na cadeia inteira, recebido ${chainEntries.length}`
+  );
+  assert(chainEntries.some((e) => e.text.includes('Fúria Sanguinária')), 'A entrada de efeito da Besta (produzida no dispatch de finalização) está na mesma cadeia da ativação');
+})();
+
+(function testChainIdLinksReactionAnnouncementToDenial() {
+  const config: GameConfig = { ...DEFAULT_GAME_CONFIG, reactionsMode: true, reactionsLimit: 1 };
+  let state = makeReactionsBaseState(config);
+  const opponentJ = makeCard('chain-react-deny-j', 'J');
+  state = { ...state, player2: { ...state.player2, hand: [opponentJ] } };
+
+  let after = gameReducer(state, { type: 'ACTIVATE_SIMPLE_MAGIC', player: 1, cardId: 'react-anjo-j' });
+  const announceEntry = after.log.find((e) => e.trigger === 'reaction-announced');
+  assert(announceEntry !== undefined, 'Pré-condição: entrada de anúncio existe com trigger reaction-announced');
+  const announcementChainId = announceEntry?.chainId;
+  assert(announcementChainId !== undefined && announcementChainId === after.pendingReaction?.chainId, 'chainId da entrada de anúncio bate com o gravado em pendingReaction');
+
+  after = gameReducer(after, { type: 'REACT_TO_MAGIC', player: 2, cardId: 'chain-react-deny-j' });
+
+  const denialEntry = after.log.find((e) => e.trigger === 'reaction-denied');
+  assert(denialEntry !== undefined, 'Entrada de negação existe com trigger reaction-denied');
+  assert(
+    denialEntry?.chainId === announcementChainId,
+    `FIX (Fase 0.3): a negação (dispatch separado de REACT_TO_MAGIC) compartilha o MESMO chainId do anúncio (recebido: ${denialEntry?.chainId} vs ${announcementChainId})`
+  );
+})();
+
+(function testChainIdLinksReactionAnnouncementToTimeoutResolution() {
+  const config: GameConfig = { ...DEFAULT_GAME_CONFIG, reactionsMode: true, reactionsLimit: 1 };
+  let state = makeReactionsBaseState(config);
+  const opponentJ = makeCard('chain-react-resolve-j', 'J');
+  state = { ...state, player2: { ...state.player2, hand: [opponentJ] } };
+
+  let after = gameReducer(state, { type: 'ACTIVATE_SIMPLE_MAGIC', player: 1, cardId: 'react-anjo-j' });
+  const announcementChainId = after.pendingReaction?.chainId;
+  assert(announcementChainId !== undefined, 'Pré-condição: pendingReaction guarda o chainId do anúncio');
+  const lastIdAtAnnouncement = after.log.length > 0 ? after.log[after.log.length - 1].id : -1;
+
+  // RESOLVE_PENDING_REACTION rechama handleActivateSimpleMagic DIRETO
+  // (reactionHandlers.ts) - esse handler não sabe nada sobre Reações e nunca
+  // marca chainId sozinho; o link de volta pro anúncio acontece de fora,
+  // via backfillLogChainMetadata com forcedChainId (ver handleResolvePendingReaction).
+  after = gameReducer(after, { type: 'RESOLVE_PENDING_REACTION' });
+
+  const newEntries = after.log.filter((e) => e.id > lastIdAtAnnouncement);
+  assert(newEntries.length > 0, 'A resolução por timeout (aplicando a magia de verdade) produz pelo menos 1 entrada nova');
+  assert(
+    newEntries.every((e) => e.chainId === announcementChainId),
+    `FIX (Fase 0.3): TODAS as entradas produzidas ao aplicar a magia após o timeout herdam o chainId do anúncio original (recebido: ${newEntries.map((e) => e.chainId).join(',')}, esperado tudo ${announcementChainId})`
+  );
+})();
+
+(function testBackfillNeverTouchesPreExistingLogEntries() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  state = { ...state, phase: 'draw', player1: { ...state.player1, discardsThisTurn: 999 } };
+  state = gameReducer(state, { type: 'DISCARD_CARDS', player: 1, cardIds: ['does-not-exist-1'] });
+  const firstEntry = state.log[state.log.length - 1];
+  assert(firstEntry.chainId === firstEntry.id, 'Pré-condição: 1ª entrada já tem chainId mintado');
+
+  state = gameReducer(state, { type: 'DISCARD_CARDS', player: 1, cardIds: ['does-not-exist-2'] });
+  const secondEntry = state.log[state.log.length - 1];
+
+  assert(
+    state.log.find((e) => e.id === firstEntry.id)?.chainId === firstEntry.chainId,
+    'FIX (Fase 0.3): um dispatch POSTERIOR não reescreve o chainId de uma entrada de um dispatch ANTERIOR já processado'
+  );
+  assert(secondEntry.chainId === secondEntry.id && secondEntry.chainId !== firstEntry.chainId, 'A 2ª entrada, de um dispatch diferente, minta seu PRÓPRIO chainId novo, não herda do anterior');
+})();
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} passaram, ${failed} falharam.`);
 if (failed > 0) process.exit(1);
