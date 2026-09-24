@@ -95,12 +95,10 @@ import { motion } from 'motion/react';
 import { gameReducer, canMagicTriggerReactionAnnouncement } from '../lib/gameEngine';
 import type { CharacterId } from '../lib/characterRegistry';
 import { decideAiAction, decideAiActionTraced, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
-import { simulateSteps, fuzzSteps } from '../lib/simulateGame';
-import { enumerateLegalActions, checkActionDivergence } from '../lib/actionSpace';
 import { evaluateAction } from '../lib/actionValidation';
-import { checkInvariants, countAllCards } from '../lib/invariants';
-import { setSeed, getSeed, clearSeed } from '../lib/rng';
+import { countAllCards } from '../lib/invariants';
 import { decideHandCardSelection, toggleTowerCardSelection, groupCardsForTowerViaDrag } from '../lib/handSelection';
+import { useDebugTools } from './hooks/useDebugTools';
 import { findFieldCardWithStatus, getCombatModifierStatuses, getStatusMagnitude, hasStatus } from '../lib/statusEffects';
 
 /**
@@ -466,231 +464,27 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     rawDispatch(action);
   };
   /**
-   * Modo de debug/playtest (pedido do usuário: "debug mode melhor pra você
-   * testar as coisas mais rápido, leve tudo em consideração") - expõe o
-   * estado ao vivo e formas de mexer nele direto pelo console do navegador,
-   * sem precisar clicar/jogar manualmente até alcançar um cenário específico.
-   * SÓ em dev (`import.meta.env.DEV`, estaticamente `false` num build de
-   * produção - o Vite elimina este bloco inteiro do bundle final, nunca
-   * chega a rodar em produção):
-   *   window.__debug.state            -> GameState atual (sempre em dia)
-   *   window.__debug.dispatch(action) -> despacha qualquer GameAction, MESMO
-   *     caminho de uma ação real (respeita o guard de showPhaseTransition acima)
-   *   window.__debug.forceState(state) -> substitui o estado INTEIRO na hora
-   *     (via a ação 'DEBUG_FORCE_STATE', ver o topo de gameReducer em
-   *     gameEngine.ts) - ignora até o guard de transição de fase, pra nunca
-   *     ficar preso esperando um popup fechar. Ideal pra montar cenários
-   *     exatos (cartas específicas na mão/campo, combate a 1 disputa de
-   *     fechar etc.) sem depender de RNG - pegue `window.__debug.state`,
-   *     edite os campos que precisar (imutável - construa um objeto novo) e
-   *     chame `forceState` com o resultado.
-   *   window.__debug.fastForward(maxSteps?, opts?) -> roda até `maxSteps`
-   *     (padrão 200, teto de segurança 5000) decisões de IA PURAMENTE em
-   *     memória (mesmo laço de scripts/sanity-test.ts/simulateAiVsAiGame,
-   *     sem nenhum timer real nem efeito visual no meio do caminho) e só
-   *     então aplica o resultado final via forceState de uma vez - pula
-   *     turnos inteiros instantaneamente em vez de esperar o `delay()` de
-   *     "pensando" de cada ação real. Usa decisão de IA pros DOIS lados,
-   *     mesmo fora do Modo Espectador (é uma ferramenta de avançar o estado,
-   *     não uma mudança de quem controla o quê). Devolve
-   *     `{ steps, stuck, rejectedActions, gameOver }` - `rejectedActions.length
-   *     > 0` sinaliza a MESMA situação que scripts/sanity-test.ts detecta (a
-   *     IA propôs algo que o motor recusou em silêncio - útil pra achar
-   *     regressões sem precisar do CLI). PAUSA a partida ao terminar por
-   *     padrão (`opts.stayRunning: true` pra não pausar) - o Modo Espectador
-   *     despacha ações reais em TEMPO REAL o tempo todo (ver o polling mais
-   *     abaixo), então sem pausar, o resultado calculado aqui ficaria
-   *     competindo com esse polling entre uma chamada e outra do console
-   *     (2 chamadas de fastForward em sequência levam segundos reais de ida
-   *     e volta - tempo de sobra pro polling normal já ter avançado mais
-   *     coisa por baixo). Ver pause()/resume() abaixo pra controlar isso
-   *     manualmente fora de fastForward também.
-   *   window.__debug.pause() / .resume() -> força `paused` pro valor exato
-   *     (não é um toggle - mais previsível que despachar TOGGLE_PAUSE às
-   *     cegas sem saber o estado atual). Use antes de inspecionar o estado
-   *     com calma sem o Modo Espectador mudando as coisas por baixo.
-   *   window.__debug.restart() -> reembaralha uma partida NOVA (mesmos
-   *     personagens/config desta) instantaneamente, sem passar pelo Menu
-   *     Principal/DebugPanel de novo - útil pra tentar reproduzir um bug
-   *     não-determinístico repetidas vezes (ver fastForward acima) sem sair
-   *     da tela.
-   *   window.__debug.setAnimationsEnabled(bool) -> atalho pro mesmo switch
-   *     "Animações" de Configurações (settings.ts) - desligado, todo popup/
-   *     transição vira efetivamente instantâneo (ver getAnimationDurationScale),
-   *     o que também acelera bastante o "pensando..." de cada ação real da
-   *     IA (não só o fastForward acima, que já ignora isso by design).
-   *   window.__debug.characters -> { player1, player2 } desta partida
-   *   window.__debug.setGameConfig(partial | null) -> sobrescreve na hora
-   *     qualquer campo de ritmo/pacing de `gameConfig` (ex.: `{ postMagicPauseMs:
-   *     3000 }`, `{ aiThinkScale: 0 }`) SEM precisar navegar a tela de
-   *     Configuração antes de iniciar a partida nem recriar o `useReducer` -
-   *     mescla por cima da sobrescrita atual (chamadas sucessivas se
-   *     acumulam); `null` limpa tudo, voltando ao valor original desta
-   *     partida. Nunca afeta `gameState.gameConfig` (a cópia congelada
-   *     usada pelo reducer para regras determinísticas - fusão, Torres,
-   *     limites de descarte etc. continuam vindas de lá, propositalmente
-   *     imutáveis depois que a partida começa).
-   *
-   * Itens 1/2/6 do plano de melhoria do debug mode ("prever qualquer ação
-   * possível" + reprodutibilidade + fuzzing) - ver src/app/lib/actionSpace.ts,
-   * rng.ts, simulateGame.ts pro núcleo de cada um:
-   *   window.__debug.enumerateActions(player?) -> lista TODA ação legal
-   *     agora pro `player` (padrão 1) - reaproveita os predicados `canX` já
-   *     existentes no motor (actionSpace.ts, modo "legal"). Não despacha
-   *     nada, só lista.
-   *   window.__debug.tryEveryAction(player?) -> roda o modo EXAUSTIVO
-   *     (actionSpace.ts) contra uma cópia local do estado ATUAL - despacha
-   *     toda ação sintaticamente plausível direto contra `gameReducer`
-   *     (NUNCA via rawDispatch/dispatch, então NUNCA muda a partida ao
-   *     vivo) e reporta só onde um predicado `canX` discorda do resultado
-   *     real. Pode ser lento (potencialmente dezenas de milhares de
-   *     chamadas a `gameReducer`) - comando manual de console, nunca chame
-   *     isso num loop/useEffect.
-   *   window.__debug.checkInvariants() -> roda a checagem de saúde
-   *     (conservação de cartas + ids duplicados, invariants.ts) contra o
-   *     estado atual. Lista de violações; vazio = saudável.
-   *   window.__debug.fuzz(steps?, opts?) -> versão interativa do fuzzer
-   *     (fuzzSteps, simulateGame.ts) - substitui a escolha da IA heurística
-   *     por uma ação aleatória `opts.substituteProbability` (padrão 0.15)
-   *     das vezes, verificando invariantes a cada passo. Para na primeira
-   *     violação encontrada (devolve `violation` preenchido) ou depois de
-   *     `steps` passos (padrão 200). Aplica o resultado e PAUSA, mesmo
-   *     padrão de `fastForward`. Pra reproduzir uma falha achada aqui,
-   *     anote `getSeed()` ANTES de chamar e use `setSeed` de novo com o
-   *     mesmo número.
-   *   window.__debug.setSeed(n) / getSeed() -> troca/lê a semente do RNG
-   *     (rng.ts) - a MESMA semente reproduz a MESMA sequência de decisões
-   *     aleatórias (incluindo a moeda de substituição do fuzz acima) daqui
-   *     em diante. `clearSeed()` volta pro `Math.random()` cru normal.
-   *   window.__debug.getReplayLog() -> { initialState, actions } gravados
-   *     desde o início desta partida (ou desde o último `restart()`) - TODA
-   *     ação que passou pelo reducer, humana ou da IA. `JSON.stringify` isso
-   *     salva um relato de bug reproduzível de verdade (item 32 da lista de
-   *     afazeres, "sistema de replay... especialmente pra questões de erros/
-   *     debug" - deterministico em vez de vídeo, já que o motor é um reducer
-   *     puro).
-   *   window.__debug.loadReplayLog(log) -> troca a fonte usada por
-   *     `replayToStep` pra um log EXTERNO (ex.: colado de um relato de bug),
-   *     sem mexer na partida atual.
-   *   window.__debug.replayToStep(n?) -> redespacha o log carregado (ou o
-   *     desta sessão, se nenhum foi carregado) do zero até o passo `n`
-   *     (padrão: o log inteiro) e aplica via forceState, sempre pausado -
-   *     reproduz o estado EXATO de qualquer ponto da partida gravada.
+   * GameBoard Overhaul (item 6 do roadmap arquitetural) - `window.__debug`
+   * inteiro (estado/dispatch ao vivo, fast-forward, fuzz, replay, etc.)
+   * mora em useDebugTools.ts agora, não mais aqui - ver o comentário
+   * completo lá (mesma documentação de cada método, só que junto do código).
+   * `dispatch`/`rawDispatch` e as 3 refs de replay continuam sendo DONO
+   * deste componente (usados por handlers reais também, não só debug) - o
+   * hook só os CONSOME como parâmetros já prontos.
    */
-  useEffect(() => {
-    if (!import.meta.env.DEV) return;
-    const fastForward = (maxSteps = 200, options?: { stayRunning?: boolean }) => {
-      // Laço de simulação em si vive em simulateGame.ts agora (item 3 do
-      // plano de melhoria do debug mode) - compartilhado com
-      // scripts/sanity-test.ts, pra uma correção nele valer pros dois
-      // lugares automaticamente. Esta função só aplica o resultado (via
-      // forceState + pausa), que é específico desta UI.
-      const { state, steps, stuck, rejectedActions } = simulateSteps(gameState, { maxSteps });
-
-      // FIX (corrida real encontrada testando isto ao vivo): o Modo
-      // Espectador despacha ações de IA em TEMPO REAL (timers de "pensando",
-      // ver o useEffect de polling logo abaixo) o tempo todo, mesmo enquanto
-      // uma chamada a fastForward está em andamento no console - cada
-      // chamada via javascript_tool leva segundos reais de ida e volta, e
-      // nesse intervalo o polling normal continua rodando por baixo,
-      // competindo com o resultado que acabamos de calcular aqui. Por
-      // padrão, fastForward agora PAUSA a partida ao terminar (o polling já
-      // respeita `gameState.paused`, ver o guard logo no início daquele
-      // useEffect) - assim o estado fica parado, exatamente como calculado,
-      // até uma chamada explícita a resume()/fastForward de novo. Passe
-      // `{ stayRunning: true }` pra manter a partida rodando em tempo real
-      // depois do salto (ex.: só quis pular o início do jogo e agora quer
-      // assistir o resto acontecer sozinho).
-      rawDispatch({ type: 'DEBUG_FORCE_STATE', state: options?.stayRunning ? state : { ...state, paused: true } });
-      return { steps, stuck, rejectedActions, gameOver: state.gameOver };
-    };
-
-    const fuzz = (steps = 200, options?: { substituteProbability?: number; stayRunning?: boolean }) => {
-      const result = fuzzSteps(gameState, {
-        maxSteps: steps,
-        substituteProbability: options?.substituteProbability,
-        expectedCardTotal: initialCardTotal,
-      });
-      rawDispatch({ type: 'DEBUG_FORCE_STATE', state: options?.stayRunning ? result.state : { ...result.state, paused: true } });
-      return { steps: result.steps, stuck: result.stuck, rejectedActions: result.rejectedActions, violation: result.violation, gameOver: result.state.gameOver };
-    };
-
-    // FIX (item 32, "sistema de replay"): getReplayLog exporta a gravação
-    // desta sessão (dá pra `JSON.stringify` e salvar/colar num relato de
-    // bug); loadReplayLog troca a fonte usada por replayToStep pra um log
-    // EXTERNO (ex.: um que alguém mandou), sem precisar reiniciar a partida
-    // atual; replayToStep redespacha `actions` do zero a partir do
-    // `initialState` do log até o índice pedido (via o MESMO gameReducer
-    // puro) e aplica o resultado via forceState (sempre pausado, pra
-    // examinar com calma) - `Infinity` (padrão) reproduz o log inteiro.
-    const getReplayLog = () => ({ initialState: initialStateRef.current!, actions: [...recordedActionsRef.current] });
-    const loadReplayLog = (log: { initialState: GameState; actions: GameAction[] }) => {
-      loadedReplayRef.current = log;
-    };
-    const replayToStep = (step: number = Infinity) => {
-      const log = loadedReplayRef.current ?? getReplayLog();
-      const targetStep = Math.max(0, Math.min(step, log.actions.length));
-      let replayState = log.initialState;
-      for (let i = 0; i < targetStep; i++) {
-        replayState = gameReducer(replayState, log.actions[i]);
-      }
-      rawDispatch({ type: 'DEBUG_FORCE_STATE', state: { ...replayState, paused: true } });
-      return { step: targetStep, totalSteps: log.actions.length, gameOver: replayState.gameOver };
-    };
-
-    (window as unknown as { __debug: unknown }).__debug = {
-      state: gameState,
-      dispatch,
-      forceState: (state: GameState) => rawDispatch({ type: 'DEBUG_FORCE_STATE', state }),
-      fastForward,
-      // Pausa/retoma DIRETO pro valor pedido (não um toggle - mais previsível
-      // que despachar TOGGLE_PAUSE às cegas do console sem saber o estado atual).
-      pause: () => rawDispatch({ type: 'DEBUG_FORCE_STATE', state: { ...gameState, paused: true } }),
-      resume: () => rawDispatch({ type: 'DEBUG_FORCE_STATE', state: { ...gameState, paused: false } }),
-      restart: () => {
-        const freshState = createInitialState(player1Character, player2Character, gameConfig);
-        // FIX (item 32, "sistema de replay"): sem isto, reiniciar a partida
-        // deixaria a gravação com o `initialState` da partida ANTERIOR mas
-        // ações da NOVA em cima - um replay corrompido, nunca reproduzível.
-        initialStateRef.current = freshState;
-        recordedActionsRef.current = [];
-        loadedReplayRef.current = null;
-        rawDispatch({ type: 'DEBUG_FORCE_STATE', state: freshState });
-      },
-      setAnimationsEnabled: (enabled: boolean) => updateSetting('animations', enabled),
-      // FIX (pedido do usuário: testar ao vivo qualquer campo de ritmo/pacing
-      // de `gameConfig` - ex.: `postMagicPauseMs`, `aiThinkScale` - sem
-      // precisar navegar a tela de Configuração de verdade antes de iniciar
-      // a partida, nem recriar o `useReducer` do zero). Mescla por cima do
-      // valor atual (chamadas sucessivas se acumulam); `null` limpa a
-      // sobrescrita inteira, voltando ao valor original passado pra esta
-      // partida. Ver `debugGameConfigOverride` acima.
-      setGameConfig: (partial: Partial<GameConfig> | null) =>
-        setDebugGameConfigOverride((prev) => (partial === null ? null : { ...prev, ...partial })),
-      // Itens 1/2/6 do plano de melhoria do debug mode - ver o comentário
-      // completo acima desta função pra cada um.
-      enumerateActions: (player: PlayerNumber = 1) => enumerateLegalActions(gameState, player),
-      tryEveryAction: (player: PlayerNumber = 1) => checkActionDivergence(gameState, player),
-      checkInvariants: () => checkInvariants(gameState, initialCardTotal),
-      fuzz,
-      setSeed,
-      getSeed,
-      clearSeed,
-      characters: { player1: player1Character, player2: player2Character },
-      getReplayLog,
-      loadReplayLog,
-      replayToStep,
-      // Itens 35/38 do Grupo J ("trace estruturado por decisão" / "por que
-      // não X") - mesma função usada pelo painel visual (Item 39, ver JSX
-      // mais abaixo), exposta aqui pra inspecionar via console/script sem
-      // precisar abrir o painel (ex.: scripts/simulate.ts, investigações
-      // pontuais). Ver o comentário de AiDecisionTrace em aiPlayer.ts para o
-      // que este trace cobre (nível de fase) e o que fica de fora (leaf-level
-      // dentro de cada função decide*).
-      decideAiActionTraced: (player: PlayerNumber = 1) => decideAiActionTraced(gameState, player),
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState]);
+  useDebugTools({
+    gameState,
+    dispatch,
+    rawDispatch,
+    initialStateRef,
+    recordedActionsRef,
+    loadedReplayRef,
+    player1Character,
+    player2Character,
+    gameConfig,
+    initialCardTotal,
+    setDebugGameConfigOverride,
+  });
   const [showCombatResult, setShowCombatResult] = useState(false);
   /**
    * FIX (pedido do usuário: "remova todas alterações anteriores visuais das
