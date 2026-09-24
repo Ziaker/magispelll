@@ -37,8 +37,8 @@ import { toast } from 'sonner';
 import { MagicToast } from './MagicToast';
 import { LogPanel } from './LogPanel';
 import { getLogEffectInfo, getLogIcon } from '../lib/logFormat';
-import { FlyingDiscardCard, type FlyingDiscardSpec } from './FlyingDiscardCard';
-import { DeckReshuffleBurst, type DeckReshuffleBurstSpec } from './DeckReshuffleBurst';
+import { FlyingDiscardCard } from './FlyingDiscardCard';
+import { DeckReshuffleBurst } from './DeckReshuffleBurst';
 import confetti from 'canvas-confetti';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -99,6 +99,7 @@ import { evaluateAction } from '../lib/actionValidation';
 import { countAllCards } from '../lib/invariants';
 import { decideHandCardSelection, toggleTowerCardSelection, groupCardsForTowerViaDrag } from '../lib/handSelection';
 import { useDebugTools } from './hooks/useDebugTools';
+import { useDiscardReshuffleAnimations } from './hooks/useDiscardReshuffleAnimations';
 import { findFieldCardWithStatus, getCombatModifierStatuses, getStatusMagnitude, hasStatus } from '../lib/statusEffects';
 
 /**
@@ -974,26 +975,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         if (entry.player && entry.slotIndex !== undefined) triggerSmokeBurst({ player: entry.player, slotIndex: entry.slotIndex });
       } else if (entry.type === 'magic' && entry.text.startsWith('O Monstro') && entry.text.includes('voltou oculto')) {
         soundManager.play(monsterSoundFor('coringa'));
-      } else if (entry.trigger === 'deck-reshuffled') {
-        // Pedido do usuário ("Overhaul de Animações"): "quando o baralho
-        // esgota e a pilha de descarte volta, uma animação dedicada em vez
-        // do contador só resetar instantaneamente" - ver DeckReshuffleBurst.tsx.
-        // O reembaralhamento em si já aconteceu no motor (ensureDeckHasCards,
-        // gameEngine.ts, roda ANTES desta entrada de log existir) - aqui só
-        // captura as posições reais dos dois painéis pro voo decorativo.
-        const fromRect = discardPileRef.current?.getBoundingClientRect();
-        const toRect = deckPileRef.current?.getBoundingClientRect();
-        if (fromRect && toRect) {
-          const burstKey = `reshuffle-${entry.id}`;
-          setDeckReshuffleBurst({
-            key: burstKey,
-            from: { left: fromRect.left, top: fromRect.top, width: fromRect.width, height: fromRect.height },
-            to: { left: toRect.left, top: toRect.top, width: toRect.width, height: toRect.height },
-          });
-          setTimeout(() => {
-            setDeckReshuffleBurst((prev) => (prev?.key === burstKey ? null : prev));
-          }, delay(750));
-        }
+        // FIX (Fase 1 do overhaul de animações, "Descarte + Reembaralhamento"):
+        // o disparo de DeckReshuffleBurst.tsx (reagindo a `entry.trigger ===
+        // 'deck-reshuffled'`) saiu daqui - agora mora em
+        // useDiscardReshuffleAnimations.ts (hooks/), junto com o observador de
+        // `flyingDiscards` (que antes era um useEffect totalmente separado,
+        // keyed em `gameState.discardPile`, sem nenhuma relação com este
+        // aqui) - unificados num único efeito pra poder sequenciar
+        // causalmente descarte -> chegada ao cemitério -> reshuffle quando os
+        // dois nascem do mesmo lote de entradas de log. Ver o comentário
+        // completo no topo daquele arquivo.
       } else if (entry.burnedCardIds?.length) {
         // Besta - Fúria Sanguinária (pedido do usuário: "ícone da besta
         // pulando na mão e descartando a carta") - o "descartando" já
@@ -1117,29 +1108,34 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   // pós combate ou pós utilização de algum efeito, uma animação visual dela
   // indo girando até o descarte") - existem mais de 15 pontos diferentes no
   // motor que podem mandar uma carta para o descarte (combate, descarte
-  // manual, várias magias distintas - ver pushToDiscard em gameEngine.ts)
-  // - em vez de instrumentar cada um deles individualmente, este sistema
-  // observa a MUDANÇA no próprio estado (gameState.discardPile crescendo,
-  // mesmo padrão já usado pelo toast de magia acima) e reconstrói o trajeto:
-  //
-  // 1) `cardPositionsRef` guarda a ÚLTIMA posição na tela conhecida de cada
-  //    carta ainda visível (campo, mão, zona própria) - atualizado a cada
-  //    render via os atributos `data-card-id` que essas cartas já carregam
-  //    (ver FieldSlotView.tsx/HandCardView.tsx/MonsterZone.tsx). Nunca REMOVE
-  //    uma entrada, só atualiza as que ainda existem - por isso, no exato
-  //    render em que uma carta desaparece de onde estava, a posição salva
-  //    aqui continua sendo a última posição real dela, pronta para servir de
-  //    ponto de partida.
-  // 2) Quando uma carta nova aparece em `discardPile`, essa última posição
-  //    conhecida vira o ponto de partida de um FlyingDiscardCard.tsx, que
-  //    anima girando até a posição real do painel "Pilha de Descarte"
-  //    (`discardPileRef`).
+  // manual, várias magias distintas - ver pushToDiscard em gameEngine.ts).
+  // `cardPositionsRef` guarda a ÚLTIMA posição na tela conhecida de cada
+  // carta ainda visível (campo, mão, zona própria) - atualizado a cada
+  // render via os atributos `data-card-id` que essas cartas já carregam (ver
+  // FieldSlotView.tsx/HandCardView.tsx/MonsterZone.tsx). Nunca REMOVE uma
+  // entrada, só atualiza as que ainda existem - por isso, no exato render em
+  // que uma carta desaparece de onde estava, a posição salva aqui continua
+  // sendo a última posição real dela, pronta para servir de ponto de
+  // partida. Continua um ref cru de DOM aqui (não dentro do hook abaixo)
+  // porque também alimenta BeastBurnFlash.tsx/ReactionNegatedBurst.tsx/
+  // dispatchWithMagicPause - infraestrutura compartilhada, não exclusiva de
+  // descarte/reembaralhamento.
   const cardPositionsRef = useRef(new Map<string, DOMRect>());
+  /** Ref do painel "Pilha de Descarte" (JSX abaixo) - `ref` de DOM precisa ser criado onde é anexado via JSX, por isso continua aqui e não dentro do hook. */
   const discardPileRef = useRef<HTMLDivElement>(null);
-  const [flyingDiscards, setFlyingDiscards] = useState<FlyingDiscardSpec[]>([]);
-  /** Pedido do usuário ("Overhaul de Animações"): âncora real do painel "Baralho", usada como destino do DeckReshuffleBurst.tsx (origem = discardPileRef acima) quando o baralho esgota e o cemitério volta. */
+  /** Pedido do usuário ("Overhaul de Animações"): âncora real do painel "Baralho", usada como destino do DeckReshuffleBurst.tsx (origem = discardPileRef acima) quando o baralho esgota e o cemitério volta. Mesmo motivo acima: `ref` fica aqui, não no hook. */
   const deckPileRef = useRef<HTMLDivElement>(null);
-  const [deckReshuffleBurst, setDeckReshuffleBurst] = useState<DeckReshuffleBurstSpec | null>(null);
+  // Fase 1 do overhaul de animações ("Descarte + Reembaralhamento") - lê o
+  // contrato de evento estruturado da Fase 0 (trigger/chainId/sequence/
+  // animationPolicy) em vez de inferir por diff de estado/texto - ver o
+  // comentário completo em useDiscardReshuffleAnimations.ts.
+  const { flyingDiscards, deckReshuffleBurst } = useDiscardReshuffleAnimations({
+    gameState,
+    settings,
+    cardPositionsRef,
+    discardPileRef,
+    deckPileRef,
+  });
   /** Pedido do usuário ("Overhaul de Animações", "contador de turno tipo hodômetro"): "talvez com uma varredura sutil de luz cruzando o tabuleiro inteiro na virada" - ver TurnLightSweep.tsx, disparado pelo useEffect de `gameState.turn` logo abaixo. */
   const [showTurnSweep, setShowTurnSweep] = useState(false);
   const prevTurnRef = useRef(gameState.turn);
@@ -1309,41 +1305,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       if (cardId) cardPositionsRef.current.set(cardId, el.getBoundingClientRect());
     });
   }, [gameState]);
-
-  const prevDiscardIdsRef = useRef(new Set(gameState.discardPile.map((c) => c.id)));
-  useEffect(() => {
-    const prevIds = prevDiscardIdsRef.current;
-    const newlyDiscarded = gameState.discardPile.filter((c) => !prevIds.has(c.id));
-    prevDiscardIdsRef.current = new Set(gameState.discardPile.map((c) => c.id));
-    if (newlyDiscarded.length === 0) return;
-
-    const toRect = discardPileRef.current?.getBoundingClientRect();
-    if (!toRect) return;
-
-    const specs: FlyingDiscardSpec[] = [];
-    for (const card of newlyDiscarded) {
-      const fromRect = cardPositionsRef.current.get(card.id);
-      if (!fromRect) continue; // carta nunca ficou visível nesta sessão (ex.: reembaralhada direto do descarte) - nada para animar
-      specs.push({
-        key: `${card.id}-${gameState.log.length}`,
-        card,
-        from: { left: fromRect.left, top: fromRect.top, width: fromRect.width, height: fromRect.height },
-        to: { left: toRect.left, top: toRect.top, width: toRect.width, height: toRect.height },
-      });
-    }
-    if (specs.length === 0) return;
-    setFlyingDiscards((prev) => [...prev, ...specs]);
-    // FIX (pedido do usuário: "a animação está lenta") - acompanha a duração
-    // real da animação em FlyingDiscardCard.tsx (400ms, com o trajeto agora
-    // curvo - ver comentário lá) + uma margem pequena - o card não pode ser
-    // removido ANTES da animação acabar (cortaria ela pela metade), mas
-    // também não deve ficar montado muito além do fim de verdade.
-    const t = setTimeout(() => {
-      setFlyingDiscards((prev) => prev.filter((s) => !specs.some((spec) => spec.key === s.key)));
-    }, delay(480));
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState.discardPile]);
 
   // Ambos jogadores selecionaram um slot de combate -> resolve
   // automaticamente após uma pausa curta. FIX (pedido do usuário: "remova

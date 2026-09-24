@@ -11,6 +11,10 @@ export interface FlyingDiscardSpec {
   from: { left: number; top: number; width: number; height: number };
   /** Posição final (getBoundingClientRect do próprio painel "Pilha de Descarte"). */
   to: { left: number; top: number; width: number; height: number };
+  /** Fase 1 (overhaul de animações) - escala de duração vinda de `getAnimationDurationScale(settings)`, ver useDiscardReshuffleAnimations.ts - antes a duração (0.4s) era fixa e ignorava a preferência "Velocidade de Animação". */
+  scale: number;
+  /** Fase 1 - índice desta carta dentro do MESMO lote de descarte (0, 1, 2...) - escalona o início do voo de cada uma (ver `transition.delay` abaixo) para múltiplos descartes da mesma cadeia não saírem todos exatamente no mesmo instante ("respeitar sequence" do contrato de evento, gameLogTypes.ts). */
+  staggerIndex: number;
 }
 
 // FIX (histórico de ajustes de tamanho, 3 rodadas):
@@ -97,7 +101,18 @@ export function FlyingDiscardCard({ spec }: { spec: FlyingDiscardSpec }) {
   // carta (useMemo, travado por `spec.key`) para a curva não "trocar de
   // forma" no meio da própria animação. `x`/`y` viram arrays de 7 pontos
   // amostrados ao longo dessa curva, dando um arco em vez de uma reta.
-  const { xPoints, yPoints, opacityPoints } = useMemo(() => {
+  // FIX (achado auditando a Fase 1 do overhaul de animações - mesma classe de
+  // bug já documentada e corrigida em DeckReshuffleBurst.tsx/ShuffleCard):
+  // `rotate` vivia SOLTO dentro do objeto `animate` do JSX, fora deste
+  // `useMemo` - parecia seguro ("só monta 1x por carta", já que `spec.key` é
+  // único por carta), mas isso só impede REMONTAGEM, não RE-RENDER.
+  // GameBoard.tsx re-renderiza o tempo todo (hover, outros toasts, outras
+  // animações concorrentes) - cada re-render enquanto esta carta ainda
+  // estava girando recalculava um alvo `rotate` novo via `Math.random()`
+  // solto, e o Framer Motion reinterpolava a rotação já em andamento pro
+  // novo alvo, visível como um "salto" no giro. Movido pra dentro do mesmo
+  // `useMemo` travado por `spec.key` que já protege x/y/opacity.
+  const { xPoints, yPoints, opacityPoints, scalePoints, rotateTarget } = useMemo(() => {
     const midT = 0.35 + Math.random() * 0.3; // ponto de controle não fica sempre bem no meio
     const baseX = deltaX * midT;
     const baseY = deltaY * midT;
@@ -116,6 +131,12 @@ export function FlyingDiscardCard({ spec }: { spec: FlyingDiscardSpec }) {
     const xs: number[] = [];
     const ys: number[] = [];
     const opacities: number[] = [];
+    // Fase 1 (overhaul de animações, "pouso perceptível... com pequeno
+    // impacto/squash") - fica em 1 até quase o fim do trajeto, depois um
+    // pequeno EXCESSO acima do tamanho de pouso final antes de assentar -
+    // mesma amostragem de 7 pontos que x/y/opacity já usam, pra ficar
+    // sincronizado com o exato instante em que a carta encosta na pilha.
+    const scales: number[] = [];
     for (let i = 0; i < ARC_SAMPLES; i++) {
       const t = i / (ARC_SAMPLES - 1);
       const inv = 1 - t;
@@ -123,8 +144,12 @@ export function FlyingDiscardCard({ spec }: { spec: FlyingDiscardSpec }) {
       xs.push(2 * inv * t * controlX + t * t * deltaX);
       ys.push(2 * inv * t * controlY + t * t * deltaY);
       opacities.push(i >= ARC_SAMPLES - 2 ? (i === ARC_SAMPLES - 1 ? 0 : 0.6) : 1);
+      if (i < ARC_SAMPLES - 2) scales.push(1);
+      else if (i === ARC_SAMPLES - 2) scales.push(LANDING_SCALE * 1.12);
+      else scales.push(LANDING_SCALE);
     }
-    return { xPoints: xs, yPoints: ys, opacityPoints: opacities };
+    const rotate = isThrownFar ? (Math.random() < 0.5 ? -1 : 1) * (360 + Math.random() * 180) : 0;
+    return { xPoints: xs, yPoints: ys, opacityPoints: opacities, scalePoints: scales, rotateTarget: rotate };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec.key]);
 
@@ -136,11 +161,11 @@ export function FlyingDiscardCard({ spec }: { spec: FlyingDiscardSpec }) {
       animate={{
         x: xPoints,
         y: yPoints,
-        rotate: isThrownFar ? (Math.random() < 0.5 ? -1 : 1) * (360 + Math.random() * 180) : 0,
-        scale: LANDING_SCALE,
+        rotate: rotateTarget,
+        scale: scalePoints,
         opacity: opacityPoints,
       }}
-      transition={{ duration: 0.4, ease: 'easeOut' }}
+      transition={{ duration: 0.4 * spec.scale, delay: spec.staggerIndex * 0.05 * spec.scale, ease: 'easeOut' }}
     >
       {/* FIX (checagem extensa por bugs - vazamento de informação real
           encontrado): esta carta pode ser da IA/oponente e ainda não estar
