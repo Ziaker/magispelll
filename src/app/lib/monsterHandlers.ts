@@ -63,7 +63,7 @@ export function handlePlaceMonsterCard(state: GameState, player: PlayerNumber, c
   // de handlePlayCard acima, pro caminho da Zona Monstro (os 5 personagens
   // que não jogam o Monstro como substituto de numeral).
   if (hasStatus(card, 'magicLocked')) {
-    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta Monstro está trancada pela Visão Celestial e não pode ser posicionada!`) };
+    return { ...state, log: appendLog(state, state.log, 'warning', `Esta carta Monstro está trancada pela Visão Celestial e não pode ser posicionada!`, { animationPolicy: 'suppress' }) };
   }
 
   const newHand = playerState.hand.filter((c) => c.id !== cardId);

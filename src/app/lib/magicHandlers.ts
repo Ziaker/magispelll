@@ -71,7 +71,7 @@ export function handleActivateSimpleMagic(state: GameState, player: PlayerNumber
     // Valete é gasto sem efeito, com aviso no log.
     if (aceIndex === -1) {
       const { deck: finalDeck, discardPile: finalDiscard } = pushToDiscard({ deck, discardPile, gameConfig: state.gameConfig }, [card]);
-      const log = appendLog(state, state.log, 'warning', `Nenhum Ás disponível pra comprar agora!`);
+      const log = appendLog(state, state.log, 'warning', `Nenhum Ás disponível pra comprar agora!`, { animationPolicy: 'suppress' });
       return { ...state, deck: finalDeck, discardPile: finalDiscard, log, [playerKey]: { ...playerState, hand: newHand } };
     }
 
@@ -265,15 +265,15 @@ export function handleExecuteMagic(
   // StatusEffect kind 'magicLocked' em statusEffects.ts e o efeito de Visão
   // Celestial abaixo).
   if (hasStatus(card, 'magicLocked')) {
-    return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta foi revelada pela Visão Celestial e está trancada até o fim do turno!`) };
+    return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta foi revelada pela Visão Celestial e está trancada até o fim do turno!`, { animationPolicy: 'suppress' }) };
   }
 
   if (isFrozenMagicActivationBlocked(character, card)) {
-    return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta está congelada e não pode ser ativada!`) };
+    return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta está congelada e não pode ser ativada!`, { animationPolicy: 'suppress' }) };
   }
 
   if (!canActivateMagic(state.phase, character, magicType, getMagicActivationContext(state, player))) {
-    return { ...state, log: appendLog(state, state.log, 'warning', `Essa magia não pode ser ativada agora`) };
+    return { ...state, log: appendLog(state, state.log, 'warning', `Essa magia não pode ser ativada agora`, { animationPolicy: 'suppress' }) };
   }
 
   const { selectedCards, selectedSlot, selectedTargetPlayer, selectedTargetSlot, selectedRevealCardIds } = selection;
@@ -291,7 +291,7 @@ export function handleExecuteMagic(
     // nada (revealCard já bloquearia a revelação, mas o resto do efeito
     // desta magia não faz sentido sem ela).
     if (hasStatus(targetCard, 'frozen')) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta está congelada e não pode ser revelada!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Essa carta está congelada e não pode ser revelada!`, { animationPolicy: 'suppress' }) };
     }
 
     // FIX (pedido do usuário: "isso tá incorreto... você PODE descartar uma
@@ -384,7 +384,7 @@ export function handleExecuteMagic(
     if (targetPlayer !== player) {
       if (!targetSlot.revealed) return state;
       if (isSlotProtected(state, targetPlayer, selectedSlot)) {
-        return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+        return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`, { animationPolicy: 'suppress' }) };
       }
     }
     // Coringa (novo, pedido do usuário) - Valete-armadilha funciona como
@@ -553,7 +553,7 @@ export function handleExecuteMagic(
     if (targetPlayer !== player) {
       if (!targetSlot.revealed) return state;
       if (isSlotProtected(state, targetPlayer, selectedSlot)) {
-        return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+        return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`, { animationPolicy: 'suppress' }) };
       }
     }
     // Coringa (novo, pedido do usuário) - Valete-armadilha funciona como
@@ -718,7 +718,7 @@ export function handleExecuteMagic(
       // silenciosa se a carta estiver congelada.
       if (targetSlot.revealed || hasStatus(targetSlot.faceDownCard, 'frozen')) return state;
       if (isSlotProtected(state, opponent, selectedSlot)) {
-        return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+        return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`, { animationPolicy: 'suppress' }) };
       }
       // Coringa (novo, pedido do usuário) - Valete-armadilha funciona como
       // escudo pra carta que está montado em cima (ver tryCoringaJShieldBlock)
@@ -789,7 +789,7 @@ export function handleExecuteMagic(
     const hasDestroyableModifier = unbattledCards.some((c) => hasStatus(c, 'combatModifier'));
     if (!hasUnbattledHorizontal && !hasDestroyableModifier) return state;
     if (isSlotProtected(state, opponent, selectedSlot)) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`, { animationPolicy: 'suppress' }) };
     }
 
     const newField = [...opponentState.field] as [FieldSlot, FieldSlot, FieldSlot];
@@ -847,7 +847,7 @@ export function handleExecuteMagic(
     // campo do oponente livremente, "escapando" do congelamento.
     if (hasStatus(playerCard, 'frozen') || hasStatus(opponentCard, 'frozen')) return state;
     if (isSlotProtected(state, opponent, selectedTargetSlot)) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`, { animationPolicy: 'suppress' }) };
     }
 
     newPlayerField[selectedSlot] = { ...newPlayerField[selectedSlot], faceDownCard: opponentCard };
@@ -1053,7 +1053,7 @@ export function handleExecuteMagic(
     const targetSlotIndex = opponentState.field.findIndex((s) => s.faceDownCard?.id === targetId || s.horizontalCards.some((c) => c.id === targetId));
     if (targetSlotIndex === -1) return state;
     if (isSlotProtected(state, opponent, targetSlotIndex)) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`, { animationPolicy: 'suppress' }) };
     }
     const targetSlot = opponentState.field[targetSlotIndex];
     const targetCard = targetSlot.faceDownCard?.id === targetId ? targetSlot.faceDownCard : targetSlot.horizontalCards.find((c) => c.id === targetId);
@@ -1357,7 +1357,7 @@ export function handleExecuteMagic(
     const targetSlotIndex = opponentState.field.findIndex((s) => s.faceDownCard?.id === targetId || s.horizontalCards.some((c) => c.id === targetId));
     if (targetSlotIndex === -1) return state;
     if (isSlotProtected(state, opponent, targetSlotIndex)) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`, { animationPolicy: 'suppress' }) };
     }
     const targetSlot = opponentState.field[targetSlotIndex];
     const targetCard = targetSlot.faceDownCard?.id === targetId ? targetSlot.faceDownCard : targetSlot.horizontalCards.find((c) => c.id === targetId);
@@ -1452,7 +1452,7 @@ export function handleExecuteMagic(
       targetCard = targetSlot.faceDownCard;
       if (!targetCard || hasStatus(targetCard, 'frozen')) return state;
       if (targetPlayer !== player && isSlotProtected(state, targetPlayer, selectedSlot)) {
-        return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+        return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`, { animationPolicy: 'suppress' }) };
       }
       // Coringa (novo, pedido do usuário) - Valete-armadilha funciona como
       // escudo pra carta que está montado em cima (ver tryCoringaJShieldBlock)
@@ -1504,7 +1504,7 @@ export function handleExecuteMagic(
     const targetCard = targetSlot.faceDownCard?.id === targetId ? targetSlot.faceDownCard : targetSlot.horizontalCards.find((c) => c.id === targetId);
     if (!targetCard || hasStatus(targetCard, 'frozen')) return state;
     if (targetPlayer !== player && isSlotProtected(state, targetPlayer, selectedSlot)) {
-      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`) };
+      return { ...state, log: appendLog(state, state.log, 'warning', `Esse slot está protegido por Proteção Divina!`, { animationPolicy: 'suppress' }) };
     }
     // Coringa (novo, pedido do usuário) - Valete-armadilha funciona como
     // escudo pra carta que está montado em cima (ver tryCoringaJShieldBlock)

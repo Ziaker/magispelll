@@ -31,6 +31,7 @@ import { handleReactToMagic, handleResolvePendingReaction, maybeDeferForReaction
 import { handleToggleReady } from './phaseHandlers';
 import type { GameState } from './gameStateTypes';
 import { createInitialState } from './gameStateFactory';
+import { backfillLogChainMetadata } from './gameLog';
 
 export type { Phase, PlayerNumber, PlayerKey } from './gameTypes';
 export { ALL_CHARACTER_IDS, type CharacterId } from './characterRegistry';
@@ -53,7 +54,17 @@ export { getEffectiveDrawLimit, getEffectiveDiscardLimit } from './gameLimits';
 export { createInitialState } from './gameStateFactory';
 
 export function gameReducer(state: GameState, action: GameAction): GameState {
-  return applyBestaBloodRageSweep(reduceGameAction(state, action));
+  const result = applyBestaBloodRageSweep(reduceGameAction(state, action));
+  // Fase 0.3 do roadmap de overhaul de animações ("arbitragem de cadeias
+  // visuais") - preenche chainId/sequence de toda entrada de log nova deste
+  // dispatch, automaticamente, num único lugar - ver o comentário completo
+  // de backfillLogChainMetadata (gameLog.ts) pra semântica exata. Roda
+  // depois do sweep da Besta de propósito: se este dispatch (de QUALQUER
+  // ação, não só da Besta) disparar o sweep, o descarte por bloodRage entra
+  // na MESMA cadeia (mesmo dispatch) que a ação que o causou.
+  if (result.log === state.log) return result;
+  const log = backfillLogChainMetadata(state.log, result.log);
+  return log === result.log ? result : { ...result, log };
 }
 
 function reduceGameAction(state: GameState, action: GameAction): GameState {
