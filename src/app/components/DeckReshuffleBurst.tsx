@@ -16,6 +16,8 @@ export interface DeckReshuffleBurstSpec {
   from: Rect;
   /** Posição real do painel "Baralho". */
   to: Rect;
+  /** Fase 1 (overhaul de animações) - escala de duração vinda de `getAnimationDurationScale(settings)`, ver useDiscardReshuffleAnimations.ts - antes as durações (0.5s/0.8s/0.65s) eram fixas e ignoravam a preferência "Velocidade de Animação". */
+  scale: number;
 }
 
 const CARD_COUNT = 7;
@@ -57,7 +59,12 @@ export function DeckReshuffleBurst({ spec }: { spec: DeckReshuffleBurstSpec | nu
   return (
     <AnimatePresence>
       {spec && (
-        <motion.div key={spec.key} className="fixed inset-0 z-[85] pointer-events-none">
+        <motion.div
+          key={spec.key}
+          className="fixed inset-0 z-[85] pointer-events-none"
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+        >
           {/* Pulso no Cemitério, na saída, seguido do pulso no Baralho, na chegada. */}
           <motion.div
             className="absolute rounded-lg"
@@ -70,7 +77,7 @@ export function DeckReshuffleBurst({ spec }: { spec: DeckReshuffleBurstSpec | nu
             }}
             initial={{ opacity: 0 }}
             animate={{ opacity: [0, 0.9, 0] }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
+            transition={{ duration: 0.5 * spec.scale, ease: 'easeOut' }}
           />
           <motion.div
             className="absolute rounded-lg"
@@ -83,10 +90,10 @@ export function DeckReshuffleBurst({ spec }: { spec: DeckReshuffleBurstSpec | nu
             }}
             initial={{ opacity: 0 }}
             animate={{ opacity: [0, 0, 0.9, 0] }}
-            transition={{ duration: 0.8, ease: 'easeOut' }}
+            transition={{ duration: 0.8 * spec.scale, ease: 'easeOut' }}
           />
           {Array.from({ length: CARD_COUNT }).map((_, idx) => (
-            <ShuffleCard key={idx} idx={idx} from={spec.from} to={spec.to} posCompensation={posCompensation} />
+            <ShuffleCard key={idx} idx={idx} from={spec.from} to={spec.to} posCompensation={posCompensation} scale={spec.scale} />
           ))}
         </motion.div>
       )}
@@ -94,7 +101,19 @@ export function DeckReshuffleBurst({ spec }: { spec: DeckReshuffleBurstSpec | nu
   );
 }
 
-function ShuffleCard({ idx, from, to, posCompensation }: { idx: number; from: Rect; to: Rect; posCompensation: number }) {
+function ShuffleCard({
+  idx,
+  from,
+  to,
+  posCompensation,
+  scale,
+}: {
+  idx: number;
+  from: Rect;
+  to: Rect;
+  posCompensation: number;
+  scale: number;
+}) {
   const scaledFrom = { left: from.left * posCompensation, top: from.top * posCompensation, width: from.width * posCompensation, height: from.height * posCompensation };
   const scaledTo = { left: to.left * posCompensation, top: to.top * posCompensation, width: to.width * posCompensation, height: to.height * posCompensation };
   const cardW = CARD_W;
@@ -138,7 +157,7 @@ function ShuffleCard({ idx, from, to, posCompensation }: { idx: number; from: Re
         opacity: [0, 1, 1, 0],
         scale: [0.75, 1, 0.85],
       }}
-      transition={{ duration: 0.65, delay, ease: 'easeInOut' }}
+      transition={{ duration: 0.65 * scale, delay: delay * scale, ease: 'easeInOut' }}
     >
       <PlayingCard faceDown className="w-full h-full" />
     </motion.div>
