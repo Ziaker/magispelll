@@ -180,7 +180,13 @@ export function handleFinalizeNumeralSpell(state: GameState): GameState {
 
   let updatedPlayer: PlayerState = { ...playerState, field: emptyField() };
   let updatedOpponent: PlayerState = state[opponentKey];
-  let log = appendLog(state, state.log, 'numeral-spell', `Cartas da Magia Numeral foram descartadas`);
+  // Fase 0.3 do roadmap de overhaul de animações - `chainId` explícito aqui
+  // (o mesmo id gravado em `numeralSpellPending` na ativação) linka esta
+  // metade da cadeia (finalização, um dispatch SEPARADO de FINALIZE_NUMERAL_SPELL)
+  // de volta à ativação original; o backfill automático do wrapper `gameReducer`
+  // propaga o MESMO chainId pro resto das entradas que este dispatch ainda
+  // vai criar abaixo (nenhuma delas precisa passar `chainId` de novo).
+  let log = appendLog(state, state.log, 'numeral-spell', `Cartas da Magia Numeral foram descartadas`, { chainId: state.numeralSpellPending.chainId });
 
   if (character === 'anjo') {
     updatedPlayer = {

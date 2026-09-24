@@ -29,7 +29,7 @@ export function handleDrawCards(state: GameState, player: PlayerNumber, count: n
     ? Math.max(0, effectiveDrawLimit - playerState.drawsThisTurn)
     : Infinity;
   if (drawLimitRemaining <= 0) {
-    return { ...state, log: appendLog(state, state.log, 'warning', `Limite de ${effectiveDrawLimit} compra(s) por turno atingido!`) };
+    return { ...state, log: appendLog(state, state.log, 'warning', `Limite de ${effectiveDrawLimit} compra(s) por turno atingido!`, { animationPolicy: 'suppress' }) };
   }
 
   const { deck: ensuredDeck, discardPile: ensuredDiscard, reshuffled } = ensureDeckHasCards(state);
@@ -110,7 +110,7 @@ export function handleDiscardCards(state: GameState, player: PlayerNumber, cardI
   const playerState = state[playerKey];
 
   if (playerState.discardsThisTurn + cardIds.length > discardLimit) {
-    return { ...state, log: appendLog(state, state.log, 'warning', `Limite de ${discardLimit} descartes por turno atingido!`) };
+    return { ...state, log: appendLog(state, state.log, 'warning', `Limite de ${discardLimit} descartes por turno atingido!`, { animationPolicy: 'suppress' }) };
   }
 
   // Cartas reveladas nunca podem ser descartadas, mesmo que o chamador tente.
