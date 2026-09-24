@@ -202,10 +202,12 @@ export function handleReactToMagic(state: GameState, player: PlayerNumber, cardI
 
   const newCasterHand = casterState.hand.filter((c) => c.id !== pending.cardId);
   const newReactingHand = playerState.hand.filter((c) => c.id !== cardId);
-  const { deck, discardPile } = pushToDiscard(state, [announcedCard, reactingCard]);
-  const log = appendLog(
+  const { deck, discardPile, reshuffled } = pushToDiscard(state, [announcedCard, reactingCard]);
+  let log = state.log;
+  if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+  log = appendLog(
     state,
-    state.log,
+    log,
     'magic',
     `Jogador ${player} REAGIU com ${reactingCard.value}${reactingCard.suit} - a magia de Jogador ${pending.casterPlayer} foi negada! Ambas as cartas foram descartadas.`,
     {

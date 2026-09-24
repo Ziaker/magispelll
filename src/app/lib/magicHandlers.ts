@@ -78,14 +78,16 @@ export function handleActivateSimpleMagic(state: GameState, player: PlayerNumber
     // alcançável (todos já em jogo em mãos/campos/zonas de Monstro), o
     // Valete é gasto sem efeito, com aviso no log.
     if (aceIndex === -1) {
-      const { deck: finalDeck, discardPile: finalDiscard } = pushToDiscard({ deck, discardPile, gameConfig: state.gameConfig }, [card]);
+      const { deck: finalDeck, discardPile: finalDiscard, reshuffled: reshuffledOnDiscard } = pushToDiscard({ deck, discardPile, gameConfig: state.gameConfig }, [card]);
+      if (reshuffledOnDiscard) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
       log = appendLog(state, log, 'warning', `Nenhum Ás disponível pra comprar agora!`, { animationPolicy: 'suppress' });
       return { ...state, deck: finalDeck, discardPile: finalDiscard, log, [playerKey]: { ...playerState, hand: newHand } };
     }
 
     const ace = deck[aceIndex];
     const remainingDeck = [...deck.slice(0, aceIndex), ...deck.slice(aceIndex + 1)];
-    const { deck: finalDeck, discardPile: finalDiscard } = pushToDiscard({ deck: remainingDeck, discardPile, gameConfig: state.gameConfig }, [card]);
+    const { deck: finalDeck, discardPile: finalDiscard, reshuffled: reshuffledOnDiscard } = pushToDiscard({ deck: remainingDeck, discardPile, gameConfig: state.gameConfig }, [card]);
+    if (reshuffledOnDiscard) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
     log = appendLog(state, log, 'magic', `Jogador ${player} comprou um Ás`, { player, cardValue: card.value, cardSuit: card.suit });
     return {
       ...state,
@@ -104,9 +106,11 @@ export function handleActivateSimpleMagic(state: GameState, player: PlayerNumber
   if (character === 'anjo' && card.value === 'K' && state.phase === 'strategy') {
     if (!canActivateMagic(state.phase, character, 'K', getMagicActivationContext(state, player))) return state;
     const newHand = playerState.hand.filter((c) => c.id !== cardId);
-    const { deck, discardPile } = pushToDiscard(state, [card]);
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
     const newHorizontalStackBonus = playerState.horizontalStackBonus + 1;
-    const log = appendLog(state, state.log, 'magic', `Jogador ${player} pode agora posicionar até ${1 + newHorizontalStackBonus} cartas horizontais neste turno`, { player, cardValue: card.value, cardSuit: card.suit });
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(state, log, 'magic', `Jogador ${player} pode agora posicionar até ${1 + newHorizontalStackBonus} cartas horizontais neste turno`, { player, cardValue: card.value, cardSuit: card.suit });
     return {
       ...state,
       deck,
@@ -200,6 +204,7 @@ export function executeFireballLaunch(state: GameState, player: PlayerNumber, ta
     const pushed = pushToDiscard({ deck, discardPile, gameConfig: state.gameConfig }, slotCards);
     deck = pushed.deck;
     discardPile = pushed.discardPile;
+    if (pushed.reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
 
     if (perTargetValue >= slotTotal) {
       newField[slotIndex] = { revealed: false, horizontalCards: [] };
@@ -314,8 +319,10 @@ export function handleExecuteMagic(
     // efeito) uma carta que já está revelada - nesse caso ela é descartada.
     if (targetCard.revealed) {
       const newOpponentHand = opponentState.hand.filter((c) => c.id !== targetId);
-      const { deck, discardPile } = pushToDiscard(state, [card, targetCard]);
-      const log = appendLog(state, state.log, 'magic', `Jogador ${player} descartou ${targetCard.value}${targetCard.suit} de Jogador ${opponent}`, { player, cardValue: card.value, cardSuit: card.suit });
+      const { deck, discardPile, reshuffled } = pushToDiscard(state, [card, targetCard]);
+      let log = state.log;
+      if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+      log = appendLog(state, log, 'magic', `Jogador ${player} descartou ${targetCard.value}${targetCard.suit} de Jogador ${opponent}`, { player, cardValue: card.value, cardSuit: card.suit });
       return {
         ...state,
         deck,
@@ -327,8 +334,10 @@ export function handleExecuteMagic(
     }
 
     const newOpponentHand = opponentState.hand.map((c) => (c.id === targetId ? { ...c, revealed: true } : c));
-    const { deck, discardPile } = pushToDiscard(state, [card]);
-    const log = appendLog(state, state.log, 'magic', `Jogador ${player} revelou ${targetCard.value}${targetCard.suit} de Jogador ${opponent}`, { player, cardValue: card.value, cardSuit: card.suit });
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(state, log, 'magic', `Jogador ${player} revelou ${targetCard.value}${targetCard.suit} de Jogador ${opponent}`, { player, cardValue: card.value, cardSuit: card.suit });
     return {
       ...state,
       deck,
@@ -366,7 +375,8 @@ export function handleExecuteMagic(
     let log = state.log;
     log = appendLog(state, log, 'magic', `Jogador ${player} pegou ${cardsFromDiscard.length} carta(s) do descarte`, { player, cardValue: card.value, cardSuit: card.suit });
 
-    const { deck, discardPile } = pushToDiscard({ deck: state.deck, discardPile: remainingDiscard, gameConfig: state.gameConfig }, [card]);
+    const { deck, discardPile, reshuffled } = pushToDiscard({ deck: state.deck, discardPile: remainingDiscard, gameConfig: state.gameConfig }, [card]);
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
 
     return {
       ...state,
@@ -468,8 +478,10 @@ export function handleExecuteMagic(
         };
         setHand(sourceKey, handOf(sourceKey).filter((c) => c.id !== selectedCards[0]));
         setField(targetKey, newTargetField);
-        const { deck, discardPile } = pushToDiscard(state, [card]);
-        const log = appendLog(state, state.log, 'magic', `Jogador ${player} reforçou uma torre com uma carta revelada`, { player, cardValue: card.value, cardSuit: card.suit });
+        const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
+        let log = state.log;
+        if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+        log = appendLog(state, log, 'magic', `Jogador ${player} reforçou uma torre com uma carta revelada`, { player, cardValue: card.value, cardSuit: card.suit });
         return { ...state, deck, discardPile, log, player1: newPlayer1, player2: newPlayer2 };
       }
 
@@ -477,8 +489,10 @@ export function handleExecuteMagic(
       const newTop = newReserve.pop();
       newTargetField[selectedSlot] = { ...targetSlot, faceDownCard: newTop, towerReserve: newReserve, revealed: Boolean(newTop) };
       setField(targetKey, newTargetField);
-      const { deck, discardPile } = pushToDiscard(state, [card, targetSlot.faceDownCard!]);
-      const log = appendLog(state, state.log, 'magic', `Jogador ${player} descartou o topo de uma torre (a carta não bateu com o número)`, { player, cardValue: card.value, cardSuit: card.suit });
+      const { deck, discardPile, reshuffled } = pushToDiscard(state, [card, targetSlot.faceDownCard!]);
+      let log = state.log;
+      if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+      log = appendLog(state, log, 'magic', `Jogador ${player} descartou o topo de uma torre (a carta não bateu com o número)`, { player, cardValue: card.value, cardSuit: card.suit });
       return { ...state, deck, discardPile, log, player1: newPlayer1, player2: newPlayer2 };
     }
 
@@ -486,10 +500,12 @@ export function handleExecuteMagic(
     const newTargetField = [...targetState.field] as [FieldSlot, FieldSlot, FieldSlot];
     newTargetField[selectedSlot] = { ...newTargetField[selectedSlot], faceDownCard: { ...cardToPlace, revealed: true, placedOnTurn: state.turn }, revealed: true };
 
-    const { deck, discardPile } = pushToDiscard(state, [card]);
-    const log = appendLog(
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       sourceOwner === player
         ? `Jogador ${player} substituiu carta no campo`
@@ -604,8 +620,10 @@ export function handleExecuteMagic(
           revealed: true,
         };
         const discardWithoutTaken = state.discardPile.filter((c) => c.id !== selectedCards[0]);
-        const { deck, discardPile } = pushToDiscard({ deck: state.deck, discardPile: discardWithoutTaken, gameConfig: state.gameConfig }, [card]);
-        const log = appendLog(state, state.log, 'magic', `Jogador ${player} reforçou uma torre com uma carta do descarte`, { player, cardValue: card.value, cardSuit: card.suit });
+        const { deck, discardPile, reshuffled } = pushToDiscard({ deck: state.deck, discardPile: discardWithoutTaken, gameConfig: state.gameConfig }, [card]);
+        let log = state.log;
+        if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+        log = appendLog(state, log, 'magic', `Jogador ${player} reforçou uma torre com uma carta do descarte`, { player, cardValue: card.value, cardSuit: card.suit });
         if (targetPlayer !== player) {
           return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic }, [targetKey]: { ...targetState, field: newTargetField } };
         }
@@ -615,8 +633,10 @@ export function handleExecuteMagic(
       const newReserve = [...reserve];
       const newTop = newReserve.pop();
       newTargetField[selectedSlot] = { ...targetSlot, faceDownCard: newTop, towerReserve: newReserve, revealed: Boolean(newTop) };
-      const { deck, discardPile } = pushToDiscard(state, [card, targetSlot.faceDownCard!]);
-      const log = appendLog(state, state.log, 'magic', `Jogador ${player} descartou o topo de uma torre (a carta não bateu com o número)`, { player, cardValue: card.value, cardSuit: card.suit });
+      const { deck, discardPile, reshuffled } = pushToDiscard(state, [card, targetSlot.faceDownCard!]);
+      let log = state.log;
+      if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+      log = appendLog(state, log, 'magic', `Jogador ${player} descartou o topo de uma torre (a carta não bateu com o número)`, { player, cardValue: card.value, cardSuit: card.suit });
       if (targetPlayer !== player) {
         return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic }, [targetKey]: { ...targetState, field: newTargetField } };
       }
@@ -639,11 +659,13 @@ export function handleExecuteMagic(
     // é o campo do oponente) - a "Troca Predatória" consome a carta do
     // oponente, ela não volta para a mão dele, diferente da Substituição
     // Arcana do Mago.
-    const { deck, discardPile } = pushToDiscard({ deck: state.deck, discardPile: discardWithoutTaken, gameConfig: state.gameConfig }, [card, oldCard]);
+    const { deck, discardPile, reshuffled } = pushToDiscard({ deck: state.deck, discardPile: discardWithoutTaken, gameConfig: state.gameConfig }, [card, oldCard]);
 
-    const log = appendLog(
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       `Jogador ${player} trocou carta do campo${targetPlayer !== player ? ` de Jogador ${targetPlayer}` : ''} por uma do descarte`,
       { player, cardValue: card.value, cardSuit: card.suit }
@@ -700,10 +722,12 @@ export function handleExecuteMagic(
           ? applyStatus(revealedCard, { kind: 'magicLocked', source: 'anjo', label: 'Visão Celestial', duration: { type: 'untilPhase', phase: 'draw' } })
           : revealedCard;
       });
-      const { deck, discardPile } = pushToDiscard(state, [card]);
-      const log = appendLog(
+      const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
+      let log = state.log;
+      if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+      log = appendLog(
         state,
-        state.log,
+        log,
         'magic',
         `Jogador ${player} revelou uma carta da mão de Jogador ${opponent}${isLockableValue ? ' (trancada até o fim do turno)' : ''}`,
         { player, cardValue: card.value, cardSuit: card.suit }
@@ -749,10 +773,12 @@ export function handleExecuteMagic(
           : revealedFieldCard,
       };
 
-      const { deck, discardPile } = pushToDiscard(state, [card]);
-      const log = appendLog(
+      const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
+      let log = state.log;
+      if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+      log = appendLog(
         state,
-        state.log,
+        log,
         'magic',
         `Jogador ${player} revelou carta do campo de Jogador ${opponent}${isLockableValue ? ' (trancada até o fim do turno)' : ''}`,
         { player, cardValue: card.value, cardSuit: card.suit }
@@ -813,14 +839,16 @@ export function handleExecuteMagic(
         : {}),
     };
 
-    const { deck, discardPile } = pushToDiscard(state, hasUnbattledHorizontal ? [card, ...horizontalCards] : [card]);
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, hasUnbattledHorizontal ? [card, ...horizontalCards] : [card]);
     const destroyedParts = [
       ...(hasUnbattledHorizontal ? [horizontalCards.length > 1 ? 'as cartas horizontais' : 'a carta horizontal'] : []),
       ...(hasDestroyableModifier ? ['o(s) marcador(es) de reforço'] : []),
     ];
-    const log = appendLog(
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       `Jogador ${player} destruiu ${destroyedParts.join(' e ')} de Jogador ${opponent}`,
       { player, cardValue: card.value, cardSuit: card.suit }
@@ -861,8 +889,10 @@ export function handleExecuteMagic(
     newPlayerField[selectedSlot] = { ...newPlayerField[selectedSlot], faceDownCard: opponentCard };
     newOpponentField[selectedTargetSlot] = { ...newOpponentField[selectedTargetSlot], faceDownCard: playerCard };
 
-    const { deck, discardPile } = pushToDiscard(state, [card]);
-    const log = appendLog(state, state.log, 'magic', `Jogador ${player} trocou carta com Jogador ${opponent}`, { player, cardValue: card.value, cardSuit: card.suit });
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(state, log, 'magic', `Jogador ${player} trocou carta com Jogador ${opponent}`, { player, cardValue: card.value, cardSuit: card.suit });
 
     return {
       ...state,
@@ -895,10 +925,12 @@ export function handleExecuteMagic(
     const newOwnHand = redirecting ? handWithoutMagic : handWithoutMagic.filter((c) => c.id !== targetId);
     const newOpponentHand = redirecting ? opponentState.hand.filter((c) => c.id !== targetId) : opponentState.hand;
 
-    const { deck, discardPile } = pushToDiscard(state, [card, targetCard]);
-    const log = appendLog(
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card, targetCard]);
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       redirecting
         ? `Jogador ${player} ativou Tiro de Cobertura - Jogador ${opponent} descartou ${targetCard.value}${targetCard.suit} às cegas`
@@ -991,10 +1023,12 @@ export function handleExecuteMagic(
       return newSlot;
     }) as [FieldSlot, FieldSlot, FieldSlot];
 
-    const { deck, discardPile } = pushToDiscard(state, [card, ...discardedCards]);
-    let log = appendLog(
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card, ...discardedCards]);
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       redirecting
         ? `Jogador ${player} ativou Rajada Reveladora - Jogador ${opponent} descartou ${discardedCards.length} carta(s) às cegas`
@@ -1098,15 +1132,17 @@ export function handleExecuteMagic(
         ? { ...targetSlot, faceDownCard: markedCard }
         : { ...targetSlot, horizontalCards: targetSlot.horizontalCards.map((c) => (c.id === targetId ? markedCard : c)) };
 
-    const { deck, discardPile } = pushToDiscard(state, [card]);
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
     // FIX (mesma classe de bug do Glacial: "o jogo esta notificando qual
     // carta o glacial esta congelando mesmo ela estando oculta" - auditoria
     // encontrou o mesmo vazamento aqui, Tiro Certeiro nunca revela o alvo):
     // só mostra valor/naipe se a carta já estiver revelada.
     const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
-    const log = appendLog(
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       `Jogador ${player} ativou Tiro Certeiro e enfraqueceu ${targetDescription} de Jogador ${opponent} em -${boostAmount} de valor no combate (total: ${newAmount})`,
       { player, cardValue: card.value, cardSuit: card.suit }
@@ -1128,8 +1164,10 @@ export function handleExecuteMagic(
   // efeito próprio (junta cartas <5 da mão como combustível).
   if (character === 'piromante' && magicType === 'J') {
     if (selection.fireballLaunch) {
-      const { deck, discardPile } = pushToDiscard(state, [card]);
-      const midState: GameState = { ...state, deck, discardPile, [playerKey]: { ...playerState, hand: handWithoutMagic } };
+      const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
+      let log = state.log;
+      if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+      const midState: GameState = { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic } };
       return executeFireballLaunch(midState, player, selectedTargetSlot);
     }
     // O efeito PRÓPRIO continua sendo de Compra - a janela extra que a carta
@@ -1148,18 +1186,20 @@ export function handleExecuteMagic(
     const fuelSum = fuelCards.reduce((sum, c) => sum + getEffectiveCardValue(c), 0);
     const fuelIds = new Set(fuelCards.map((c) => c.id));
     const newHand = handWithoutMagic.filter((c) => !fuelIds.has(c.id));
-    const { deck, discardPile } = pushToDiscard(state, [card, ...fuelCards]);
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card, ...fuelCards]);
     const newFireball = Math.min(cap, playerState.fireballValue + fuelSum);
-    const log =
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log =
       fuelCards.length > 0
         ? appendLog(
             state,
-            state.log,
+            log,
             'magic',
             `Jogador ${player} queimou ${fuelCards.length} carta(s) da mão e somou ${fuelSum} à Bola de Fogo (agora ${newFireball})`,
             { player, cardValue: card.value, cardSuit: card.suit }
           )
-        : appendLog(state, state.log, 'magic', `Jogador ${player} não tinha cartas pequenas na mão pra queimar`, { player, cardValue: card.value, cardSuit: card.suit });
+        : appendLog(state, log, 'magic', `Jogador ${player} não tinha cartas pequenas na mão pra queimar`, { player, cardValue: card.value, cardSuit: card.suit });
     return { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: newHand, fireballValue: newFireball } };
   }
 
@@ -1173,8 +1213,10 @@ export function handleExecuteMagic(
   // dos casos de uso reais.
   if (character === 'piromante' && magicType === 'Q') {
     if (selection.fireballLaunch) {
-      const { deck, discardPile } = pushToDiscard(state, [card]);
-      const midState: GameState = { ...state, deck, discardPile, [playerKey]: { ...playerState, hand: handWithoutMagic } };
+      const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
+      let log = state.log;
+      if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+      const midState: GameState = { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic } };
       return executeFireballLaunch(midState, player, selectedTargetSlot);
     }
     // FIX (pedido do usuário: "troque a fase da rainha do piromante de
@@ -1203,10 +1245,12 @@ export function handleExecuteMagic(
 
     const cap = getFireballCap(state.gameConfig);
     const newFireball = Math.min(cap, playerState.fireballValue + value);
-    const { deck, discardPile } = pushToDiscard(state, [card, targetCard]);
-    const log = appendLog(
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card, targetCard]);
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       `Jogador ${player} queimou ${targetCard.value}${targetCard.suit} de Jogador ${opponent} e somou ${value} à Bola de Fogo (agora ${newFireball})`,
       { player, cardValue: card.value, cardSuit: card.suit }
@@ -1227,8 +1271,10 @@ export function handleExecuteMagic(
   // vez de só descartar, o valor dela vira combustível).
   if (character === 'piromante' && magicType === 'K') {
     if (selection.fireballLaunch) {
-      const { deck, discardPile } = pushToDiscard(state, [card]);
-      const midState: GameState = { ...state, deck, discardPile, [playerKey]: { ...playerState, hand: handWithoutMagic } };
+      const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
+      let log = state.log;
+      if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+      const midState: GameState = { ...state, deck, discardPile, log, [playerKey]: { ...playerState, hand: handWithoutMagic } };
       return executeFireballLaunch(midState, player, selectedTargetSlot);
     }
     const targetId = selectedCards?.[0];
@@ -1248,10 +1294,12 @@ export function handleExecuteMagic(
 
     const cap = getFireballCap(state.gameConfig);
     const newFireball = Math.min(cap, playerState.fireballValue + value);
-    const { deck, discardPile } = pushToDiscard(state, [card, targetCard]);
-    const log = appendLog(
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card, targetCard]);
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       `Jogador ${player} queimou uma horizontal de Jogador ${opponent} e somou ${value} à Bola de Fogo (agora ${newFireball})`,
       { player, cardValue: card.value, cardSuit: card.suit }
@@ -1324,14 +1372,16 @@ export function handleExecuteMagic(
         ? { ...withBrotoReduced, faceDownCard: markedCard }
         : { ...withBrotoReduced, horizontalCards: slot.horizontalCards.map((c) => (c.id === targetId ? markedCard : c)) };
     }) as [FieldSlot, FieldSlot, FieldSlot];
-    const { deck, discardPile } = pushToDiscard(state, [card]);
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
     // FIX (mesma classe de bug do Glacial - auditoria encontrou o mesmo
     // vazamento aqui, Simbiose nunca revela o alvo): só mostra valor/naipe
     // se a carta já estiver revelada.
     const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
-    const log = appendLog(
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       `Jogador ${player} reduziu o Broto para ${halved} e marcou ${targetDescription} com +${markerAmount}`,
       { player, cardValue: card.value, cardSuit: card.suit }
@@ -1392,14 +1442,16 @@ export function handleExecuteMagic(
       targetSlot.faceDownCard?.id === targetId
         ? { ...targetSlot, faceDownCard: markedCard }
         : { ...targetSlot, horizontalCards: targetSlot.horizontalCards.map((c) => (c.id === targetId ? markedCard : c)) };
-    const { deck, discardPile } = pushToDiscard(state, [card]);
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, [card]);
     // FIX (mesma classe de bug do Glacial - auditoria encontrou o mesmo
     // vazamento aqui, Urtiga nunca revela o alvo): só mostra valor/naipe se
     // a carta já estiver revelada.
     const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
-    const log = appendLog(
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       `Jogador ${player} reduziu o Broto para ${halved} e enfraqueceu ${targetDescription} de Jogador ${opponent} em -${debuffAmount}`,
       { player, cardValue: card.value, cardSuit: card.suit }
@@ -1478,15 +1530,17 @@ export function handleExecuteMagic(
 
     const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption({ ...playerState, hand: handOf(playerKey) }, card, cardId);
     setHand(playerKey, consumedHand);
-    const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
     // FIX (pedido do usuário: "o jogo esta notificando qual carta o glacial
     // esta congelando mesmo ela estando oculta") - só mostra valor/naipe no
     // log quando a carta já está revelada (pra qualquer um ver); oculta
     // continua oculta mesmo no log do Criogenar.
     const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
-    const log = appendLog(
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       `Jogador ${player} congelou ${targetDescription} de Jogador ${targetPlayer}`,
       { player, cardValue: card.value, cardSuit: card.suit }
@@ -1544,13 +1598,15 @@ export function handleExecuteMagic(
     const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption(playerState, card, cardId);
     applyToKey(playerKey, { hand: consumedHand });
     applyToKey(targetKey, { field: newTargetField });
-    const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+    const { deck, discardPile, reshuffled } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
     // FIX (mesmo pedido do usuário do Criogenar acima): só mostra valor/naipe
     // quando a carta já está revelada.
     const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
-    const log = appendLog(
+    let log = state.log;
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       `Jogador ${player} congelou ${targetDescription} de Jogador ${targetPlayer} e aplicou ${isOwn ? '+2' : '-2'} de marcador`,
       { player, cardValue: card.value, cardSuit: card.suit }
@@ -1613,14 +1669,16 @@ export function handleExecuteMagic(
       const newOpponentField = applyCrioescudoMarker(opponentState.field, -1, false);
 
       const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption(playerState, card, cardId);
-      const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+      const { deck, discardPile, reshuffled } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
       const parts = [
         ...(ownFrozenCards.length > 0 ? [`+1 em ${ownFrozenCards.length} carta(s) própria(s)`] : []),
         ...(opponentFrozenCards.length > 0 ? [`-1 em ${opponentFrozenCards.length} carta(s) de Jogador ${opponent}`] : []),
       ];
-      const log = appendLog(
+      let log = state.log;
+      if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+      log = appendLog(
         state,
-        state.log,
+        log,
         'magic',
         `Jogador ${player} reforçou o Crioescudo: ${parts.join(' e ')} (congelada(s) no campo)`,
         { player, cardValue: card.value, cardSuit: card.suit }
@@ -1666,14 +1724,16 @@ export function handleExecuteMagic(
       }
 
       const { hand: consumedHand, cardToDiscard } = resolveGlacialCardConsumption({ ...playerState, hand: newHand }, card, cardId);
-      const { deck, discardPile } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
+      const { deck, discardPile, reshuffled } = pushToDiscard(state, cardToDiscard ? [cardToDiscard] : []);
       // FIX (mesmo pedido do usuário do Criogenar/Crioespinho acima): mesmo
       // sendo a PRÓPRIA carta do Glacial, o log é visível pro oponente
       // também - só mostra valor/naipe se já estiver revelada.
       const targetDescription = targetCard.revealed ? `${targetCard.value}${targetCard.suit}` : 'uma carta oculta';
-      const log = appendLog(
+      let log = state.log;
+      if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+      log = appendLog(
         state,
-        state.log,
+        log,
         'magic',
         `Jogador ${player} congelou a própria ${targetDescription} com o Crioescudo`,
         { player, cardValue: card.value, cardSuit: card.suit }

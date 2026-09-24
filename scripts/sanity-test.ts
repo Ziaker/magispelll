@@ -7088,6 +7088,137 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
   );
 })();
 
+// Fase 0.4/0.5 do roadmap de overhaul de animações - sinal estrutural
+// ('deck-reshuffled') em TODOS os call sites de pushToDiscard/ensureDeckHasAtLeast,
+// não só nos 2 originalmente corrigidos junto das fixtures (Besta/Anjo J). O
+// shuffle automático (autoShuffle, 20+ cartas no descarte) sempre funcionou
+// corretamente (as cartas voltam certas pro baralho) - o bug real era a
+// ausência TOTAL de qualquer sinal estrutural (log, trigger) quando ele
+// disparava em ~44 outros call sites, deixando a animação dedicada
+// (DeckReshuffleBurst.tsx, ver GameBoard.tsx) sem nunca rodar nesses casos.
+// Os 2 testes abaixo cobrem os cenários onde descartar 20+ cartas de uma vez
+// é mais plausível na prática: o fim da fase de Combate descartando os 2
+// campos cheios de uma vez, seja porque nenhum par de slot foi batalhado
+// (handleToggleReady, phaseHandlers.ts) ou porque uma disputa fechou com o
+// 3º par de slot ainda cheio (resolveWholeField, combatHandlers.ts).
+// ---------------------------------------------------------------------------
+
+(function testDeckReshuffleSignalOnBothReadyMidCombatFullField() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+
+  const fillerDiscards = Array.from({ length: 18 }, (_, i) => makeCard(`filler-ready-${i}`, '2'));
+  const p1Cards = [makeCard('ready-p1a', '10'), makeCard('ready-p1b', '9'), makeCard('ready-p1c', '8')];
+  const p2Cards = [makeCard('ready-p2a', '7'), makeCard('ready-p2b', '6'), makeCard('ready-p2c', '5')];
+
+  state = {
+    ...state,
+    phase: 'combat',
+    discardPile: fillerDiscards,
+    player1: {
+      ...state.player1,
+      field: [
+        { faceDownCard: p1Cards[0], revealed: false, horizontalCards: [] },
+        { faceDownCard: p1Cards[1], revealed: false, horizontalCards: [] },
+        { faceDownCard: p1Cards[2], revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: p2Cards[0], revealed: false, horizontalCards: [] },
+        { faceDownCard: p2Cards[1], revealed: false, horizontalCards: [] },
+        { faceDownCard: p2Cards[2], revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  const totalBefore = countAllCards(state);
+  assert(state.discardPile.length === 18, 'Pré-condição: descarte pré-semeado com 18 cartas, abaixo do limiar de 20');
+
+  // Nenhum dos 3 pares de slot foi batalhado ainda - os dois jogadores
+  // decidem encerrar o Combate cedo clicando "Pronto".
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 1 });
+  assert(state.discardPile.length === 18, 'Nenhum descarte acontece só com 1 dos 2 jogadores pronto');
+
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 2 });
+
+  const fieldsEmptyReady = [...state.player1.field, ...state.player2.field].every((s) => !s.faceDownCard && s.horizontalCards.length === 0);
+  assert(fieldsEmptyReady, 'Ambos os campos ficam vazios ao encerrar o Combate com os 2 jogadores prontos (nenhum par de slot batalhado)');
+  assert(countAllCards(state) === totalBefore, 'Conservação de cartas mantida no descarte em lote dos 2 campos cheios');
+  assert(
+    state.discardPile.length === 12,
+    `FIX: 18 (pré-semeadas) + 6 (2 campos cheios, 3 cartas cada) = 24 cruzou o limiar de 20 e disparou o shuffle automático (metade volta pro baralho: 24/2=12 ficam, recebido discardPile.length=${state.discardPile.length})`
+  );
+  const reshuffleEntryReady = state.log.find((e) => e.trigger === 'deck-reshuffled');
+  assert(
+    reshuffleEntryReady !== undefined,
+    'FIX (achado montando fixtures da Fase 0.4/0.5): o shuffle automático disparado por handleToggleReady (fim de Combate com os 2 campos cheios nunca batalhados) agora emite o log estrutural "deck-reshuffled" - antes acontecia em silêncio total'
+  );
+})();
+
+(function testDeckReshuffleSignalOnDisputeClosingFullField() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+
+  const fillerDiscards = Array.from({ length: 15 }, (_, i) => makeCard(`filler-dispute-${i}`, '3'));
+  const p1Cards = [makeCard('dispute-p1a', '10'), makeCard('dispute-p1b', '9'), makeCard('dispute-p1c', '8')];
+  const p2Cards = [makeCard('dispute-p2a', '2'), makeCard('dispute-p2b', '2'), makeCard('dispute-p2c', '10')];
+
+  state = {
+    ...state,
+    phase: 'combat',
+    discardPile: fillerDiscards,
+    player1: {
+      ...state.player1,
+      field: [
+        { faceDownCard: p1Cards[0], revealed: false, horizontalCards: [] },
+        { faceDownCard: p1Cards[1], revealed: false, horizontalCards: [] },
+        { faceDownCard: p1Cards[2], revealed: false, horizontalCards: [] },
+      ],
+    },
+    player2: {
+      ...state.player2,
+      field: [
+        { faceDownCard: p2Cards[0], revealed: false, horizontalCards: [] },
+        { faceDownCard: p2Cards[1], revealed: false, horizontalCards: [] },
+        { faceDownCard: p2Cards[2], revealed: false, horizontalCards: [] },
+      ],
+    },
+  };
+
+  const totalBefore = countAllCards(state);
+
+  // Combate 1: slot 0 vs slot 0 -> Jogador 1 vence (10 > 2), não fecha disputa ainda.
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: state.firstToFlip, slotIndex: 0 });
+  const other = state.firstToFlip === 1 ? 2 : 1;
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: other as 1 | 2, slotIndex: 0 });
+  state = gameReducer(state, { type: 'RESOLVE_COMBAT' });
+  state = gameReducer(state, { type: 'FINALIZE_COMBAT' });
+  assert(state.discardPile.length === 17, 'Pré-condição: 15 pré-semeadas + 2 (slot 0 dos 2 lados) = 17, ainda abaixo do limiar de 20');
+  assert(state.log.find((e) => e.trigger === 'deck-reshuffled') === undefined, 'Ainda não disparou o shuffle automático depois de só o combate 1 (não-disputa)');
+
+  // Combate 2: slot 1 vs slot 1 -> Jogador 1 vence de novo (9 > 2) => fecha
+  // disputa, varrendo o campo INTEIRO dos 2 jogadores de uma vez
+  // (resolveWholeField, combatHandlers.ts) - inclui o slot 2, nunca batalhado.
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: 1, slotIndex: 1 });
+  state = gameReducer(state, { type: 'SELECT_COMBAT_SLOT', player: 2, slotIndex: 1 });
+  state = gameReducer(state, { type: 'RESOLVE_COMBAT' });
+  assert(state.combatResolution?.disputeWinner === 1, 'Pré-condição: combate 2 fecha a disputa para o Jogador 1');
+  state = gameReducer(state, { type: 'FINALIZE_COMBAT' });
+
+  const fieldsEmptyDispute = [...state.player1.field, ...state.player2.field].every((s) => !s.faceDownCard && s.horizontalCards.length === 0);
+  assert(fieldsEmptyDispute, 'Pré-condição: ambos os campos ficam vazios ao fechar a disputa (incluindo o 3º slot nunca batalhado)');
+  assert(countAllCards(state) === totalBefore, 'Conservação de cartas mantida no descarte em lote do campo inteiro dos 2 jogadores');
+  assert(
+    state.discardPile.length === 11,
+    `FIX: 17 + 4 (slot 1 dos 2 lados + slot 2 nunca batalhado dos 2 lados) = 21 cruzou o limiar de 20 (floor(21/2)=10 retornam ao baralho, 11 ficam, recebido discardPile.length=${state.discardPile.length})`
+  );
+  const reshuffleEntryDispute = state.log.find((e) => e.trigger === 'deck-reshuffled');
+  assert(
+    reshuffleEntryDispute !== undefined,
+    'FIX (achado montando fixtures da Fase 0.4/0.5): o shuffle automático disparado ao fechar uma disputa (resolveWholeField varre o campo INTEIRO dos 2 jogadores, incluindo o 3º slot nunca batalhado) agora emite "deck-reshuffled" - antes acontecia em silêncio total'
+  );
+})();
+
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passaram, ${failed} falharam.`);
 if (failed > 0) process.exit(1);

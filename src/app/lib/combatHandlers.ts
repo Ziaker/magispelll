@@ -458,7 +458,8 @@ export function handleFinalizeCombat(state: GameState): GameState {
     }
   }
 
-  const { deck, discardPile } = pushToDiscard(state, cardsToDiscard);
+  const { deck, discardPile, reshuffled } = pushToDiscard(state, cardsToDiscard);
+  if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
 
   let nextState: GameState = {
     ...state,

@@ -27,9 +27,8 @@ import type { GameState } from './gameStateTypes';
  * FIX (achado montando fixtures da Fase 0.4/0.5 do overhaul de animações):
  * `reshuffled` no retorno sinaliza quando o shuffle automático (20+ cartas)
  * disparou aqui - antes o reembaralhamento acontecia silenciosamente (jogo
- * correto, mas SEM nenhum sinal estrutural pra UI saber). A maioria dos ~46
- * call sites ainda não confere/loga isso (só o de handleFinalizeNumeralSpell,
- * Besta, foi corrigido junto desta fixture) - ver task de follow-up.
+ * correto, mas SEM nenhum sinal estrutural pra UI saber). Todos os call
+ * sites agora conferem isso e emitem 'deck-reshuffled' quando necessário.
  */
 export function pushToDiscard(
   state: Pick<GameState, 'deck' | 'discardPile' | 'gameConfig'>,
