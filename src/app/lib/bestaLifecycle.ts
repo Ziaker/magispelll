@@ -39,19 +39,22 @@ export function applyBestaBloodRageSweep(state: GameState): GameState {
     const burned = playerState.hand.filter((c) => isPlainNumeralCard(c) && getEffectiveCardValue(c) > 6);
     if (burned.length === 0) continue;
     const kept = playerState.hand.filter((c) => !burned.includes(c));
-    const { deck, discardPile } = pushToDiscard(next, burned);
+    const { deck, discardPile, reshuffled } = pushToDiscard(next, burned);
+    let log = next.log;
+    if (reshuffled) log = appendLog(next, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
+      next,
+      log,
+      'numeral-spell',
+      `Fúria Sanguinária: Jogador ${player} não pode segurar cartas acima de 6 - ${burned.length} carta(s) queimada(s) na mão`,
+      { player, burnedCardIds: burned.map((c) => c.id) }
+    );
     next = {
       ...next,
       deck,
       discardPile,
       [key]: { ...playerState, hand: kept },
-      log: appendLog(
-        next,
-        next.log,
-        'numeral-spell',
-        `Fúria Sanguinária: Jogador ${player} não pode segurar cartas acima de 6 - ${burned.length} carta(s) queimada(s) na mão`,
-        { player, burnedCardIds: burned.map((c) => c.id) }
-      ),
+      log,
     };
   }
   return next;
