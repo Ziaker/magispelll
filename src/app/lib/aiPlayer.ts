@@ -3176,7 +3176,23 @@ function decidePiromanteCombatFireball(state: GameState, ai: PlayerNumber): Game
   if (target === null) return null;
   const me = state[playerKeyOf(ai)];
   for (const value of ['K', 'Q', 'J'] as const) {
-    const card = me.hand.find((c) => c.value === value);
+    // FIX (achado por simulação real - IA propondo ação rejeitada milhares de
+    // vezes, "Piromante Q/K"): `.find()` cru pegava a PRIMEIRA carta daquele
+    // valor na mão, mesmo quando ela estava `magicLocked` (Visão Celestial do
+    // Anjo) e uma OUTRA cópia do mesmo valor, destrancada, existia na mesma
+    // mão - `canActivateMagic` (linha abaixo) corretamente dizia "sim, dá pra
+    // ativar" (existe cópia destrancada), mas o `cardId` enviado era o da
+    // cópia ERRADA (trancada), que o motor sempre rejeitava de verdade
+    // (`hasStatus(card, 'magicLocked')` em handleExecuteMagic) - a mesma
+    // decisão repetida a cada passo (nada mudava o estado dela até o fim do
+    // turno) inflava a contagem de "tentativas rejeitadas" em milhares por
+    // partida. `findActivatableMagicCard` (já usada por decidePiromanteK/Q e
+    // pelo bloco do Valete em decideDrawPhase) já resolve exatamente isso -
+    // prefere uma cópia destrancada quando existe, só cai pra `eligible[0]`
+    // (podendo ser a trancada) quando TODAS as cópias estão trancadas, caso em
+    // que `canActivateMagic` já bloqueia mesmo (lockedMagicValues cobre "todas
+    // trancadas").
+    const card = findActivatableMagicCard(me.hand, value, 'piromante');
     if (!card) continue;
     if (!canActivateMagic('combat', 'piromante', value, getMagicActivationContext(state, ai))) continue;
     return {

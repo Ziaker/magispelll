@@ -13,6 +13,7 @@ import { applyStatus, applyTimedCombatModifier, getCombatModifierStatuses, getSt
 import { DEFAULT_GAME_CONFIG, MIN_DISCARD_LIMIT, type GameConfig } from '../src/app/lib/gameConfig';
 import { getLogEffectInfo } from '../src/app/lib/logFormat';
 import { decideAiAction, decideAiActionTraced, decideReactionToMagic } from '../src/app/lib/aiPlayer';
+import { evaluateAction } from '../src/app/lib/actionValidation';
 import { simulateSteps } from '../src/app/lib/simulateGame';
 import { countAllCards } from '../src/app/lib/invariants';
 import { canActivateNumeralSpell } from '../src/app/lib/numeralSpells';
@@ -6527,6 +6528,58 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
     trace1.character !== trace2.character,
     `matchup assimétrico do teste deveria ter characters diferentes entre si (recebido ${trace1.character} para os 2)`
   );
+})();
+
+// ---------------------------------------------------------------------------
+// FIX (achado por simulação real via `npm run tierlist -- --games N`: IA do
+// Piromante propondo uma ação rejeitada pelo motor MILHARES de vezes por
+// partida, J/Q/K com ~93% de rejeição - `decidePiromanteCombatFireball`,
+// aiPlayer.ts) - o loop de fallback pra lançar a Bola de Fogo em Combate
+// pegava a carta com `.find()` CRU (primeira do valor, ignorando
+// `magicLocked`), em vez de `findActivatableMagicCard` (já usada por
+// decidePiromanteK/Q e pelo Valete em decideDrawPhase - prefere uma cópia
+// DESTRANCADA quando existe). Com 2 cópias do mesmo valor na mão e só a
+// PRIMEIRA (na ordem da mão) trancada pela Visão Celestial do Anjo,
+// `canActivateMagic` corretamente dizia "sim, ativável" (existe cópia
+// destrancada), mas o `cardId` enviado era o da cópia TRANCADA - sempre
+// rejeitado de verdade pelo motor (`hasStatus(card, 'magicLocked')` em
+// handleExecuteMagic). Como nada mudava até o fim do turno, a MESMA decisão
+// errada se repetia a cada passo (explica as milhares de tentativas).
+(function testPiromanteCombatFireballSkipsLockedCopyForUnlockedDuplicate() {
+  const lockedK = applyStatus(makeCard('piro-fireball-k-locked', 'K'), {
+    kind: 'magicLocked',
+    source: 'anjo',
+    label: 'Visão Celestial',
+    duration: { type: 'untilPhase', phase: 'draw' },
+  });
+  const unlockedK = makeCard('piro-fireball-k-free', 'K');
+  const opponentCard = makeCard('piro-fireball-target', '7');
+
+  let state = createInitialState('piromante', 'mago', DEFAULT_GAME_CONFIG);
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      hand: [lockedK, unlockedK],
+      fireballValue: getFireballCap(DEFAULT_GAME_CONFIG),
+    },
+    player2: {
+      ...state.player2,
+      field: [{ faceDownCard: { ...opponentCard, revealed: true }, horizontalCards: [], revealed: true }, { horizontalCards: [], revealed: false }, { horizontalCards: [], revealed: false }],
+    },
+  };
+
+  const decision = decideAiAction(state, 1);
+  assert(decision.type === 'action' && decision.action.type === 'EXECUTE_MAGIC', `Pré-condição: a IA propõe lançar a Bola de Fogo com o Rei (recebido: ${JSON.stringify(decision)})`);
+  if (decision.type === 'action' && decision.action.type === 'EXECUTE_MAGIC') {
+    assert(
+      decision.action.cardId === unlockedK.id,
+      `FIX Piromante IA: escolhe a cópia DESTRANCADA do Rei pra lançar a Bola de Fogo, nunca a trancada, quando as duas existem na mão (recebido cardId: ${decision.action.cardId})`
+    );
+    const evaluation = evaluateAction(state, decision.action);
+    assert(evaluation.accepted, `FIX Piromante IA: a ação proposta é ACEITA pelo motor, não mais rejeitada em loop (rejectionReason: ${evaluation.rejectionReason})`);
+  }
 })();
 
 // ---------------------------------------------------------------------------
