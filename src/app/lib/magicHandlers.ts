@@ -57,12 +57,20 @@ export function handleActivateSimpleMagic(state: GameState, player: PlayerNumber
 
     let deck = state.deck;
     let discardPile = state.discardPile;
+    let log = state.log;
     let aceIndex = deck.findIndex((c) => c.value === 'A');
     if (aceIndex === -1 && discardPile.length > 0) {
       const reshuffled = reshuffleDiscardIntoDeck(deck, discardPile, 'all');
       deck = reshuffled.deck;
       discardPile = reshuffled.discardPile;
       aceIndex = deck.findIndex((c) => c.value === 'A');
+      // FIX (achado montando a fixture "Fase 0.4/0.5" - Anjo J buscando um
+      // Ás que só existe no descarte): mesma classe de gap encontrada em
+      // handleFinalizeNumeralSpell (Besta) - esta chamada DIRETA a
+      // reshuffleDiscardIntoDeck (fora de ensureDeckHasCards/AtLeast) nunca
+      // emitia 'deck-reshuffled'. O reembaralhamento acontecia certo, só sem
+      // nenhum sinal estrutural pra UI.
+      log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
     }
 
     // Guarda de segurança - não deveria acontecer (canActivateMagic já exige
@@ -71,14 +79,14 @@ export function handleActivateSimpleMagic(state: GameState, player: PlayerNumber
     // Valete é gasto sem efeito, com aviso no log.
     if (aceIndex === -1) {
       const { deck: finalDeck, discardPile: finalDiscard } = pushToDiscard({ deck, discardPile, gameConfig: state.gameConfig }, [card]);
-      const log = appendLog(state, state.log, 'warning', `Nenhum Ás disponível pra comprar agora!`, { animationPolicy: 'suppress' });
+      log = appendLog(state, log, 'warning', `Nenhum Ás disponível pra comprar agora!`, { animationPolicy: 'suppress' });
       return { ...state, deck: finalDeck, discardPile: finalDiscard, log, [playerKey]: { ...playerState, hand: newHand } };
     }
 
     const ace = deck[aceIndex];
     const remainingDeck = [...deck.slice(0, aceIndex), ...deck.slice(aceIndex + 1)];
     const { deck: finalDeck, discardPile: finalDiscard } = pushToDiscard({ deck: remainingDeck, discardPile, gameConfig: state.gameConfig }, [card]);
-    const log = appendLog(state, state.log, 'magic', `Jogador ${player} comprou um Ás`, { player, cardValue: card.value, cardSuit: card.suit });
+    log = appendLog(state, log, 'magic', `Jogador ${player} comprou um Ás`, { player, cardValue: card.value, cardSuit: card.suit });
     return {
       ...state,
       deck: finalDeck,

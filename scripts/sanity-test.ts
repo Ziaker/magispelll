@@ -6663,5 +6663,378 @@ function setupTowerCombat(towerCards: Card[], p2Card: Card, p2Reserve?: Card[]):
 })();
 
 // ---------------------------------------------------------------------------
+// Fase 0.4/0.5 do roadmap de overhaul de animações ("matriz preventiva de
+// interação" virando fixtures reais + "bug capsules obrigatórias por
+// personagem", lista exata da Seção 0.5 do documento) - cada teste abaixo
+// verifica TANTO a correção de regra (conservação de cartas, efeito certo)
+// QUANTO as propriedades de evento/cadeia que a Fase 0.2/0.3 introduziu
+// (chainId compartilhado, visibility, trigger estrutural) para o cenário de
+// alto risco específico que o documento pede - a garantia de que a camada
+// visual (Fases 1-6, ainda não iniciadas) vai ter o sinal estrutural certo
+// pra reagir, sem precisar inferir nada de texto.
+// ---------------------------------------------------------------------------
+
+// FIX (achado montando este fixture): ver correção em deckLifecycle.ts/
+// numeralSpellHandlers.ts (ensureDeckHasAtLeast agora relata `reshuffled`) -
+// sem ela, este cenário reembaralhava o baralho de verdade mas nunca emitia
+// 'deck-reshuffled', um buraco real no contrato de evento que só apareceu
+// ao tentar escrever esta fixture (exatamente o propósito da Fase 0.4/0.5:
+// achar isso ANTES do polimento visual, não depois).
+(function testFixtureBestaBloodRageForcesDiscardDrawReshuffleInOneChain() {
+  let state = createInitialState('besta', 'mago', DEFAULT_GAME_CONFIG);
+  const sixes = [makeCard('fixture-besta-6a', '6'), makeCard('fixture-besta-6b', '6'), makeCard('fixture-besta-6c', '6')];
+  // Oponente com a mão CHEIA (8/8) - toda ela vai pro descarte na ativação.
+  // Valores <=6 DE PROPÓSITO: >6 seria imediatamente varrido pelo próprio
+  // bloodRage assim que redistribuído (efeito real e correto, coberto pela
+  // fixture "Besta + Fusão" acima) - aqui o interesse é isolar só a
+  // contagem da recompra forçada + o sinal de reembaralhamento, sem essa
+  // segunda variável natural do RNG (quantas >6 saem no sorteio) misturada.
+  const opponentFullHand = Array.from({ length: 8 }, (_, i) => makeCard(`fixture-besta-opp-hand-${i}`, String(2 + (i % 5))));
+  // Baralho quase vazio (1 carta) - a recompra forçada (>= 7) precisa do
+  // descarte pra completar, forçando um reembaralhamento de verdade.
+  const tinyDeck = [makeCard('fixture-besta-deck-1', '3')];
+  // Descarte com sobra de verdade (bem mais que os 8 necessários pra
+  // recompra, mesmo considerando que só METADE volta no shuffle automático
+  // de pushToDiscard, ver reshuffleDiscardIntoDeck) pra reabastecer o
+  // baralho depois do reembaralhamento sem depender de contagem exata -
+  // também só valores <=6, mesmo motivo do comentário acima.
+  const discardPile = Array.from({ length: 20 }, (_, i) => makeCard(`fixture-besta-discard-${i}`, String(2 + (i % 5))));
+
+  state = {
+    ...state,
+    phase: 'strategy',
+    deck: tinyDeck,
+    discardPile,
+    player1: { ...state.player1, hand: sixes },
+    player2: { ...state.player2, hand: opponentFullHand },
+  };
+
+  state = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
+  const chainId = state.numeralSpellPending?.chainId;
+  assert(chainId !== undefined, 'Pré-condição: ativação da Fúria Sanguinária mintou um chainId');
+
+  const cardCountBefore = countAllCards(state);
+  state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
+
+  assert(state.player2.hand.length >= 7, `Fúria Sanguinária: oponente recompra pelo menos 7 cartas (recebido: ${state.player2.hand.length})`);
+  assert(
+    countAllCards(state) === cardCountBefore,
+    // A mão antiga inteira vai pro descarte e o baralho é reembaralhado a partir
+    // dele - é ESPERADO (não um bug) que algumas das MESMAS cartas (mesmo id)
+    // voltem à mão na recompra; o que importa é NENHUMA carta sumir/duplicar.
+    `Descarte forçado + reembaralhamento + recompra preservam a contagem total de cartas do jogo (antes: ${cardCountBefore}, depois: ${countAllCards(state)})`
+  );
+
+  const chainEntries = state.log.filter((e) => e.chainId === chainId);
+  const reshuffleEntry = chainEntries.find((e) => e.trigger === 'deck-reshuffled');
+  assert(
+    reshuffleEntry !== undefined,
+    `FIX (achado nesta fixture): o reembaralhamento forçado pela recompra da Fúria Sanguinária agora emite 'deck-reshuffled' na MESMA cadeia da ativação (chainId ${chainId}) - entradas da cadeia: ${JSON.stringify(chainEntries.map((e) => ({ trigger: e.trigger, text: e.text })))}`
+  );
+  assert(
+    chainEntries.some((e) => e.text.includes('Fúria Sanguinária')),
+    'A cadeia inclui o descarte+recompra forçados (mesmo chainId da ativação e do reembaralhamento)'
+  );
+})();
+
+// FIX (Fase 0.4, "Besta + Fusão"): uma carta >6 nascida de FUSE_CARDS durante
+// bloodRage é varrida pelo MESMO sweep incidental (applyBestaBloodRageSweep)
+// que qualquer outra fonte - sem duplicar cartas (conservação) e dentro da
+// MESMA cadeia do dispatch de fusão que a criou.
+(function testFixtureBestaBloodRageBurnsFusedCardWithoutDuplication() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  const fuseA = makeCard('fixture-fusion-a', '5');
+  const fuseB = makeCard('fixture-fusion-b', '4'); // 5 + 4 = 9, numeral pura >6
+  state = {
+    ...state,
+    phase: 'draw',
+    player2: applyStatus({ ...state.player2, hand: [fuseA, fuseB, ...state.player2.hand] }, {
+      kind: 'bloodRage',
+      source: 'besta',
+      label: 'Fúria Sanguinária',
+      duration: { type: 'untilTurn', turn: state.turn + 1 },
+    }),
+  };
+  const cardCountBefore = countAllCards(state);
+  const lastIdBefore = state.log.length > 0 ? state.log[state.log.length - 1].id : -1;
+
+  state = gameReducer(state, { type: 'FUSE_CARDS', player: 2, cardId1: fuseA.id, cardId2: fuseB.id });
+
+  const cardCountAfter = countAllCards(state);
+  assert(cardCountAfter === cardCountBefore, `FIX Besta+Fusão: nenhuma carta duplicada/perdida ao queimar uma carta recém-fundida (antes: ${cardCountBefore}, depois: ${cardCountAfter})`);
+  assert(!state.player2.hand.some((c) => c.fused && (c.transformedValue ?? Number(c.value)) > 6), 'A carta fundida >6 não sobrevive na mão - foi varrida pelo bloodRage no mesmo dispatch');
+
+  const newEntries = state.log.filter((e) => e.id > lastIdBefore);
+  const chainId = newEntries[0]?.chainId;
+  assert(
+    newEntries.every((e) => e.chainId === chainId),
+    'FIX (Fase 0.3+0.4): a fusão e a queima incidental do bloodRage compartilham o mesmo chainId (mesmo dispatch)'
+  );
+})();
+
+// FIX (Fase 0.4/0.5, "Anjo J"): Ás fora do baralho, só no descarte - Benção
+// Divina precisa reembaralhar pra alcançá-lo, e o sinal estrutural
+// ('deck-reshuffled') precisa estar na MESMA cadeia da ativação da magia.
+(function testFixtureAnjoJReshufflesDiscardToReachAce() {
+  let state = createInitialState('anjo', 'mago', DEFAULT_GAME_CONFIG);
+  const anjoJ = makeCard('fixture-anjo-j', 'J');
+  const ace = makeCard('fixture-anjo-ace', 'A');
+  const filler = Array.from({ length: 9 }, (_, i) => makeCard(`fixture-anjo-discard-${i}`, String(2 + (i % 7))));
+  state = {
+    ...state,
+    phase: 'draw',
+    deck: [], // Ás NÃO está no baralho...
+    discardPile: [ace, ...filler], // ...só no descarte, exigindo reembaralhar pra alcançar
+    player1: { ...state.player1, hand: [anjoJ] },
+  };
+  const lastIdBefore = state.log.length > 0 ? state.log[state.log.length - 1].id : -1;
+
+  state = gameReducer(state, { type: 'ACTIVATE_SIMPLE_MAGIC', player: 1, cardId: anjoJ.id });
+
+  assert(state.player1.hand.some((c) => c.id === ace.id), 'FIX Anjo J: o Ás buscado no descarte (via reembaralhamento) chega na mão');
+  const newEntries = state.log.filter((e) => e.id > lastIdBefore);
+  const chainId = newEntries[0]?.chainId;
+  assert(
+    newEntries.some((e) => e.trigger === 'deck-reshuffled') && newEntries.every((e) => e.chainId === chainId),
+    `FIX: o reembaralhamento necessário pra alcançar o Ás está sinalizado ('deck-reshuffled') e na MESMA cadeia da ativação de Benção Divina (entradas: ${JSON.stringify(newEntries.map((e) => ({ trigger: e.trigger, chainId: e.chainId })))})`
+  );
+})();
+
+// FIX (Fase 0.4/0.5, "Coringa"): revelar uma armadilha do Coringa na
+// Estratégia (aqui, via Visão Celestial do Anjo mirando o campo) dispara a
+// reação (Valete: descarta-se + compra 1) DENTRO do mesmo dispatch que a
+// revelou - a reação nunca fica "pendurada" pra depois da troca de fase.
+(function testFixtureCoringaTrapReactionResolvesBeforePhaseChangeInSameDispatch() {
+  let state = createInitialState('anjo', 'coringa', DEFAULT_GAME_CONFIG);
+  const anjoQ = makeCard('fixture-coringa-anjo-q', 'Q');
+  // Visão Celestial mira o slot pela carta PRINCIPAL (handleExecuteMagic exige
+  // `targetSlot.faceDownCard`) - o Valete-armadilha precisa estar hospedado
+  // COMO HORIZONTAL em cima de uma principal de verdade pra tryCoringaJShieldBlock
+  // sequer ser chamado (é assim que o "escudo" funciona: intercepta o efeito
+  // mirado na principal que ele protege).
+  const principal = makeCard('fixture-coringa-principal', '5');
+  const trapJ = makeCard('fixture-coringa-trap-j', 'J');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [anjoQ] },
+    player2: {
+      ...state.player2,
+      hand: [],
+      field: [
+        { faceDownCard: principal, horizontalCards: [trapJ], revealed: false },
+        { horizontalCards: [], revealed: false },
+        { horizontalCards: [], revealed: false },
+      ],
+    },
+  };
+  const lastIdBefore = state.log.length > 0 ? state.log[state.log.length - 1].id : -1;
+  const handSizeBefore = state.player2.hand.length;
+
+  // Anjo Q (Visão Celestial) mirando o slot 0 do Coringa - o Valete-armadilha
+  // hospedado ali reage (tryCoringaJShieldBlock, reactionHandlers.ts) ANTES
+  // do efeito original da Rainha completar.
+  state = gameReducer(state, {
+    type: 'EXECUTE_MAGIC',
+    player: 1,
+    cardId: anjoQ.id,
+    character: 'anjo',
+    magicType: 'Q',
+    selection: { selectedTargetPlayer: 2, selectedSlot: 0 },
+  });
+
+  assert(!state.player2.field[0].horizontalCards.some((c) => c.id === trapJ.id), 'FIX Coringa: o Valete-armadilha se dissipou (saiu do campo) ao reagir');
+  assert(state.player2.hand.length === handSizeBefore + 1, 'FIX Coringa: reagir como Valete compra 1 carta pro dono da armadilha');
+
+  const newEntries = state.log.filter((e) => e.id > lastIdBefore);
+  const trapEntry = newEntries.find((e) => e.trigger === 'coringa-trap-j');
+  assert(trapEntry !== undefined, `A reação da armadilha emite trigger 'coringa-trap-j' (entradas: ${JSON.stringify(newEntries.map((e) => ({ trigger: e.trigger, text: e.text })))})`);
+  const chainId = newEntries[0]?.chainId;
+  assert(
+    trapEntry?.chainId === chainId && newEntries.every((e) => e.chainId === chainId),
+    'FIX (Fase 0.4): a reação da armadilha resolve DENTRO do mesmo dispatch/cadeia que a revelou - nunca varia num dispatch futuro separado, muito menos depois de uma troca de fase'
+  );
+})();
+
+// FIX (Fase 0.4/0.5, "Druida"): o Broto cresce na MESMA transição de fase
+// (mesmo dispatch/chainId) que o `phase-changed`, nunca escondido atrás dela
+// - ver advancePhaseState (phaseHandlers.ts): a entrada de log de fase é
+// criada ANTES de resetPlayerForPhaseTransition/growDruidaBrotoField rodar,
+// mas ambos ainda pertencem ao MESMO dispatch de TOGGLE_READY (mesmo
+// chainId) - a UI pode ordenar por `sequence`/`id` sem perder nada.
+// ACHADO (documentado, não corrigido aqui - decisão de design da Fase 2, não
+// desta fixture): growDruidaBrotoField é uma função PURA de campo->campo,
+// sem acesso a `log` - o crescimento do Broto não emite NENHUMA entrada
+// estruturada hoje (nem `type`, nem `trigger`), só muda `transformedValue`
+// silenciosamente. Quem implementar a Fase 2 (animação da transição de
+// fase) vai precisar decidir: diff de estado direto, ou um trigger novo
+// dedicado (ex. 'druida-broto-grown') - esta fixture só documenta e trava o
+// comportamento ATUAL pra essa decisão não ser tomada às cegas.
+(function testFixtureDruidaBrotoGrowsWithinSamePhaseTransitionChain() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  const brotoJ = makeCard('fixture-druida-broto-j', 'J');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [brotoJ], readyForNextPhase: false },
+    player2: { ...state.player2, readyForNextPhase: false },
+  };
+  state = gameReducer(state, { type: 'PLAY_CARD', player: 1, cardId: brotoJ.id, slotIndex: 0, asHorizontal: false });
+  assert(state.player1.field[0].brotoReserve !== undefined, 'Pré-condição: o Valete foi plantado como Broto (slot com brotoReserve)');
+  const brotoValueBeforeTransition = state.player1.field[0].faceDownCard?.transformedValue ?? 1;
+
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 1 });
+  // A partir daqui: o 2º TOGGLE_READY é seu PRÓPRIO dispatch, separado do
+  // 1º (cada toggle é uma ação independente) - captura o "corte" só depois
+  // do 1º pra isolar exatamente as entradas do dispatch que avança a fase.
+  const lastIdBefore = state.log.length > 0 ? state.log[state.log.length - 1].id : -1;
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 2 }); // ambos prontos - dispara advancePhaseState
+
+  assert(state.phase === 'combat', `Pré-condição: a troca Estratégia->Combate aconteceu (recebido: ${state.phase})`);
+  const brotoValueAfterTransition = state.player1.field[0].faceDownCard?.transformedValue ?? 1;
+  assert(
+    brotoValueAfterTransition === brotoValueBeforeTransition + 1,
+    `FIX Druida: o Broto cresce exatamente +1 (taxa base, sem reserva/Fotossíntese) na troca de fase (antes: ${brotoValueBeforeTransition}, depois: ${brotoValueAfterTransition})`
+  );
+
+  // O 2º TOGGLE_READY é o dispatch que de fato avança a fase - suas entradas
+  // (phase-changed etc.) formam a cadeia que "contém" o crescimento do Broto
+  // (mesmo sem uma entrada própria pra ele, ver nota ACHADO acima).
+  const newEntries = state.log.filter((e) => e.id > lastIdBefore);
+  const phaseChangedEntry = newEntries.find((e) => e.type === 'phase');
+  assert(phaseChangedEntry !== undefined, 'A cadeia do 2º TOGGLE_READY inclui a entrada de troca de fase');
+  const chainId = newEntries[0]?.chainId;
+  assert(
+    newEntries.every((e) => e.chainId === chainId),
+    `FIX (Fase 0.3+0.4): todas as entradas do dispatch que avança a fase (incluindo phase-changed) compartilham um único chainId, pronto pra qualquer evento futuro de "Broto cresceu" se juntar à mesma cadeia (entradas: ${JSON.stringify(newEntries.map((e) => ({ type: e.type, text: e.text })))})`
+  );
+})();
+
+// FIX (Fase 0.4/0.5, "Glacial"): Criogênese congela imediatamente as magias
+// já nas duas mãos (mesma cadeia da ativação) e, no turno seguinte, congela
+// a próxima magia comprada - um dispatch SEPARADO (a compra do próximo
+// turno), portanto uma cadeia NOVA por design (chainId = mesmo dispatch,
+// nunca "a mesma ação de 2 turnos atrás") - documentado aqui, não é bug.
+// Confirma também que a entrada de "nasceu congelada" nunca vaza IDENTIDADE
+// da carta (sem cardValue/cardSuit) - só o fato de que algo foi congelado.
+(function testFixtureGlacialCriogenesisImmediateFreezeAndNextTurnDrawAreSeparateChains() {
+  let state = createInitialState('glacial', 'mago', DEFAULT_GAME_CONFIG);
+  const aces = [makeCard('fixture-glacial-a1', 'A'), makeCard('fixture-glacial-a2', 'A'), makeCard('fixture-glacial-a3', 'A')];
+  const ownMagic = makeCard('fixture-glacial-own-k', 'K');
+  const opponentMagic = makeCard('fixture-glacial-opp-q', 'Q');
+  state = {
+    ...state,
+    phase: 'strategy',
+    player1: { ...state.player1, hand: [...aces, ownMagic] },
+    player2: { ...state.player2, hand: [opponentMagic] },
+  };
+
+  state = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
+  const activationChainId = state.numeralSpellPending?.chainId;
+  state = gameReducer(state, { type: 'FINALIZE_NUMERAL_SPELL' });
+
+  assert(hasStatus(state.player1.hand.find((c) => c.id === ownMagic.id)!, 'frozen'), 'FIX Glacial: a magia própria já na mão fica congelada IMEDIATAMENTE (mesma ativação)');
+  assert(hasStatus(state.player2.hand.find((c) => c.id === opponentMagic.id)!, 'frozen'), 'FIX Glacial: a magia do OPONENTE também fica congelada imediatamente, mesma ativação');
+  const immediateChain = state.log.filter((e) => e.chainId === activationChainId);
+  assert(
+    immediateChain.some((e) => e.text.includes('Criogênese')),
+    'O congelamento imediato das 2 mãos está na MESMA cadeia da ativação (não precisa esperar nada)'
+  );
+
+  // Turno seguinte: MAGO (quem sofreu o congelamento diferido) compra e a
+  // nova magia nasce congelada - dispatch DIFERENTE, chainId DIFERENTE por
+  // design (documentando o limite real do "mesmo dispatch = mesma cadeia").
+  state = { ...state, player2: { ...state.player2, hand: [] } };
+  const lastIdBeforeDraw = state.log.length > 0 ? state.log[state.log.length - 1].id : -1;
+  state = { ...state, deck: [makeCard('fixture-glacial-next-turn-j', 'J'), ...state.deck] };
+  state = gameReducer(state, { type: 'DRAW_CARDS', player: 2, count: 1 });
+
+  const drawnCard = state.player2.hand.find((c) => c.id === 'fixture-glacial-next-turn-j');
+  assert(drawnCard !== undefined && hasStatus(drawnCard, 'frozen'), 'FIX Glacial: a carta de magia comprada no turno seguinte nasce já congelada (efeito diferido)');
+  const drawChainEntries = state.log.filter((e) => e.id > lastIdBeforeDraw);
+  const freezeOnDrawEntry = drawChainEntries.find((e) => e.text.includes('nasceu congelada'));
+  assert(freezeOnDrawEntry !== undefined, 'Existe uma entrada estruturada pro congelamento diferido (não some sem sinal nenhum)');
+  assert(
+    freezeOnDrawEntry?.chainId !== activationChainId,
+    'FIX (documentado, não é bug): o congelamento diferido é um DISPATCH separado (a compra do turno seguinte) - chainId novo, nunca herdado da ativação original de 2 dispatches atrás'
+  );
+  assert(
+    freezeOnDrawEntry?.cardValue === undefined && freezeOnDrawEntry?.cardSuit === undefined,
+    'FIX (informação oculta): a entrada de congelamento diferido nunca revela valor/naipe da carta comprada - só o FATO de que uma magia nasceu congelada'
+  );
+})();
+
+// FIX (Fase 0.4/0.5, item explícito da Seção 0.5: "Magia Numeral com A,3,7
+// do Druida... garantindo captura correta das três cartas"): cardSnapshots
+// (Fase 0.2) respeita um requisito HETEROGÊNEO (A,3,7, valores diferentes)
+// na mesma ordem de requiredNumbers - contraste direto com um trio IGUAL
+// (Besta 6,6,6) pra garantir que nenhum código em algum lugar assume "as 3
+// cartas de uma Magia Numeral sempre têm o mesmo valor".
+(function testFixtureNumeralSpellCardSnapshotsCaptureHeterogeneousDruidaTrio() {
+  let state = createInitialState('druida', 'mago', DEFAULT_GAME_CONFIG);
+  // Ordem PROPOSITALMENTE fora de sequência na mão - requiredNumbers pra
+  // Druida é [14 (Ás), 3, 7] (numeralSpells.ts) - getMatchingNumeralCards
+  // precisa casar cada uma na ordem de requiredNumbers, não na ordem da mão.
+  const seven = makeCard('fixture-druida-numeral-7', '7');
+  const ace = makeCard('fixture-druida-numeral-a', 'A');
+  const three = makeCard('fixture-druida-numeral-3', '3');
+  state = { ...state, phase: 'strategy', player1: { ...state.player1, hand: [seven, ace, three] } };
+
+  state = gameReducer(state, { type: 'ACTIVATE_NUMERAL_SPELL', player: 1 });
+
+  const snapshots = state.numeralSpellPending?.cardSnapshots;
+  assert(snapshots?.length === 3, `Pré-condição: 3 snapshots capturados (recebido: ${snapshots?.length})`);
+  assert(
+    snapshots?.[0].id === ace.id && snapshots?.[1].id === three.id && snapshots?.[2].id === seven.id,
+    `FIX (Fase 0.2, trio heterogêneo): cardSnapshots respeita a ORDEM de requiredNumbers (A,3,7), não a ordem da mão nem "3 iguais" - recebido: ${JSON.stringify(snapshots?.map((s) => s.displayValue))}`
+  );
+  assert(
+    snapshots?.every((s) => s.displayValue !== snapshots[0].displayValue) === false && new Set(snapshots?.map((s) => s.displayValue)).size === 3,
+    `Os 3 valores capturados são de fato DIFERENTES entre si (A, 3, 7) - recebido: ${JSON.stringify(snapshots?.map((s) => s.displayValue))}`
+  );
+})();
+
+// FIX (Fase 0.4/0.5, item explícito: "Clique rápido / IA acelerada: ambos
+// prontos enquanto um efeito automático ainda emite eventos filhos") - com
+// um Monstro já esgotado (MAX_MONSTER_USES) em campo, "ambos prontos" ainda
+// resolve a rejeição/descarte dele (efeito automático de fim de turno,
+// resolveMonsterCardAtTurnEnd via advancePhaseState) DENTRO do mesmo
+// dispatch/cadeia que o phase-changed - nenhum evento filho "atrasa" pra
+// depois da transição já ter sido anunciada visualmente.
+(function testFixtureBothReadyResolvesAutomaticChildEffectsInSameChainAsPhaseChange() {
+  let state = createInitialState('mago', 'besta', DEFAULT_GAME_CONFIG);
+  state = {
+    ...state,
+    phase: 'combat',
+    player1: {
+      ...state.player1,
+      monsterCard: { ...makeCard('fixture-ready-monster', 'JOKER'), isMonster: true, monsterUsed: true, monsterUseCount: 999 },
+      readyForNextPhase: false,
+    },
+    player2: { ...state.player2, readyForNextPhase: false },
+  };
+
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 1 });
+  const lastIdBefore = state.log.length > 0 ? state.log[state.log.length - 1].id : -1;
+  state = gameReducer(state, { type: 'TOGGLE_READY', player: 2 }); // ambos prontos - combat->draw, fim de turno completo
+
+  assert(state.phase === 'draw', `Pré-condição: a troca Combate->Compra aconteceu (recebido: ${state.phase})`);
+  assert(state.player1.monsterCard === undefined, 'FIX: o Monstro já esgotado (MAX_MONSTER_USES) foi resolvido/descartado automaticamente na troca de fase');
+  assert(
+    state.discardPile.some((c) => c.id === 'fixture-ready-monster'),
+    'A carta do Monstro esgotado foi de fato pro descarte (não sumiu, não ficou presa em lugar nenhum)'
+  );
+
+  const newEntries = state.log.filter((e) => e.id > lastIdBefore);
+  const phaseChangedEntry = newEntries.find((e) => e.type === 'phase');
+  assert(phaseChangedEntry !== undefined, 'A cadeia do 2º TOGGLE_READY (o que de fato avança) inclui phase-changed');
+  const chainId = newEntries[0]?.chainId;
+  assert(
+    newEntries.every((e) => e.chainId === chainId),
+    `FIX (Fase 0.4, "ambos prontos + efeito filho pendente"): a resolução automática do Monstro esgotado E o phase-changed compartilham UMA cadeia só (mesmo dispatch) - nenhum evento filho fica "pra depois" (entradas: ${JSON.stringify(newEntries.map((e) => ({ type: e.type, text: e.text })))})`
+  );
+})();
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} passaram, ${failed} falharam.`);
 if (failed > 0) process.exit(1);

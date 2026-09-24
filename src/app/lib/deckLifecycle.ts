@@ -23,20 +23,32 @@ import type { GameState } from './gameStateTypes';
  * `SyntheticCardLifecycle` em cardUtils.ts - um personagem novo com uma
  * carta sintética própria só precisa marcar `synthetic` corretamente na
  * criação da carta pra herdar essa conservação de graça.
+ *
+ * FIX (achado montando fixtures da Fase 0.4/0.5 do overhaul de animações):
+ * `reshuffled` no retorno sinaliza quando o shuffle automático (20+ cartas)
+ * disparou aqui - antes o reembaralhamento acontecia silenciosamente (jogo
+ * correto, mas SEM nenhum sinal estrutural pra UI saber). A maioria dos ~46
+ * call sites ainda não confere/loga isso (só o de handleFinalizeNumeralSpell,
+ * Besta, foi corrigido junto desta fixture) - ver task de follow-up.
  */
-export function pushToDiscard(state: Pick<GameState, 'deck' | 'discardPile' | 'gameConfig'>, cards: Card[]): { deck: Card[]; discardPile: Card[] } {
-  if (cards.length === 0) return { deck: state.deck, discardPile: state.discardPile };
+export function pushToDiscard(
+  state: Pick<GameState, 'deck' | 'discardPile' | 'gameConfig'>,
+  cards: Card[]
+): { deck: Card[]; discardPile: Card[]; reshuffled: boolean } {
+  if (cards.length === 0) return { deck: state.deck, discardPile: state.discardPile, reshuffled: false };
 
   let discardPile = [...state.discardPile, ...resetCardsForDiscard(cards.flatMap(expandSyntheticCard))];
   let deck = state.deck;
+  let reshuffled = false;
 
   if (state.gameConfig.autoShuffle && discardPile.length >= 20) {
-    const reshuffled = reshuffleDiscardIntoDeck(deck, discardPile, 'half');
-    deck = reshuffled.deck;
-    discardPile = reshuffled.discardPile;
+    const shuffledResult = reshuffleDiscardIntoDeck(deck, discardPile, 'half');
+    deck = shuffledResult.deck;
+    discardPile = shuffledResult.discardPile;
+    reshuffled = true;
   }
 
-  return { deck, discardPile };
+  return { deck, discardPile, reshuffled };
 }
 
 /**
@@ -62,9 +74,9 @@ export function ensureDeckHasCards(state: GameState): { deck: Card[]; discardPil
 export function ensureDeckHasAtLeast(
   deckState: { deck: Card[]; discardPile: Card[]; gameConfig: GameState['gameConfig'] },
   needed: number
-): { deck: Card[]; discardPile: Card[] } {
+): { deck: Card[]; discardPile: Card[]; reshuffled: boolean } {
   if (deckState.deck.length >= needed || deckState.discardPile.length === 0) {
-    return { deck: deckState.deck, discardPile: deckState.discardPile };
+    return { deck: deckState.deck, discardPile: deckState.discardPile, reshuffled: false };
   }
-  return reshuffleDiscardIntoDeck(deckState.deck, deckState.discardPile, 'all');
+  return { ...reshuffleDiscardIntoDeck(deckState.deck, deckState.discardPile, 'all'), reshuffled: true };
 }

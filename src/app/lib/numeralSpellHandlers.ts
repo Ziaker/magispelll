@@ -222,6 +222,20 @@ export function handleFinalizeNumeralSpell(state: GameState): GameState {
     const { drawn, remaining } = drawCards(ensured.deck, actualDrawCount);
     deck = remaining;
     discardPile = ensured.discardPile;
+    // FIX (achado montando a fixture "Fase 0.4/0.5" - Besta: Fúria
+    // Sanguinária com baralho insuficiente pra recompra forçada): esta
+    // sequência tem DUAS fontes possíveis de reembaralhamento de verdade -
+    // o "shuffle automático" DENTRO de pushToDiscard (`handDiscard`, quando
+    // descartar a mão inteira do oponente por si só já empurra o descarte
+    // pra 20+) e `ensureDeckHasAtLeast` logo abaixo (quando ainda faltam
+    // cartas pra completar a recompra forçada). Nenhuma das duas emitia
+    // NENHUM sinal estrutural antes disto (nem log, nem trigger) - o
+    // reembaralhamento acontecia (jogo correto), só invisível pra UI. Sem
+    // isto, a animação de reembaralhar (Fase 1) nunca dispararia pra esta
+    // cadeia, mesmo com o baralho realmente voltando do descarte.
+    if (handDiscard.reshuffled || ensured.reshuffled) {
+      log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    }
 
     // FIX (pedido do usuário: "a magia numeral da besta devia forçar pelo
     // resto do turno, o descarte de toda carta maior que 6, não só quando é
