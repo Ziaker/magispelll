@@ -78,16 +78,16 @@ export function handleActivateSimpleMagic(state: GameState, player: PlayerNumber
     // alcançável (todos já em jogo em mãos/campos/zonas de Monstro), o
     // Valete é gasto sem efeito, com aviso no log.
     if (aceIndex === -1) {
-      const { deck: finalDeck, discardPile: finalDiscard, reshuffled } = pushToDiscard({ deck, discardPile, gameConfig: state.gameConfig }, [card]);
-      if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+      const { deck: finalDeck, discardPile: finalDiscard, reshuffled: reshuffledOnDiscard } = pushToDiscard({ deck, discardPile, gameConfig: state.gameConfig }, [card]);
+      if (reshuffledOnDiscard) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
       log = appendLog(state, log, 'warning', `Nenhum Ás disponível pra comprar agora!`, { animationPolicy: 'suppress' });
       return { ...state, deck: finalDeck, discardPile: finalDiscard, log, [playerKey]: { ...playerState, hand: newHand } };
     }
 
     const ace = deck[aceIndex];
     const remainingDeck = [...deck.slice(0, aceIndex), ...deck.slice(aceIndex + 1)];
-    const { deck: finalDeck, discardPile: finalDiscard, reshuffled } = pushToDiscard({ deck: remainingDeck, discardPile, gameConfig: state.gameConfig }, [card]);
-    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    const { deck: finalDeck, discardPile: finalDiscard, reshuffled: reshuffledOnDiscard } = pushToDiscard({ deck: remainingDeck, discardPile, gameConfig: state.gameConfig }, [card]);
+    if (reshuffledOnDiscard) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
     log = appendLog(state, log, 'magic', `Jogador ${player} comprou um Ás`, { player, cardValue: card.value, cardSuit: card.suit });
     return {
       ...state,
