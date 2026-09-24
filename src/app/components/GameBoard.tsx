@@ -669,8 +669,24 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         setDebugGameConfigOverride((prev) => (partial === null ? null : { ...prev, ...partial })),
       // Itens 1/2/6 do plano de melhoria do debug mode - ver o comentário
       // completo acima desta função pra cada um.
-      enumerateActions: (player: PlayerNumber = 1) => enumerateLegalActions(gameState, player),
-      tryEveryAction: (player: PlayerNumber = 1) => checkActionDivergence(gameState, player),
+      //
+      // FIX (mesma classe do bug de decideAiActionTraced corrigido abaixo:
+      // wrapper de 1 parâmetro só, `(player)`, envolvendo uma função real de
+      // 2, `(state, player)` - ver o comentário completo lá): estas 2 tinham
+      // exatamente a mesma armadilha - `window.__debug.enumerateActions(window.__debug.state, 2)`
+      // faria `state` cair na posição de `player`, e o `2` real virar
+      // argumento ignorado. Mesmo dispatch por tipo do 1º argumento aplicado
+      // aqui pras 2, pelo mesmo motivo.
+      enumerateActions: (stateOrPlayer: GameState | PlayerNumber = gameState, player?: PlayerNumber) => {
+        const [state, p]: [GameState, PlayerNumber] =
+          typeof stateOrPlayer === 'number' ? [gameState, stateOrPlayer] : [stateOrPlayer, player ?? 1];
+        return enumerateLegalActions(state, p);
+      },
+      tryEveryAction: (stateOrPlayer: GameState | PlayerNumber = gameState, player?: PlayerNumber) => {
+        const [state, p]: [GameState, PlayerNumber] =
+          typeof stateOrPlayer === 'number' ? [gameState, stateOrPlayer] : [stateOrPlayer, player ?? 1];
+        return checkActionDivergence(state, p);
+      },
       checkInvariants: () => checkInvariants(gameState, initialCardTotal),
       fuzz,
       setSeed,
@@ -687,7 +703,32 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       // pontuais). Ver o comentário de AiDecisionTrace em aiPlayer.ts para o
       // que este trace cobre (nível de fase) e o que fica de fora (leaf-level
       // dentro de cada função decide*).
-      decideAiActionTraced: (player: PlayerNumber = 1) => decideAiActionTraced(gameState, player),
+      //
+      // FIX (bug relatado ao vivo: as 2 chamadas do repro abaixo devolviam
+      // sempre o character do player2, mesmo com ai=1):
+      //   window.__debug.decideAiActionTraced(window.__debug.state, 1)
+      //   window.__debug.decideAiActionTraced(window.__debug.state, 2)
+      // Esta função tinha assinatura `(player = 1)` - UM parâmetro só -
+      // enquanto a função real que ela envolve (aiPlayer.ts) é
+      // `decideAiActionTraced(state, ai)`, DOIS. Chamar do jeito mais óbvio,
+      // espelhando o nome e a função real (repro acima) fazia `state` (um
+      // objeto) cair na posição de `player`, e o `1`/`2` real virar um 3º
+      // argumento IGNORADO; `player === 1` então dava sempre `false` (objeto
+      // !== número), então `characterOf`/`playerKeyOf` caíam sempre no ramo
+      // do player2 - inclusive na decisão em si (`decideAiAction` interno),
+      // não só no campo `character` do trace.
+      //
+      // Corrigido aceitando as DUAS formas de chamada (dispatch por tipo do
+      // 1º argumento): `decideAiActionTraced(ai?)` (atalho de console,
+      // comportamento antigo, usa o estado atual) e
+      // `decideAiActionTraced(state, ai?)` (assinatura real, espelhada 1:1 -
+      // é o que o repro do bug e o uso interno em `aiInspectorTraces` mais
+      // abaixo já usam). `ai` é 1 por padrão nos dois casos.
+      decideAiActionTraced: (stateOrAi: GameState | PlayerNumber = gameState, ai?: PlayerNumber) => {
+        const [state, player]: [GameState, PlayerNumber] =
+          typeof stateOrAi === 'number' ? [gameState, stateOrAi] : [stateOrAi, ai ?? 1];
+        return decideAiActionTraced(state, player);
+      },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState]);
