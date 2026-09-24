@@ -19,7 +19,7 @@ import { playerKeyOf, opponentOf } from './gameSelectors';
 import type { GameAction } from './gameActionTypes';
 import type { PlayerNumber } from './gameTypes';
 import { gameReducer } from './gameEngine';
-import { decideAiAction, decideReactionToMagic } from './aiPlayer';
+import { decideAiAction, decideReactionToMagic, type AiDecision } from './aiPlayer';
 import { enumerateAcceptedActions, enumerateLegalActions } from './actionSpace';
 import { checkInvariants } from './invariants';
 import { random } from './rng';
@@ -61,7 +61,22 @@ export interface SimulateStepsResult {
   actions?: GameAction[];
 }
 
-export function simulateSteps(state: GameState, opts: { maxSteps?: number; recordActions?: boolean } = {}): SimulateStepsResult {
+export function simulateSteps(
+  state: GameState,
+  opts: {
+    maxSteps?: number;
+    recordActions?: boolean;
+    /**
+     * Overhaul de IA 2.0 (item 3 do roadmap arquitetural) - decisor
+     * alternativo por jogador (ex.: `decideActionByScore` de aiScoring.ts),
+     * pra colocar uma abordagem nova contra a árvore heurística de verdade
+     * sem duplicar este laço só pra isso (ver scripts/ai-score-vs-heuristic.ts).
+     * Jogador sem entrada aqui continua usando `decideAiAction` (a heurística
+     * padrão) - comportamento 100% preservado quando `decisionFns` não é passado.
+     */
+    decisionFns?: Partial<Record<'player1' | 'player2', (state: GameState, player: PlayerNumber) => AiDecision>>;
+  } = {}
+): SimulateStepsResult {
   const maxSteps = Math.min(Math.max(1, opts.maxSteps ?? 200), 5000);
   let current = state;
   let steps = 0;
@@ -71,6 +86,7 @@ export function simulateSteps(state: GameState, opts: { maxSteps?: number; recor
   const record = (action: GameAction, prevState: GameState) => {
     if (actions && current !== prevState) actions.push(action);
   };
+  const decideFor = (s: GameState, p: PlayerNumber): AiDecision => (opts.decisionFns?.[playerKeyOf(p)] ?? decideAiAction)(s, p);
 
   while (!current.gameOver && steps < maxSteps) {
     steps++;
@@ -116,7 +132,7 @@ export function simulateSteps(state: GameState, opts: { maxSteps?: number; recor
     let actedThisStep = false;
 
     for (const p of order) {
-      const decision = decideAiAction(current, p);
+      const decision = decideFor(current, p);
       if (decision.type === 'action') {
         const prevState = current;
         current = gameReducer(current, decision.action);
