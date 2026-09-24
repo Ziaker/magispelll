@@ -36,6 +36,8 @@ jobs:
         run: npm run test:characters
       - name: Import boundary tests
         run: npm run test:boundaries
+      - name: Replay regression tests
+        run: npm run test:replays
       - name: Build
         run: npm run build
       - name: Upload Pages artifact

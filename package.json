@@ -13,9 +13,11 @@
     "test:actions": "tsx scripts/action-validation-test.ts",
     "test:characters": "tsx scripts/character-registry-test.ts",
     "test:boundaries": "tsx scripts/import-boundaries-test.ts",
+    "test:replays": "tsx scripts/replay-regression-test.ts",
     "fuzz": "tsx scripts/fuzz.ts",
     "simulate": "tsx scripts/simulate.ts",
     "tierlist": "tsx scripts/tierlist.ts",
+    "generate-replay-fixture": "tsx scripts/generate-replay-fixture.ts",
     "build:exe": "vite build && node scripts/build-exe.mjs"
   },
   "dependencies": {

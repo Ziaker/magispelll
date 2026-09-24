@@ -47,20 +47,39 @@ export interface SimulateStepsResult {
   steps: number;
   stuck: boolean;
   rejectedActions: RejectedAiAction[];
+  /**
+   * Overhaul de Replay/Bug Capsule (item 7 do roadmap arquitetural) - só
+   * presente quando `opts.recordActions` é passado: toda ação de fato
+   * ACEITA pelo reducer ao longo da simulação, na ordem em que aconteceu,
+   * incluindo as transições automáticas (FINALIZE_COMBAT, RESOLVE_COMBAT
+   * etc.) - o mesmo padrão que `recordedActionsRef`/`getReplayLog` já usam
+   * em GameBoard.tsx, mas reaproveitando este laço compartilhado em vez de
+   * duplicá-lo só para geração de fixture (ver scripts/generate-replay-fixture.ts).
+   * Ações REJEITADAS (que não mudaram o estado) nunca entram aqui - replayar
+   * só as aceitas já reproduz o estado final idêntico.
+   */
+  actions?: GameAction[];
 }
 
-export function simulateSteps(state: GameState, opts: { maxSteps?: number } = {}): SimulateStepsResult {
+export function simulateSteps(state: GameState, opts: { maxSteps?: number; recordActions?: boolean } = {}): SimulateStepsResult {
   const maxSteps = Math.min(Math.max(1, opts.maxSteps ?? 200), 5000);
   let current = state;
   let steps = 0;
   let stuck = false;
   const rejectedActions: RejectedAiAction[] = [];
+  const actions: GameAction[] | undefined = opts.recordActions ? [] : undefined;
+  const record = (action: GameAction, prevState: GameState) => {
+    if (actions && current !== prevState) actions.push(action);
+  };
 
   while (!current.gameOver && steps < maxSteps) {
     steps++;
 
     if (current.numeralSpellPending) {
-      current = gameReducer(current, { type: 'FINALIZE_NUMERAL_SPELL' });
+      const prevState = current;
+      const action: GameAction = { type: 'FINALIZE_NUMERAL_SPELL' };
+      current = gameReducer(current, action);
+      record(action, prevState);
       continue;
     }
     // Modo Reações: a simulação não tem timer real de 3s - decide agora
@@ -70,15 +89,24 @@ export function simulateSteps(state: GameState, opts: { maxSteps?: number } = {}
     if (current.pendingReaction) {
       const reactor = opponentOf(current.pendingReaction.casterPlayer);
       const reaction = decideReactionToMagic(current, reactor);
-      current = gameReducer(current, reaction ?? { type: 'RESOLVE_PENDING_REACTION' });
+      const prevState = current;
+      const action: GameAction = reaction ?? { type: 'RESOLVE_PENDING_REACTION' };
+      current = gameReducer(current, action);
+      record(action, prevState);
       continue;
     }
     if (current.combatResolution) {
-      current = gameReducer(current, { type: 'FINALIZE_COMBAT' });
+      const prevState = current;
+      const action: GameAction = { type: 'FINALIZE_COMBAT' };
+      current = gameReducer(current, action);
+      record(action, prevState);
       continue;
     }
     if (current.combatSelection.player1 !== undefined && current.combatSelection.player2 !== undefined) {
-      current = gameReducer(current, { type: 'RESOLVE_COMBAT' });
+      const prevState = current;
+      const action: GameAction = { type: 'RESOLVE_COMBAT' };
+      current = gameReducer(current, action);
+      record(action, prevState);
       continue;
     }
 
@@ -94,15 +122,20 @@ export function simulateSteps(state: GameState, opts: { maxSteps?: number } = {}
         current = gameReducer(current, decision.action);
         if (current === prevState) {
           rejectedActions.push({ step: steps, player: p, action: decision.action });
+        } else {
+          record(decision.action, prevState);
         }
         actedThisStep = true;
         break;
       } else if (decision.type === 'ready') {
         if (!current[playerKeyOf(p)].readyForNextPhase) {
           const prevState = current;
-          current = gameReducer(current, { type: 'TOGGLE_READY', player: p });
+          const action: GameAction = { type: 'TOGGLE_READY', player: p };
+          current = gameReducer(current, action);
           if (current === prevState) {
-            rejectedActions.push({ step: steps, player: p, action: { type: 'TOGGLE_READY', player: p } });
+            rejectedActions.push({ step: steps, player: p, action });
+          } else {
+            record(action, prevState);
           }
           actedThisStep = true;
           break;
@@ -117,7 +150,7 @@ export function simulateSteps(state: GameState, opts: { maxSteps?: number } = {}
     }
   }
 
-  return { state: current, steps, stuck, rejectedActions };
+  return { state: current, steps, stuck, rejectedActions, actions };
 }
 
 export interface FuzzViolation {

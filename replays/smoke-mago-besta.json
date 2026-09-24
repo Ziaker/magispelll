@@ -1,0 +1,776 @@
+{
+  "description": "smoke test: replay determinístico de uma partida comum (Mago vs Besta, sem bug conhecido por trás)",
+  "initialState": {
+    "turn": 1,
+    "phase": "draw",
+    "firstToFlip": 1,
+    "paused": false,
+    "player1": {
+      "hand": [
+        {
+          "id": "card-48",
+          "value": "10",
+          "suit": "♣"
+        },
+        {
+          "id": "card-50",
+          "value": "Q",
+          "suit": "♣"
+        },
+        {
+          "id": "card-0",
+          "value": "A",
+          "suit": "♠"
+        },
+        {
+          "id": "card-33",
+          "value": "8",
+          "suit": "♦"
+        },
+        {
+          "id": "card-9",
+          "value": "10",
+          "suit": "♠"
+        },
+        {
+          "id": "card-22",
+          "value": "10",
+          "suit": "♥"
+        },
+        {
+          "id": "card-2",
+          "value": "3",
+          "suit": "♠"
+        },
+        {
+          "id": "card-15",
+          "value": "3",
+          "suit": "♥"
+        }
+      ],
+      "field": [
+        {
+          "revealed": false,
+          "horizontalCards": []
+        },
+        {
+          "revealed": false,
+          "horizontalCards": []
+        },
+        {
+          "revealed": false,
+          "horizontalCards": []
+        }
+      ],
+      "readyForNextPhase": false,
+      "lives": 3,
+      "combatWins": 0,
+      "handLimit": 8,
+      "horizontalStackBonus": 0,
+      "permanentDrawBonus": 0,
+      "discardsThisTurn": 0,
+      "drawsThisTurn": 0,
+      "fusesThisTurn": 0,
+      "monsterProtectedSlots": [],
+      "mosqueteiroDiscardsThisTurn": 0,
+      "mosqueteiroDiscardsTurnMinus1": 0,
+      "mosqueteiroDiscardsTurnMinus2": 0,
+      "fireballValue": 0,
+      "druidaPhotosynthesisLevel": 0
+    },
+    "player2": {
+      "hand": [
+        {
+          "id": "card-45",
+          "value": "7",
+          "suit": "♣"
+        },
+        {
+          "id": "card-20",
+          "value": "8",
+          "suit": "♥"
+        },
+        {
+          "id": "card-37",
+          "value": "Q",
+          "suit": "♦"
+        },
+        {
+          "id": "card-31",
+          "value": "6",
+          "suit": "♦"
+        },
+        {
+          "id": "card-42",
+          "value": "4",
+          "suit": "♣"
+        },
+        {
+          "id": "card-43",
+          "value": "5",
+          "suit": "♣"
+        },
+        {
+          "id": "card-35",
+          "value": "10",
+          "suit": "♦"
+        },
+        {
+          "id": "card-19",
+          "value": "7",
+          "suit": "♥"
+        }
+      ],
+      "field": [
+        {
+          "revealed": false,
+          "horizontalCards": []
+        },
+        {
+          "revealed": false,
+          "horizontalCards": []
+        },
+        {
+          "revealed": false,
+          "horizontalCards": []
+        }
+      ],
+      "readyForNextPhase": false,
+      "lives": 3,
+      "combatWins": 0,
+      "handLimit": 8,
+      "horizontalStackBonus": 0,
+      "permanentDrawBonus": 0,
+      "discardsThisTurn": 0,
+      "drawsThisTurn": 0,
+      "fusesThisTurn": 0,
+      "monsterProtectedSlots": [],
+      "mosqueteiroDiscardsThisTurn": 0,
+      "mosqueteiroDiscardsTurnMinus1": 0,
+      "mosqueteiroDiscardsTurnMinus2": 0,
+      "fireballValue": 0,
+      "druidaPhotosynthesisLevel": 0
+    },
+    "player1Character": "mago",
+    "player2Character": "besta",
+    "gameConfig": {
+      "mode": "vsAI",
+      "deckType": "common",
+      "monsterCards": true,
+      "autoShowEffects": true,
+      "autoShuffle": true,
+      "fusion": false,
+      "fusionLimit": 2,
+      "drawLimitEnabled": false,
+      "drawLimit": 4,
+      "discardLimit": 4,
+      "towersMode": false,
+      "spotlightMode": false,
+      "spotlightCount": 1,
+      "spotlightPositive": true,
+      "spotlightNegative": false,
+      "reactionsMode": false,
+      "reactionsLimit": 1,
+      "postMagicPauseMs": 0,
+      "cardInspectionEnabled": true,
+      "cardInspectionTimeoutMs": 0,
+      "cardInspectionCooldownMs": 10000
+    },
+    "deck": [
+      {
+        "id": "card-34",
+        "value": "9",
+        "suit": "♦"
+      },
+      {
+        "id": "card-12",
+        "value": "K",
+        "suit": "♠"
+      },
+      {
+        "id": "card-38",
+        "value": "K",
+        "suit": "♦"
+      },
+      {
+        "id": "card-14",
+        "value": "2",
+        "suit": "♥"
+      },
+      {
+        "id": "card-27",
+        "value": "2",
+        "suit": "♦"
+      },
+      {
+        "id": "card-25",
+        "value": "K",
+        "suit": "♥"
+      },
+      {
+        "id": "card-47",
+        "value": "9",
+        "suit": "♣"
+      },
+      {
+        "id": "card-26",
+        "value": "A",
+        "suit": "♦"
+      },
+      {
+        "id": "card-49",
+        "value": "J",
+        "suit": "♣"
+      },
+      {
+        "id": "card-7",
+        "value": "8",
+        "suit": "♠"
+      },
+      {
+        "id": "card-44",
+        "value": "6",
+        "suit": "♣"
+      },
+      {
+        "id": "card-29",
+        "value": "4",
+        "suit": "♦"
+      },
+      {
+        "id": "card-32",
+        "value": "7",
+        "suit": "♦"
+      },
+      {
+        "id": "card-18",
+        "value": "6",
+        "suit": "♥"
+      },
+      {
+        "id": "card-1",
+        "value": "2",
+        "suit": "♠"
+      },
+      {
+        "id": "card-10",
+        "value": "J",
+        "suit": "♠"
+      },
+      {
+        "id": "card-8",
+        "value": "9",
+        "suit": "♠"
+      },
+      {
+        "id": "card-41",
+        "value": "3",
+        "suit": "♣"
+      },
+      {
+        "id": "card-39",
+        "value": "A",
+        "suit": "♣"
+      },
+      {
+        "id": "card-13",
+        "value": "A",
+        "suit": "♥"
+      },
+      {
+        "id": "card-52",
+        "value": "JOKER",
+        "suit": "🃏",
+        "isMonster": true,
+        "monsterUsed": false
+      },
+      {
+        "id": "card-4",
+        "value": "5",
+        "suit": "♠"
+      },
+      {
+        "id": "card-11",
+        "value": "Q",
+        "suit": "♠"
+      },
+      {
+        "id": "card-51",
+        "value": "K",
+        "suit": "♣"
+      },
+      {
+        "id": "card-46",
+        "value": "8",
+        "suit": "♣"
+      },
+      {
+        "id": "card-53",
+        "value": "JOKER",
+        "suit": "🃏",
+        "isMonster": true,
+        "monsterUsed": false
+      },
+      {
+        "id": "card-16",
+        "value": "4",
+        "suit": "♥"
+      },
+      {
+        "id": "card-30",
+        "value": "5",
+        "suit": "♦"
+      },
+      {
+        "id": "card-3",
+        "value": "4",
+        "suit": "♠"
+      },
+      {
+        "id": "card-17",
+        "value": "5",
+        "suit": "♥"
+      },
+      {
+        "id": "card-28",
+        "value": "3",
+        "suit": "♦"
+      },
+      {
+        "id": "card-36",
+        "value": "J",
+        "suit": "♦"
+      },
+      {
+        "id": "card-5",
+        "value": "6",
+        "suit": "♠"
+      },
+      {
+        "id": "card-6",
+        "value": "7",
+        "suit": "♠"
+      },
+      {
+        "id": "card-21",
+        "value": "9",
+        "suit": "♥"
+      },
+      {
+        "id": "card-23",
+        "value": "J",
+        "suit": "♥"
+      },
+      {
+        "id": "card-24",
+        "value": "Q",
+        "suit": "♥"
+      },
+      {
+        "id": "card-40",
+        "value": "2",
+        "suit": "♣"
+      }
+    ],
+    "discardPile": [],
+    "combatSelection": {},
+    "combatRoundsThisPhase": 0,
+    "activeNumeralSpells": {},
+    "combatResolution": null,
+    "numeralSpellPending": null,
+    "gameOver": null,
+    "spotlight": null,
+    "pendingReaction": null,
+    "reactionsUsedThisPhase": {},
+    "combatLoneTower": null,
+    "log": [
+      {
+        "id": 0,
+        "turn": 1,
+        "phase": "draw",
+        "type": "system",
+        "player": null,
+        "text": "Jogo iniciado"
+      },
+      {
+        "id": 1,
+        "turn": 1,
+        "phase": "draw",
+        "type": "phase",
+        "player": null,
+        "text": "Turno 1 - Fase de Compra"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "type": "DISCARD_CARDS",
+      "player": 2,
+      "cardIds": [
+        "card-42"
+      ]
+    },
+    {
+      "type": "DISCARD_CARDS",
+      "player": 1,
+      "cardIds": [
+        "card-2"
+      ]
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 2,
+      "count": 1
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 1,
+      "count": 1
+    },
+    {
+      "type": "TOGGLE_READY",
+      "player": 2
+    },
+    {
+      "type": "DISCARD_CARDS",
+      "player": 1,
+      "cardIds": [
+        "card-15"
+      ]
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 1,
+      "count": 1
+    },
+    {
+      "type": "TOGGLE_READY",
+      "player": 1
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 2,
+      "cardId": "card-35",
+      "slotIndex": 0,
+      "asHorizontal": false
+    },
+    {
+      "type": "TRANSFORM_ACE",
+      "player": 1,
+      "aceCardId": "card-0",
+      "targetCardId": "card-48"
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 2,
+      "cardId": "card-43",
+      "slotIndex": 0,
+      "asHorizontal": true
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 1,
+      "cardId": "card-48",
+      "slotIndex": 0,
+      "asHorizontal": false
+    },
+    {
+      "type": "EXECUTE_MAGIC",
+      "player": 2,
+      "cardId": "card-37",
+      "character": "besta",
+      "magicType": "Q",
+      "selection": {
+        "selectedSlot": 0,
+        "selectedTargetPlayer": 1,
+        "selectedCards": [
+          "card-2"
+        ]
+      }
+    },
+    {
+      "type": "EXECUTE_MAGIC",
+      "player": 1,
+      "cardId": "card-50",
+      "character": "mago",
+      "magicType": "Q",
+      "selection": {
+        "selectedSlot": 0,
+        "selectedTargetPlayer": 1,
+        "selectedCards": [
+          "card-0"
+        ]
+      }
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 2,
+      "cardId": "card-34",
+      "slotIndex": 1,
+      "asHorizontal": false
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 1,
+      "cardId": "card-9",
+      "slotIndex": 0,
+      "asHorizontal": true
+    },
+    {
+      "type": "TOGGLE_READY",
+      "player": 2
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 1,
+      "cardId": "card-22",
+      "slotIndex": 1,
+      "asHorizontal": false
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 1,
+      "cardId": "card-33",
+      "slotIndex": 2,
+      "asHorizontal": false
+    },
+    {
+      "type": "TOGGLE_READY",
+      "player": 1
+    },
+    {
+      "type": "EXECUTE_MAGIC",
+      "player": 1,
+      "cardId": "card-12",
+      "character": "mago",
+      "magicType": "K",
+      "selection": {
+        "selectedSlot": 0
+      }
+    },
+    {
+      "type": "SELECT_COMBAT_SLOT",
+      "player": 1,
+      "slotIndex": 0
+    },
+    {
+      "type": "SELECT_COMBAT_SLOT",
+      "player": 2,
+      "slotIndex": 0
+    },
+    {
+      "type": "RESOLVE_COMBAT"
+    },
+    {
+      "type": "FINALIZE_COMBAT"
+    },
+    {
+      "type": "SELECT_COMBAT_SLOT",
+      "player": 1,
+      "slotIndex": 1
+    },
+    {
+      "type": "SELECT_COMBAT_SLOT",
+      "player": 2,
+      "slotIndex": 1
+    },
+    {
+      "type": "RESOLVE_COMBAT"
+    },
+    {
+      "type": "FINALIZE_COMBAT"
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 1,
+      "count": 6
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 2,
+      "count": 4
+    },
+    {
+      "type": "DISCARD_CARDS",
+      "player": 1,
+      "cardIds": [
+        "card-14"
+      ]
+    },
+    {
+      "type": "DISCARD_CARDS",
+      "player": 2,
+      "cardIds": [
+        "card-29"
+      ]
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 1,
+      "count": 1
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 2,
+      "count": 1
+    },
+    {
+      "type": "DISCARD_CARDS",
+      "player": 1,
+      "cardIds": [
+        "card-27"
+      ]
+    },
+    {
+      "type": "DISCARD_CARDS",
+      "player": 2,
+      "cardIds": [
+        "card-1"
+      ]
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 1,
+      "count": 1
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 2,
+      "count": 1
+    },
+    {
+      "type": "DISCARD_CARDS",
+      "player": 1,
+      "cardIds": [
+        "card-2"
+      ]
+    },
+    {
+      "type": "TOGGLE_READY",
+      "player": 2
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 1,
+      "count": 1
+    },
+    {
+      "type": "DISCARD_CARDS",
+      "player": 1,
+      "cardIds": [
+        "card-41"
+      ]
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 1,
+      "count": 1
+    },
+    {
+      "type": "TOGGLE_READY",
+      "player": 1
+    },
+    {
+      "type": "TRANSFORM_ACE",
+      "player": 1,
+      "aceCardId": "card-26",
+      "targetCardId": "card-47"
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 2,
+      "cardId": "card-8",
+      "slotIndex": 0,
+      "asHorizontal": false
+    },
+    {
+      "type": "TRANSFORM_ACE",
+      "player": 1,
+      "aceCardId": "card-39",
+      "targetCardId": "card-47"
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 2,
+      "cardId": "card-45",
+      "slotIndex": 0,
+      "asHorizontal": true
+    },
+    {
+      "type": "ACTIVATE_NUMERAL_SPELL",
+      "player": 1
+    },
+    {
+      "type": "FINALIZE_NUMERAL_SPELL"
+    },
+    {
+      "type": "DRAW_CARDS",
+      "player": 1,
+      "count": 3
+    },
+    {
+      "type": "TOGGLE_READY",
+      "player": 2
+    },
+    {
+      "type": "TOGGLE_READY",
+      "player": 1
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 2,
+      "cardId": "card-8",
+      "slotIndex": 0,
+      "asHorizontal": false
+    },
+    {
+      "type": "PLACE_MONSTER_CARD",
+      "player": 1,
+      "cardId": "card-53"
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 2,
+      "cardId": "card-20",
+      "slotIndex": 1,
+      "asHorizontal": false
+    },
+    {
+      "type": "EXECUTE_MAGIC",
+      "player": 1,
+      "cardId": "card-49",
+      "character": "mago",
+      "magicType": "J",
+      "selection": {
+        "selectedCards": [
+          "card-31"
+        ]
+      }
+    },
+    {
+      "type": "PLAY_CARD",
+      "player": 2,
+      "cardId": "card-7",
+      "slotIndex": 2,
+      "asHorizontal": false
+    },
+    {
+      "type": "EXECUTE_MAGIC",
+      "player": 1,
+      "cardId": "card-10",
+      "character": "mago",
+      "magicType": "J",
+      "selection": {
+        "selectedCards": [
+          "card-44"
+        ]
+      }
+    }
+  ],
+  "expectedOutcome": {
+    "turn": 3,
+    "gameOver": null,
+    "player1Lives": 3,
+    "player2Lives": 2
+  }
+}
