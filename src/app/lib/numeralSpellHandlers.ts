@@ -83,7 +83,7 @@ export function handleActivateNumeralSpell(state: GameState, player: PlayerNumbe
   const opponentMonsterResolution = resolveMonsterCardAtTurnEnd(opponentState.monsterCard);
   const opponentMonsterCards = opponentMonsterResolution.kept ? [opponentMonsterResolution.kept] : [];
   const newOpponentHand = [...opponentState.hand, ...opponentFieldCards, ...opponentMonsterCards];
-  const { deck: deckAfterMonsterDiscard, discardPile: discardPileAfterMonsterDiscard } = pushToDiscard(
+  const { deck: deckAfterMonsterDiscard, discardPile: discardPileAfterMonsterDiscard, reshuffled } = pushToDiscard(
     state,
     opponentMonsterResolution.discarded ? [opponentMonsterResolution.discarded] : []
   );
@@ -102,9 +102,15 @@ export function handleActivateNumeralSpell(state: GameState, player: PlayerNumbe
   // especificamente a linha de ATIVAÇÃO (não qualquer entrada 'numeral-spell'
   // genérica, como "efeito terminou" ou a Fúria Sanguinária) e disparar a
   // notificação toast só nela, sem precisar inspecionar o texto da mensagem.
-  let log = appendLog(
+  let log = state.log;
+  // FIX (achado montando fixtures da Fase 0.4/0.5 - mesma classe de gap do
+  // resto dos call sites de pushToDiscard): o Monstro do oponente já
+  // esgotado pode empurrar o descarte pra 20+ cartas e disparar o shuffle
+  // automático aqui, antes mesmo da magia numeral terminar de ativar.
+  if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+  log = appendLog(
     state,
-    state.log,
+    log,
     'numeral-spell',
     // FIX (Druida, personagem novo): antes repetia `requiredNumberLabel` 3x
     // manualmente (assumindo os 3 números sempre iguais) - `formatNumeralRequirement`
@@ -176,7 +182,7 @@ export function handleFinalizeNumeralSpell(state: GameState): GameState {
   const playerState = state[playerKey];
 
   const cardsToDiscard = fieldCards(playerState.field);
-  let { deck, discardPile } = pushToDiscard(state, cardsToDiscard);
+  let { deck, discardPile, reshuffled } = pushToDiscard(state, cardsToDiscard);
 
   let updatedPlayer: PlayerState = { ...playerState, field: emptyField() };
   let updatedOpponent: PlayerState = state[opponentKey];
@@ -186,7 +192,9 @@ export function handleFinalizeNumeralSpell(state: GameState): GameState {
   // de volta à ativação original; o backfill automático do wrapper `gameReducer`
   // propaga o MESMO chainId pro resto das entradas que este dispatch ainda
   // vai criar abaixo (nenhuma delas precisa passar `chainId` de novo).
-  let log = appendLog(state, state.log, 'numeral-spell', `Cartas da Magia Numeral foram descartadas`, { chainId: state.numeralSpellPending.chainId });
+  let log = state.log;
+  if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+  log = appendLog(state, log, 'numeral-spell', `Cartas da Magia Numeral foram descartadas`, { chainId: state.numeralSpellPending.chainId });
 
   if (character === 'anjo') {
     updatedPlayer = {
@@ -222,6 +230,18 @@ export function handleFinalizeNumeralSpell(state: GameState): GameState {
     const { drawn, remaining } = drawCards(ensured.deck, actualDrawCount);
     deck = remaining;
     discardPile = ensured.discardPile;
+    // FIX (achado montando a fixture "Fase 0.4/0.5" - Besta: Fúria
+    // Sanguinária com baralho insuficiente pra recompra forçada): esta
+    // sequência tem DUAS fontes possíveis de reembaralhamento de verdade -
+    // o "shuffle automático" DENTRO de pushToDiscard (`handDiscard`, quando
+    // descartar a mão inteira do oponente por si só já empurra o descarte
+    // pra 20+) e `ensureDeckHasAtLeast` logo acima (quando ainda faltam
+    // cartas pra completar a recompra forçada). Nenhuma das duas emitia
+    // NENHUM sinal estrutural antes disto (nem log, nem trigger) - o
+    // reembaralhamento acontecia (jogo correto), só invisível pra UI.
+    if (handDiscard.reshuffled || ensured.reshuffled) {
+      log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    }
 
     // FIX (pedido do usuário: "a magia numeral da besta devia forçar pelo
     // resto do turno, o descarte de toda carta maior que 6, não só quando é

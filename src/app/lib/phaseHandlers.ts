@@ -122,6 +122,7 @@ export function advancePhaseState(state: GameState): GameState {
       const pushed = pushToDiscard({ deck, discardPile, gameConfig: state.gameConfig }, leftover);
       deck = pushed.deck;
       discardPile = pushed.discardPile;
+      if (pushed.reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
       log = appendLog(state, log, 'combat', `Todas as cartas do campo foram descartadas`);
     }
   }
@@ -230,7 +231,7 @@ export function handleToggleReady(state: GameState, player: PlayerNumber): GameS
     // `keepPersistentFieldSlots` e a lista de descarte abaixo usam o MESMO critério
     // (slot de torre ou não), pra nenhuma carta ficar em campo E no descarte.
     const cardsToDiscard = [...nonPersistentFieldCards(next.player1.field), ...nonPersistentFieldCards(next.player2.field)];
-    const { deck, discardPile } = pushToDiscard(next, cardsToDiscard);
+    const { deck, discardPile, reshuffled } = pushToDiscard(next, cardsToDiscard);
     next = {
       ...next,
       deck,
@@ -238,6 +239,9 @@ export function handleToggleReady(state: GameState, player: PlayerNumber): GameS
       player1: { ...next.player1, field: keepPersistentFieldSlots(next.player1.field), readyForNextPhase: false },
       player2: { ...next.player2, field: keepPersistentFieldSlots(next.player2.field), readyForNextPhase: false },
     };
+    if (reshuffled) {
+      next = { ...next, log: appendLog(state, next.log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' }) };
+    }
     if (cardsToDiscard.length > 0) {
       next = { ...next, log: appendLog(state, next.log, 'combat', `Todas as cartas do campo foram descartadas`) };
     }

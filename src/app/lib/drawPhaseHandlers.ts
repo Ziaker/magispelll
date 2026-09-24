@@ -121,8 +121,10 @@ export function handleDiscardCards(state: GameState, player: PlayerNumber, cardI
   const discardableIds = new Set(discardable.map((c) => c.id));
   const newHand = playerState.hand.filter((c) => !discardableIds.has(c.id));
 
-  const { deck, discardPile } = pushToDiscard(state, discardable);
-  const log = appendLog(state, state.log, 'discard', `Jogador ${player} descartou ${discardable.length} carta(s)`, { player });
+  const { deck, discardPile, reshuffled } = pushToDiscard(state, discardable);
+  let log = state.log;
+  if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+  log = appendLog(state, log, 'discard', `Jogador ${player} descartou ${discardable.length} carta(s)`, { player });
 
   return {
     ...state,

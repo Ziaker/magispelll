@@ -79,10 +79,12 @@ export function handlePayToUnfreeze(state: GameState, player: PlayerNumber, paym
   const newPlayer1 = playerKey === 'player1' ? newPlayerState : state.player1;
   const newPlayer2 = playerKey === 'player2' ? newPlayerState : state.player2;
 
-  const { deck, discardPile } = pushToDiscard(state, [paymentCard]);
-  const log = appendLog(
+  const { deck, discardPile, reshuffled } = pushToDiscard(state, [paymentCard]);
+  let log = state.log;
+  if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+  log = appendLog(
     state,
-    state.log,
+    log,
     'field',
     `Jogador ${player} descartou uma carta para descongelar outra`,
     { player }

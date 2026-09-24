@@ -90,10 +90,12 @@ export function applyCoringaTrapReaction(
         ),
       };
     }
-    const { deck, discardPile } = pushToDiscard(state, [card]);
-    let log = appendLog(
+    const { deck, discardPile, reshuffled: trapDiscardReshuffled } = pushToDiscard(state, [card]);
+    let log = state.log;
+    if (trapDiscardReshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       hostCard
         ? `O Valete armadilha de Jogador ${owner} ${triggerVerb} e se dissipou em fumaça - deixou um escudo de +5 na carta que protegia!`
@@ -149,10 +151,12 @@ export function applyCoringaTrapReaction(
 
   if (card.value === 'K') {
     newField[slotIndex] = removeFromField();
-    const { deck, discardPile } = pushToDiscard(state, [card]);
-    let log = appendLog(
+    const { deck, discardPile, reshuffled: trapDiscardReshuffled } = pushToDiscard(state, [card]);
+    let log = state.log;
+    if (trapDiscardReshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
+    log = appendLog(
       state,
-      state.log,
+      log,
       'magic',
       `O Rei armadilha de Jogador ${owner} ${triggerVerb} e explodiu em fumaça e nuvens!`,
       { player: owner, slotIndex, trigger: 'coringa-trap-k' }
@@ -166,6 +170,7 @@ export function applyCoringaTrapReaction(
       aceDeck = reshuffled.deck;
       aceDiscard = reshuffled.discardPile;
       aceIndex = aceDeck.findIndex((c) => c.value === 'A');
+      log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
     }
     if (aceIndex === -1 || ownerState.hand.length >= ownerState.handLimit) {
       return {
