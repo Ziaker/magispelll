@@ -48,7 +48,11 @@ export type LogEventType =
 export type LogTrigger =
   | 'coringa-trap-j'
   | 'coringa-trap-q'
-  | 'coringa-trap-k';
+  | 'coringa-trap-k'
+  | 'deck-reshuffled'
+  | 'druida-broto-planted'
+  | 'druida-monster-placed'
+  | 'glacial-golem-placed';
 
 /**
  * FIX (pedido do usuário: "reformule completamente o sistema de log de

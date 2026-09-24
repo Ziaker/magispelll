@@ -36,7 +36,7 @@ export function handleDrawCards(state: GameState, player: PlayerNumber, count: n
 
   let log = state.log;
   if (reshuffled) {
-    log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`);
+    log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
   }
 
   const maxCanDraw = playerState.handLimit - playerState.hand.length;

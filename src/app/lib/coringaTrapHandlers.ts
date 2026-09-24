@@ -101,7 +101,7 @@ export function applyCoringaTrapReaction(
       { player: owner, slotIndex, trigger: 'coringa-trap-j' }
     );
     const { deck: ensuredDeck, discardPile: ensuredDiscard, reshuffled } = ensureDeckHasCards({ ...state, deck, discardPile });
-    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`);
+    if (reshuffled) log = appendLog(state, log, 'system', `O baralho esgotou - a pilha de descarte foi reembaralhada de volta`, { trigger: 'deck-reshuffled' });
     const maxCanDraw = ownerState.handLimit - ownerState.hand.length;
     const actualCount = Math.min(1, maxCanDraw, ensuredDeck.length);
     const { drawn, remaining } = actualCount > 0 ? drawCards(ensuredDeck, actualCount) : { drawn: [] as Card[], remaining: ensuredDeck };

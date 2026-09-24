@@ -1180,7 +1180,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         if (entry.player && entry.slotIndex !== undefined) triggerSmokeBurst({ player: entry.player, slotIndex: entry.slotIndex });
       } else if (entry.type === 'magic' && entry.text.startsWith('O Monstro') && entry.text.includes('voltou oculto')) {
         soundManager.play(monsterSoundFor('coringa'));
-      } else if (entry.type === 'system' && entry.text.includes('baralho esgotou')) {
+      } else if (entry.trigger === 'deck-reshuffled') {
         // Pedido do usuário ("Overhaul de Animações"): "quando o baralho
         // esgota e a pilha de descarte volta, uma animação dedicada em vez
         // do contador só resetar instantaneamente" - ver DeckReshuffleBurst.tsx.
@@ -1235,12 +1235,13 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
             setBeastBurnFlashes((prev) => prev.filter((s) => !specs.some((spec) => spec.key === s.key)));
           }, delay(700));
         }
-      } else if (entry.type === 'field' && entry.player && (entry.text.includes('plantou um Broto') || entry.text.includes('empilhou o Broto'))) {
+      } else if (entry.trigger === 'druida-broto-planted' && entry.player) {
         // Druida (personagem novo) - o Broto nunca ativa como magia (ver
         // comentário completo em handlePlayCard, gameEngine.ts) - mesmo
-        // padrão das armadilhas do Coringa acima, o único jeito de saber
-        // "isto aconteceu" é o texto de log distintivo, não um dispatch
-        // dedicado de EXECUTE_MAGIC que applyMagicEffectPresentation cobriria.
+        // padrão das armadilhas do Coringa acima (ver LogTrigger em
+        // gameLogTypes.ts): o único sinal de "isto aconteceu" é o log da
+        // entrada, não um dispatch dedicado de EXECUTE_MAGIC que
+        // applyMagicEffectPresentation cobriria.
         // FIX (pedido do usuário: "adicione um efeito e som pra quando o
         // Broto é jogado, como um asset de planta surgindo") - reaproveita o
         // motivo próprio do Druida em CharacterMagicBurst.tsx (gavinhas
@@ -1251,17 +1252,16 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
         if (entry.slotIndex !== undefined) {
           flashEffectTargets({ slots: [{ player: entry.player, slotIndex: entry.slotIndex }] }, 'druida', 'Broto');
         }
-      } else if (entry.type === 'monster' && entry.player && entry.text.includes('posicionou o Monstro') && characterOf(gameState, entry.player) === 'druida') {
+      } else if (entry.trigger === 'druida-monster-placed') {
         // Druida - o Monstro também nunca usa a Zona Monstro/ACTIVATE_MONSTER_EFFECT_SIMPLE
         // (ver handlePlaceMonsterCard) - mesmo motivo do Broto acima.
         soundManager.play(monsterSoundFor('druida'));
-      } else if (entry.type === 'monster' && entry.player && entry.text.includes('posicionou o Criogolem')) {
+      } else if (entry.trigger === 'glacial-golem-placed' && entry.player) {
         // Glacial (personagem novo) - Criogolem também nunca usa a Zona
         // Monstro/ACTIVATE_MONSTER_EFFECT_SIMPLE (ver handlePlayCard,
         // branch isGlacialMonsterCard) - mesmo motivo do Broto/Monstro do
-        // Druida acima, texto de log próprio ("posicionou o Criogolem",
-        // nunca "posicionou o Monstro") em vez de checar characterOf, já
-        // que só o Glacial usa este texto. Pedido EXPLÍCITO do usuário: som
+        // Druida acima, `trigger` próprio ('glacial-golem-placed') em vez de
+        // checar characterOf. Pedido EXPLÍCITO do usuário: som
         // de RUGIDO (monster-glacial, não um som de gelo genérico) + o
         // motivo visual próprio do personagem no slot exato onde caiu.
         soundManager.play(monsterSoundFor('glacial'));

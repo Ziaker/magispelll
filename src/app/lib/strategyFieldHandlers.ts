@@ -432,7 +432,7 @@ export function handlePlayCard(state: GameState, player: PlayerNumber, cardId: s
         brotoReserve: [...(brotoSlot.brotoReserve ?? []), { ...oldTop, revealed: true }],
         revealed: true,
       };
-      log = appendLog(state, log, 'field', `Jogador ${player} empilhou o Broto no slot ${slotIndex + 1} (agora vale ${newValue})`, { player, slotIndex });
+      log = appendLog(state, log, 'field', `Jogador ${player} empilhou o Broto no slot ${slotIndex + 1} (agora vale ${newValue})`, { player, slotIndex, trigger: 'druida-broto-planted' });
     } else {
       if (newField[slotIndex].faceDownCard) return state;
       newField[slotIndex] = {
@@ -441,7 +441,7 @@ export function handlePlayCard(state: GameState, player: PlayerNumber, cardId: s
         brotoReserve: [],
         revealed: true,
       };
-      log = appendLog(state, log, 'field', `Jogador ${player} plantou um Broto no slot ${slotIndex + 1}`, { player, slotIndex });
+      log = appendLog(state, log, 'field', `Jogador ${player} plantou um Broto no slot ${slotIndex + 1}`, { player, slotIndex, trigger: 'druida-broto-planted' });
     }
   } else if (isDruidaMonsterCard) {
     // Druida - Monstro travado no valor ATUAL do Broto no instante em que é
@@ -457,7 +457,7 @@ export function handlePlayCard(state: GameState, player: PlayerNumber, cardId: s
       faceDownCard: { ...card, revealed: true, transformedValue: brotoValue, placedOnTurn: state.turn },
       revealed: true,
     };
-    log = appendLog(state, log, 'monster', `Jogador ${player} posicionou o Monstro no slot ${slotIndex + 1} (valendo ${brotoValue}, como o Broto)`, { player, cardValue: '🃏' });
+    log = appendLog(state, log, 'monster', `Jogador ${player} posicionou o Monstro no slot ${slotIndex + 1} (valendo ${brotoValue}, como o Broto)`, { player, cardValue: '🃏', trigger: 'druida-monster-placed' });
   } else if (isGlacialMonsterCard) {
     // Glacial - Criogolem travado (snapshot) no valor 8 + 1 por carta
     // congelada em jogo NESTE instante (mão e campo dos DOIS jogadores) -
@@ -484,7 +484,7 @@ export function handlePlayCard(state: GameState, player: PlayerNumber, cardId: s
     // é o que permite GameBoard.tsx disparar o burst visual no slot exato
     // onde o Criogolem caiu - sem isso, `entry.slotIndex` chegaria sempre
     // `undefined` e o burst nunca dispararia (só o som).
-    log = appendLog(state, log, 'monster', `Jogador ${player} posicionou o Criogolem no slot ${slotIndex + 1} (valendo ${golemValue})`, { player, cardValue: '🃏', slotIndex });
+    log = appendLog(state, log, 'monster', `Jogador ${player} posicionou o Criogolem no slot ${slotIndex + 1} (valendo ${golemValue})`, { player, cardValue: '🃏', slotIndex, trigger: 'glacial-golem-placed' });
 
     if (wasFrozen) {
       // "As cartas do oponente em campo" - carta principal E horizontais de
