@@ -6,6 +6,7 @@
  * tipos, sem lógica nem efeitos colaterais.
  */
 import type { Phase, PlayerNumber } from './gameTypes';
+import type { CharacterId } from './characterRegistry';
 
 /**
  * FIX (pedido do usuário: "reformule completamente o sistema de log de
@@ -52,7 +53,44 @@ export type LogTrigger =
   | 'deck-reshuffled'
   | 'druida-broto-planted'
   | 'druida-monster-placed'
-  | 'glacial-golem-placed';
+  | 'glacial-golem-placed'
+  | 'reaction-announced'
+  | 'reaction-denied';
+
+/**
+ * Fase 0.2 do roadmap de overhaul de animações ("contrato mínimo de evento
+ * visual") - de onde/por que este evento aconteceu, estruturado o bastante
+ * pra UI decidir apresentação (ícone, agrupamento, skin de personagem) sem
+ * inspecionar texto. Um único campo (não `source`+`cause` separados): as
+ * duas perguntas ("o que produziu" / "por quê") colapsam no mesmo dado pra
+ * toda entrada real do motor, e dois campos seria só mais uma chance de
+ * divergirem entre si.
+ *
+ * `effect` em `character-effect` é opcional DE PROPÓSITO: quando `cardValue`
+ * já é 'J'/'Q'/'K', `character`+`cardValue` já desambiguam o efeito exato
+ * (ver magicCards.ts); só preencher `effect` quando a entrada NÃO tem esse
+ * apoio (ex.: o sweep de bloodRage da Besta roda fora de qualquer ativação
+ * de carta - `effect: 'bloodRage'`, mesmo literal já usado em
+ * StatusEffectKind).
+ */
+export type LogSource =
+  | { kind: 'character-effect'; character: CharacterId; effect?: string }
+  | { kind: 'monster'; character: CharacterId }
+  | { kind: 'status'; statusKind: string; origin: CharacterId }
+  | { kind: 'combat' }
+  | { kind: 'phase-rule' }
+  | { kind: 'special-mode'; mode: 'towers' | 'spotlight' | 'reactions' | 'fusion' };
+
+/**
+ * Se o valor referenciado por esta entrada pode aparecer com a face pra cima
+ * numa animação sem vazar informação oculta - um SNAPSHOT do `card.revealed`
+ * relevante no instante do evento, não uma leitura ao vivo (a carta pode já
+ * ter saído do estado - descartada/consumida - quando a UI processar isto).
+ */
+export type LogVisibility = 'public' | 'owner-only';
+
+/** Sugestão pra fila de animação (Fase 0.3, "arbitragem de cadeias visuais") - nunca lógica de regra. */
+export type AnimationPolicy = 'queue' | 'parallel' | 'suppress';
 
 /**
  * FIX (pedido do usuário: "reformule completamente o sistema de log de
@@ -96,12 +134,16 @@ export interface LogEntry {
    */
   cardSuit?: string;
   /**
-   * Coringa (redesenho completo, "armadilhas") - slot de campo (do jogador
-   * `player` acima) onde um Valete/Rei armadilha acabou de se dissipar em
-   * fumaça na fase de Estratégia (ver applyCoringaTrapReaction). GameBoard.tsx
-   * usa isso pra saber ONDE disparar o CoringaSmokeBurst.tsx - sem isso, a UI
-   * só saberia QUE algo aconteceu (pelo texto do log), nunca em qual dos 3
-   * slots. Nunca setado por nenhum outro tipo de entrada.
+   * Coringa (redesenho completo, "armadilhas") - slot de campo onde um
+   * Valete/Rei armadilha acabou de se dissipar em fumaça na fase de
+   * Estratégia (ver applyCoringaTrapReaction). GameBoard.tsx usa isso pra
+   * saber ONDE disparar o CoringaSmokeBurst.tsx - sem isso, a UI só saberia
+   * QUE algo aconteceu (pelo texto do log), nunca em qual dos 3 slots.
+   * FIX (achado na auditoria da Fase 0.1): o comentário antigo dizia "sempre
+   * do jogador `player`", mas isso já era falso pra outras entradas que só
+   * ainda não setavam `target` (Bola de Fogo do Piromante e Destruição de
+   * Reforço do Mago K miram slot do OPONENTE) - o slot é sempre de
+   * `target ?? player`, nunca necessariamente de `player`.
    */
   slotIndex?: number;
   /**
@@ -120,4 +162,36 @@ export interface LogEntry {
   burnedCardIds?: string[];
   /** Ver LogTrigger acima. */
   trigger?: LogTrigger;
+  /**
+   * Fase 0.2 do roadmap de overhaul de animações - agrupa entradas nascidas
+   * do MESMO dispatch de `gameReducer` (ex.: o descarte por bloodRage da
+   * Besta que o sweep pós-ação produz fica no mesmo `chainId` da ação que o
+   * disparou, mesmo sendo de outra causa - ver `source` pra causa semântica).
+   * Reusa o mesmo espaço de `LogEntry.id` (mintado como `log.at(-1)!.id` logo
+   * após a entrada "raiz" da cadeia já existir) em vez de um esquema de id
+   * novo - determinístico de graça, o que importa já que o reducer precisa
+   * ser puro e o replay reconstrói estado reexecutando as mesmas ações.
+   */
+  chainId?: number;
+  /**
+   * Ordem local ao MESMO dispatch que produziu esta entrada (0, 1, 2...).
+   * Não é um contador global entre dispatches diferentes (o Modo Reações e a
+   * Magia Numeral têm cadeias que atravessam 2 dispatches separados -
+   * anunciar/resolver, ativar/finalizar); pra ordem entre dispatches, usar
+   * `id` (sempre monotônico, nunca colide) em vez de comparar `sequence`.
+   */
+  sequence?: number;
+  /** Ver LogSource acima. */
+  source?: LogSource;
+  /**
+   * Jogador/lado afetado por este evento, quando difere de `player` (que
+   * continua sendo "de quem é a perspectiva/quem causou"). Ex.: Substituição
+   * Arcana do Mago afeta o OPONENTE; Criogênese do Glacial afeta os DOIS
+   * jogadores de uma vez (`'both'`).
+   */
+  target?: PlayerNumber | 'both';
+  /** Ver LogVisibility acima. */
+  visibility?: LogVisibility;
+  /** Ver AnimationPolicy acima. */
+  animationPolicy?: AnimationPolicy;
 }

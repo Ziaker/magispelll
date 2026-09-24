@@ -255,9 +255,31 @@ export interface CombatResolution {
   coringaKForcedTie?: { koPlayer: PlayerNumber };
 }
 
+/**
+ * Fase 0.2 do roadmap de overhaul de animações - snapshot de UMA das 3
+ * cartas consumidas por uma Magia Numeral, capturado pelo reducer no mesmo
+ * instante em que `NumeralSpellPending` nasce (ANTES da carta sair da mão -
+ * ver handleActivateNumeralSpell, numeralSpellHandlers.ts). Sem isto, a UI
+ * não tinha como saber IDENTIDADE nenhuma das 3 cartas (só personagem+fase),
+ * por isso a montagem em NumeralSpellAssembly.tsx sempre foi puramente
+ * simbólica - nunca as cartas físicas de verdade.
+ */
+export interface NumeralSpellCardSnapshot {
+  id: string;
+  suit: string;
+  /** getDisplayValue(card) no instante da captura - já resolve Ás transformado (ver cardUtils.ts). */
+  displayValue: string;
+  revealed: boolean;
+  owner: PlayerNumber;
+}
+
 export interface NumeralSpellPending {
   playerNumber: PlayerNumber;
   character: CharacterId;
+  /** Ver LogEntry.chainId (gameLogTypes.ts) - mesmo `id` da entrada de log que anuncia esta ativação. */
+  chainId: number;
+  /** Ver NumeralSpellCardSnapshot acima - sempre as 3 cartas na mesma ordem de `requiredNumbers` (ver getMatchingNumeralCards, numeralSpells.ts). */
+  cardSnapshots: [NumeralSpellCardSnapshot, NumeralSpellCardSnapshot, NumeralSpellCardSnapshot];
 }
 
 /**
@@ -278,6 +300,8 @@ export interface PendingReaction {
   /** Id da carta mágica anunciada (já revelada na mão de `casterPlayer`, mas ainda não consumida). */
   cardId: string;
   originalAction: GameAction;
+  /** Ver LogEntry.chainId (gameLogTypes.ts) - mesmo `id` da entrada de log que anuncia esta reação, linka o anúncio com a confirmação/negação que vem depois. */
+  chainId: number;
 }
 
 export interface GameState {
