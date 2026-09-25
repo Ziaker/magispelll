@@ -39,6 +39,7 @@ import { MatchStatsScreen } from './components/MatchStatsScreen';
 import { DebugPanel } from './components/DebugPanel';
 import { SettingsProvider } from './context/SettingsContext';
 import { ScreenTransition } from './components/ScreenTransition';
+import { WizardFrame } from './components/WizardFrame';
 
 // FIX (pedido do usuário: "itens de performance") - GameBoard.tsx sozinho
 // arrasta praticamente todo o "peso" do jogo (party-js, canvas-confetti,
@@ -85,6 +86,15 @@ const WIZARD_SCREEN_ORDER: Partial<Record<Screen, number>> = {
   summary: 3,
   game: 4,
 };
+
+/**
+ * "Polish Visual Final" (pós-overhaul de animações) - subconjunto de
+ * WIZARD_SCREEN_ORDER que recebe a moldura decorativa de WizardFrame.tsx:
+ * as 4 telas do fluxo de configuração de verdade (Início->Resumo),
+ * DELIBERADAMENTE sem `game` - a moldura é uma identidade visual do
+ * "assistente de configuração", nunca deveria envolver o tabuleiro real.
+ */
+const WIZARD_FRAME_SCREENS = new Set<Screen>(['home', 'config', 'character-selection', 'summary']);
 
 export default function App() {
   // ===== ESTADOS PRINCIPAIS =====
@@ -454,9 +464,17 @@ export default function App() {
               </div>
             }
           >
-            <ScreenTransition screenKey={currentScreen} direction={screenDirection}>
-              {renderScreen()}
-            </ScreenTransition>
+            {WIZARD_FRAME_SCREENS.has(currentScreen) ? (
+              <WizardFrame screenKey={currentScreen} direction={screenDirection}>
+                <ScreenTransition screenKey={currentScreen} direction={screenDirection}>
+                  {renderScreen()}
+                </ScreenTransition>
+              </WizardFrame>
+            ) : (
+              <ScreenTransition screenKey={currentScreen} direction={screenDirection}>
+                {renderScreen()}
+              </ScreenTransition>
+            )}
           </Suspense>
         </div>
       </DndProvider>
