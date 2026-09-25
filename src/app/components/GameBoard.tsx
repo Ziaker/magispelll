@@ -872,38 +872,115 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   // ativo. Removido: nada mais dependia desse guard (uma REVANCHE já
   // disparava este efeito normalmente, via mudança real de fase - ela não
   // remonta o componente).
+  //
+  // FIX (Fase 2 do overhaul de animações, "Transições de Fase, Turno e
+  // Wizard"): antes este efeito reagia a `gameState.phase` puro - a troca de
+  // fase resolvida pelo motor podia coincidir, na MESMA cadeia/dispatch, com
+  // um efeito automático de personagem (Coringa dissipando armadilha, Broto
+  // do Druida crescendo, Criogolem/Monstro entrando, Fúria Sanguinária
+  // queimando cartas, um Monstro esgotado sendo descartado automaticamente
+  // no fim do Combate - ver fixture "ambos prontos + efeito filho pendente"
+  // em sanity-test.ts) - o popup em tela cheia (`fixed inset-0 z-50`,
+  // fundo escurecido) aparecia no MESMO instante, disputando toda a atenção
+  // visual do jogador com um efeito que ele nem teve tempo de notar. Agora
+  // este efeito também inspeciona as entradas NOVAS de log do MESMO
+  // dispatch que mudou a fase (mesmo padrão de `lastSeenLogIdRef` já usado
+  // no observador de log logo acima) - se alguma delas corresponde a um
+  // efeito automático com flourish visual próprio (mesmos triggers checados
+  // ali: armadilhas do Coringa, Broto/Monstro do Druida, Criogolem do
+  // Glacial, `burnedCardIds` da Besta) OU se `discardPile` cresceu no mesmo
+  // dispatch (cobre o Monstro esgotado, que não tem trigger dedicado - ver
+  // useDiscardReshuffleAnimations.ts sobre esse mesmo gap), o popup espera
+  // um pequeno atraso (mesma janela de 700ms que BeastBurnFlash/
+  // CoringaSmokeBurst já usam para o próprio flourish) antes de cobrir a
+  // tela - dá tempo do jogador registrar o que aconteceu antes do anúncio
+  // "FASE DE X" dominar o quadro. Transições de fase comuns (sem nenhum
+  // efeito automático concorrente, o caso mais frequente) continuam
+  // disparando instantaneamente, sem esse atraso.
+  // FIX (achado na verificação ao vivo da Fase 2): a 1ª versão deste efeito
+  // tinha `[gameState.phase, gameState.log, gameState.discardPile]` como
+  // dependências (pra poder inspecionar log/discardPile) - mas QUALQUER
+  // mudança de log/discardPile SEM mudança de fase (a imensa maioria dos
+  // dispatches) também re-executava o efeito, e o cleanup do React roda
+  // ANTES de cada nova execução, mesmo quando ela vai só cair no early
+  // return abaixo. Isso cancelava o `closeTimeout` do popup ainda aberto de
+  // uma transição de fase anterior sem NADA reagendar o fechamento dele -
+  // `showPhaseTransition` ficava travado em `true` pra sempre (bug
+  // reproduzido ao vivo: popup preso, `dispatch` bloqueado permanentemente
+  // por `if (showPhaseTransition) return`). Corrigido voltando às
+  // dependências estreitas de antes (só `gameState.phase` de verdade
+  // importa pra decidir SE este efeito deve agir) - `gameState.log`/
+  // `gameState.discardPile` continuam lidos aqui dentro (via closure, valor
+  // fresco no exato instante em que o efeito roda), só não fazem mais parte
+  // do array de dependências.
+  const prevPhaseForTransitionRef = useRef(gameState.phase);
+  const discardCountBeforePhaseRef = useRef(gameState.discardPile.length);
   useEffect(() => {
-    setShowPhaseTransition(true);
-    soundManager.play('phase-change');
-    // FIX (pedido do usuário: "deixe a notificação de troca de fase mais
-    // rápida") - de 2000ms para 900ms; ainda dá tempo de ler "FASE DE X",
-    // mas sem travar o jogo (ver `dispatch` acima) por tanto tempo a cada
-    // transição.
-    //
-    // Modo Spotlight (pedido do usuário: "devia ter uma 'cutscene' do
-    // número rodando como um caça niquels") - só na entrada na Fase de
-    // Compra com o modo ativo, o popup fica aberto mais tempo pra caber a
-    // roleta inteira (ver getSpotlightCutsceneDurationMs/PhaseTransition.tsx);
-    // qualquer outra transição de fase continua no mesmo 900ms de sempre.
-    const spotlightNumberCount = gameState.phase === 'draw' ? gameState.spotlight?.numbers.length ?? 0 : 0;
-    const basePopupDurationMs = Math.max(900, getSpotlightCutsceneDurationMs(spotlightNumberCount));
-    // FIX (pedido do usuário, item 2/2.1): o anúncio de início precisa de
-    // mais tempo na tela - além de "FASE DE COMPRA", agora também mostra a
-    // lista de modos ativos e as mãos enchendo (ver JSX abaixo), e 900ms não
-    // é suficiente pra ler tudo isso.
-    const popupDurationMs = isGameStart ? Math.max(2200, basePopupDurationMs) : basePopupDurationMs;
-    // FIX (pedido do usuário: "aumento de velocidade das animações... não
-    // chegamos a ver o resultado [do Spotlight], teoricamente não é pra ser
-    // afetável") - `delay()` reescala QUALQUER duração pela preferência de
-    // velocidade, incluindo o tempo garantido acima pra caber a "roleta"
-    // inteira - com a velocidade no máximo, esse piso podia encolher até os
-    // 150ms mínimos de `delay()`, cortando a cutscene antes do resultado
-    // aparecer. Enquanto a cutscene está rodando (`spotlightNumberCount > 0`),
-    // a duração fica de fora do `delay()` - sempre o tempo cheio, não importa
-    // a Velocidade de Animação. Qualquer outra transição de fase continua
-    // respeitando a preferência normalmente.
-    const t = setTimeout(() => setShowPhaseTransition(false), spotlightNumberCount > 0 ? popupDurationMs : delay(popupDurationMs));
-    return () => clearTimeout(t);
+    if (gameState.phase === prevPhaseForTransitionRef.current) return; // não é uma mudança de fase de verdade - nada a coordenar aqui
+    prevPhaseForTransitionRef.current = gameState.phase;
+
+    const discardGrew = gameState.discardPile.length > discardCountBeforePhaseRef.current;
+    discardCountBeforePhaseRef.current = gameState.discardPile.length;
+
+    // Entradas do MESMO dispatch que mudou a fase - reusa `chainId` (Fase 0.3)
+    // em vez de manter um `lastSeenLogIdRef` próprio (que exigiria a
+    // dependência larga que causou o bug acima).
+    const lastEntry = gameState.log[gameState.log.length - 1];
+    const sameChainEntries = lastEntry?.chainId !== undefined ? gameState.log.filter((e) => e.chainId === lastEntry.chainId) : lastEntry ? [lastEntry] : [];
+
+    const hasPendingCharacterEffect =
+      discardGrew ||
+      sameChainEntries.some(
+        (e) =>
+          e.trigger === 'coringa-trap-j' ||
+          e.trigger === 'coringa-trap-q' ||
+          e.trigger === 'coringa-trap-k' ||
+          e.trigger === 'druida-broto-planted' ||
+          e.trigger === 'druida-monster-placed' ||
+          e.trigger === 'glacial-golem-placed' ||
+          Boolean(e.burnedCardIds?.length)
+      );
+    const openDelayMs = hasPendingCharacterEffect ? delay(700) : 0;
+    const openTimeout = setTimeout(() => openPhaseTransition(), openDelayMs);
+    let closeTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    function openPhaseTransition() {
+      setShowPhaseTransition(true);
+      soundManager.play('phase-change');
+      // FIX (pedido do usuário: "deixe a notificação de troca de fase mais
+      // rápida") - de 2000ms para 900ms; ainda dá tempo de ler "FASE DE X",
+      // mas sem travar o jogo (ver `dispatch` acima) por tanto tempo a cada
+      // transição.
+      //
+      // Modo Spotlight (pedido do usuário: "devia ter uma 'cutscene' do
+      // número rodando como um caça niquels") - só na entrada na Fase de
+      // Compra com o modo ativo, o popup fica aberto mais tempo pra caber a
+      // roleta inteira (ver getSpotlightCutsceneDurationMs/PhaseTransition.tsx);
+      // qualquer outra transição de fase continua no mesmo 900ms de sempre.
+      const spotlightNumberCount = gameState.phase === 'draw' ? gameState.spotlight?.numbers.length ?? 0 : 0;
+      const basePopupDurationMs = Math.max(900, getSpotlightCutsceneDurationMs(spotlightNumberCount));
+      // FIX (pedido do usuário, item 2/2.1): o anúncio de início precisa de
+      // mais tempo na tela - além de "FASE DE COMPRA", agora também mostra a
+      // lista de modos ativos e as mãos enchendo (ver JSX abaixo), e 900ms não
+      // é suficiente pra ler tudo isso.
+      const popupDurationMs = isGameStart ? Math.max(2200, basePopupDurationMs) : basePopupDurationMs;
+      // FIX (pedido do usuário: "aumento de velocidade das animações... não
+      // chegamos a ver o resultado [do Spotlight], teoricamente não é pra ser
+      // afetável") - `delay()` reescala QUALQUER duração pela preferência de
+      // velocidade, incluindo o tempo garantido acima pra caber a "roleta"
+      // inteira - com a velocidade no máximo, esse piso podia encolher até os
+      // 150ms mínimos de `delay()`, cortando a cutscene antes do resultado
+      // aparecer. Enquanto a cutscene está rodando (`spotlightNumberCount > 0`),
+      // a duração fica de fora do `delay()` - sempre o tempo cheio, não importa
+      // a Velocidade de Animação. Qualquer outra transição de fase continua
+      // respeitando a preferência normalmente.
+      closeTimeout = setTimeout(() => setShowPhaseTransition(false), spotlightNumberCount > 0 ? popupDurationMs : delay(popupDurationMs));
+    }
+
+    return () => {
+      clearTimeout(openTimeout);
+      if (closeTimeout) clearTimeout(closeTimeout);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.phase]);
 
@@ -1136,17 +1213,30 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     discardPileRef,
     deckPileRef,
   });
-  /** Pedido do usuário ("Overhaul de Animações", "contador de turno tipo hodômetro"): "talvez com uma varredura sutil de luz cruzando o tabuleiro inteiro na virada" - ver TurnLightSweep.tsx, disparado pelo useEffect de `gameState.turn` logo abaixo. */
+  /**
+   * Pedido do usuário ("Overhaul de Animações", "contador de turno tipo
+   * hodômetro"): "talvez com uma varredura sutil de luz cruzando o
+   * tabuleiro inteiro na virada" - ver TurnLightSweep.tsx.
+   * FIX (Fase 2 do overhaul de animações): antes disparava incondicionalmente
+   * (mesmo com `settings.animations` desligado - só cortava cedo via
+   * `delay()`, nunca eliminava de verdade) e usava um `delay(700)` solto pra
+   * limpeza, sem relação nenhuma com a duração REAL de 0.7s*scale que
+   * TurnLightSweep.tsx agora usa internamente. Ambos os problemas já foram
+   * corrigidos uma vez, na Fase 1, pra FlyingDiscardCard/DeckReshuffleBurst -
+   * mesmo fix aqui: pula o disparo inteiro quando desligado, e o cleanup usa
+   * a MESMA duração escalada que o componente realmente anima.
+   */
   const [showTurnSweep, setShowTurnSweep] = useState(false);
   const prevTurnRef = useRef(gameState.turn);
   useEffect(() => {
     if (gameState.turn === prevTurnRef.current) return;
     prevTurnRef.current = gameState.turn;
+    if (!settings.animations) return;
     setShowTurnSweep(true);
-    const t = setTimeout(() => setShowTurnSweep(false), delay(700));
+    const t = setTimeout(() => setShowTurnSweep(false), Math.max(150, Math.round(700 * animScale)));
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState.turn]);
+  }, [gameState.turn, settings.animations, animScale]);
 
   // ---------------------------------------------------------------------
   // Modo Reações (pedido do usuário) - ver gameEngine.ts (pendingReaction/
@@ -3641,7 +3731,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       <BeastBurnFlash specs={beastBurnFlashes} />
       <DeckReshuffleBurst spec={deckReshuffleBurst} />
       <NumeralSpellAssembly spec={numeralAssemblySpec} />
-      <TurnLightSweep active={showTurnSweep} />
+      <TurnLightSweep active={showTurnSweep} scale={animScale} />
       <PhaseTransition
         phase={gameState.phase}
         show={showPhaseTransition}
@@ -3691,7 +3781,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
               <ArrowLeft className="w-4 h-4" />
             </Button>
             <Badge className="bg-[#C59E4F] text-[#0F1113]">
-              Turno <TurnCounter turn={gameState.turn} />
+              Turno <TurnCounter turn={gameState.turn} scale={animScale} />
             </Badge>
             <PhaseProgress phase={gameState.phase} />
             {/* FIX (pedido do usuário: "placar de vidas no topo") - antes só
