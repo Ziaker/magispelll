@@ -55,7 +55,10 @@ export type LogTrigger =
   | 'druida-monster-placed'
   | 'glacial-golem-placed'
   | 'reaction-announced'
-  | 'reaction-denied';
+  | 'reaction-denied'
+  | 'player-ready'
+  | 'player-unready'
+  | 'life-lost';
 
 /**
  * Fase 0.2 do roadmap de overhaul de animações ("contrato mínimo de evento

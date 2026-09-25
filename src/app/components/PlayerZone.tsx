@@ -8,6 +8,7 @@ import type { CSSProperties } from 'react';
 import { motion } from 'motion/react';
 import { Wand2, Heart as HeartIcon, Flame, Check, X as XIcon, Trash2, ShoppingCart, Sparkles, Bot, Repeat, Combine, ArrowUpDown, Move, ChevronLeft, ChevronRight, Crosshair, Hand, MousePointerClick, Eye, EyeOff, Sprout, Snowflake, Zap } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
+import { getAnimationDurationScale } from '../lib/settings';
 import { AngelHaloIcon, BeastFaceIcon, JesterHatIcon } from './CharacterGlyphIcons';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -72,10 +73,16 @@ const NEXT_PHASE_LABEL: Record<'draw' | 'strategy' | 'combat', string> = {
   combat: 'encerrar o turno',
 };
 
+// FIX (Fase 3 do overhaul de animações) - as durações abaixo eram todas
+// fixas, ignorando `settings.animationSpeed` por completo (mesma classe de
+// gap já corrigida nas Fases 1 e 2) - viraram funções de `scale` (de
+// `getAnimationDurationScale`) em vez de objetos soltos, só `duration`
+// escala (os arrays de `times`, sendo frações relativas de 0 a 1 do próprio
+// `duration`, não precisam mudar).
 const HEART_BREAK_ANIMATE = { scale: [1, 1.7, 0.2], rotate: [0, -25, 30], opacity: [1, 1, 0] };
-const HEART_BREAK_TRANSITION = { duration: 0.65, times: [0, 0.35, 1], ease: 'easeOut' as const };
+const HEART_BREAK_TRANSITION = (scale: number) => ({ duration: 0.65 * scale, times: [0, 0.35, 1], ease: 'easeOut' as const });
 const HEART_REST_ANIMATE = { scale: 1, rotate: 0 };
-const HEART_REST_TRANSITION = { duration: 0.2 };
+const HEART_REST_TRANSITION = (scale: number) => ({ duration: 0.2 * scale });
 /** Ângulos (em radianos) dos 6 fragmentos que estouram do coração quebrado, distribuídos em círculo. */
 const HEART_FRAGMENT_ANGLES = [0, 1, 2, 3, 4, 5].map((i) => (i / 6) * Math.PI * 2);
 
@@ -100,14 +107,14 @@ const HEART_FRAGMENT_ANGLES = [0, 1, 2, 3, 4, 5].map((i) => (i / 6) * Math.PI * 
 const HEART_DRAIN_ANIMATE = { clipPath: ['inset(0% 0 0% 0)', 'inset(65% 0 0% 0)', 'inset(100% 0 0% 0)'] };
 const HEART_DRAIN_TRANSITION = HEART_BREAK_TRANSITION;
 const HEART_CRACK_ANIMATE = { opacity: [0, 1, 1, 0] };
-const HEART_CRACK_TRANSITION = { duration: 0.65, times: [0, 0.12, 0.35, 0.5], ease: 'easeOut' as const };
+const HEART_CRACK_TRANSITION = (scale: number) => ({ duration: 0.65 * scale, times: [0, 0.12, 0.35, 0.5], ease: 'easeOut' as const });
 
 const HEART_LAST_LIFE_BREAK_ANIMATE = { scale: [1, 2.2, 0.15], rotate: [0, -35, 45], opacity: [1, 1, 0] };
-const HEART_LAST_LIFE_BREAK_TRANSITION = { duration: 1.15, times: [0, 0.45, 1], ease: 'easeOut' as const };
+const HEART_LAST_LIFE_BREAK_TRANSITION = (scale: number) => ({ duration: 1.15 * scale, times: [0, 0.45, 1], ease: 'easeOut' as const });
 const HEART_LAST_LIFE_DRAIN_ANIMATE = { clipPath: ['inset(0% 0 0% 0)', 'inset(65% 0 0% 0)', 'inset(100% 0 0% 0)'] };
 const HEART_LAST_LIFE_DRAIN_TRANSITION = HEART_LAST_LIFE_BREAK_TRANSITION;
 const HEART_LAST_LIFE_CRACK_ANIMATE = { opacity: [0, 1, 1, 0] };
-const HEART_LAST_LIFE_CRACK_TRANSITION = { duration: 1.15, times: [0, 0.15, 0.45, 0.65], ease: 'easeOut' as const };
+const HEART_LAST_LIFE_CRACK_TRANSITION = (scale: number) => ({ duration: 1.15 * scale, times: [0, 0.15, 0.45, 0.65], ease: 'easeOut' as const });
 /** Traço em zigue-zague sobreposto ao coração no instante em que racha (viewBox 0 0 24 24, mesma proporção do ícone lucide-react). */
 const HEART_CRACK_PATH = 'M12 3 L10 9 L13 10 L9 14 L12 15.5 L8 21';
 
@@ -464,6 +471,13 @@ export function PlayerZone({
   aceTransformFlashCardId,
 }: PlayerZoneProps) {
   const theme = getCharacterTheme(character);
+  // FIX (Fase 3 do overhaul de animações) - `useSettings()` movido pra cima
+  // de tudo que depende de `animScale` (quebra de coração, selo de Pronto) -
+  // antes só era chamado mais abaixo (ver QoL da mão), tarde demais pro
+  // efeito de quebra de coração alguns hooks abaixo conseguir ler a
+  // preferência de velocidade/animações.
+  const { settings, updateSetting } = useSettings();
+  const animScale = getAnimationDurationScale(settings);
   const [drawCount, setDrawCount] = useState<number>(1);
 
   // FIX (pedido do usuário, item 5): detecta a TRANSIÇÃO de vidas (não só o
@@ -478,19 +492,30 @@ export function PlayerZone({
   // acima), não só os 650ms da quebra normal, e também liga o vinheta de
   // tela cheia `LastLifeImpact`.
   const [isLastLifeLoss, setIsLastLifeLoss] = useState(false);
+  // FIX (Fase 3 do overhaul de animações) - `settings.animations`/
+  // `settings.animationSpeed` não eram respeitados aqui. Com animações
+  // desligadas (`animScale === 0`), pula o flourish de quebra por completo -
+  // o número de corações preenchidos já muda instantaneamente por conta
+  // própria (`filled = i < playerState.lives`, no JSX abaixo), sem precisar
+  // de `breakingHeartIndex` nenhum. `animScale` é lido via closure, NUNCA
+  // como dependência deste efeito - mesma regra da Fase 2.2 (ver
+  // feedback_review_blocking_timer_useeffect_deps): só `playerState.lives`
+  // decide SE o efeito deve agir.
   useEffect(() => {
     if (playerState.lives < prevLivesRef.current) {
       const lastLife = playerState.lives === 0;
+      prevLivesRef.current = playerState.lives;
+      if (animScale === 0) return;
       setBreakingHeartIndex(playerState.lives);
       setIsLastLifeLoss(lastLife);
       const t = setTimeout(() => {
         setBreakingHeartIndex(null);
         setIsLastLifeLoss(false);
-      }, lastLife ? 1150 : 650);
-      prevLivesRef.current = playerState.lives;
+      }, Math.round((lastLife ? 1150 : 650) * animScale));
       return () => clearTimeout(t);
     }
     prevLivesRef.current = playerState.lives;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerState.lives]);
 
   // QoL da mão (pedido do usuário: "me de mais ideias, melhores" sobre a
@@ -508,8 +533,9 @@ export function PlayerZone({
   // aqui direto do contexto global em vez de vir por prop, porque o botão
   // alternador (perto de "Mão", mais abaixo) precisa poder MUDAR o valor
   // também - `useSettings()` já expõe `updateSetting` pronto pra isso, sem
-  // precisar subir/descer um novo par de props por GameBoard.tsx.
-  const { settings, updateSetting } = useSettings();
+  // precisar subir/descer um novo par de props por GameBoard.tsx. (`settings`
+  // em si já foi obtido mais acima, junto com `animScale` - ver comentário
+  // lá.)
   const handInteractionMode = settings.handInteractionMode;
   // FIX (pedido do usuário: "confirmar antes de descartar") - só existe
   // pra abrir/fechar o diálogo de confirmação (ver JSX mais abaixo); a
@@ -933,18 +959,18 @@ export function PlayerZone({
                     const isBreaking = i === breakingHeartIndex;
                     const filled = i < playerState.lives;
                     const breakAnimate = isLastLifeLoss ? HEART_LAST_LIFE_BREAK_ANIMATE : HEART_BREAK_ANIMATE;
-                    const breakTransition = isLastLifeLoss ? HEART_LAST_LIFE_BREAK_TRANSITION : HEART_BREAK_TRANSITION;
+                    const breakTransition = (isLastLifeLoss ? HEART_LAST_LIFE_BREAK_TRANSITION : HEART_BREAK_TRANSITION)(animScale);
                     const drainAnimate = isLastLifeLoss ? HEART_LAST_LIFE_DRAIN_ANIMATE : HEART_DRAIN_ANIMATE;
-                    const drainTransition = isLastLifeLoss ? HEART_LAST_LIFE_DRAIN_TRANSITION : HEART_DRAIN_TRANSITION;
+                    const drainTransition = (isLastLifeLoss ? HEART_LAST_LIFE_DRAIN_TRANSITION : HEART_DRAIN_TRANSITION)(animScale);
                     const crackAnimate = isLastLifeLoss ? HEART_LAST_LIFE_CRACK_ANIMATE : HEART_CRACK_ANIMATE;
-                    const crackTransition = isLastLifeLoss ? HEART_LAST_LIFE_CRACK_TRANSITION : HEART_CRACK_TRANSITION;
-                    const fragmentDuration = isLastLifeLoss ? 0.95 : 0.55;
+                    const crackTransition = (isLastLifeLoss ? HEART_LAST_LIFE_CRACK_TRANSITION : HEART_CRACK_TRANSITION)(animScale);
+                    const fragmentDuration = (isLastLifeLoss ? 0.95 : 0.55) * animScale;
                     const fragmentDistance = isLastLifeLoss ? 26 : 16;
                     return (
                       <div key={i} className="relative">
                         <motion.div
                           animate={isBreaking ? breakAnimate : HEART_REST_ANIMATE}
-                          transition={isBreaking ? breakTransition : HEART_REST_TRANSITION}
+                          transition={isBreaking ? breakTransition : HEART_REST_TRANSITION(animScale)}
                         >
                           <HeartIcon
                             className={`w-3 h-3 ${filled || isBreaking ? 'fill-current' : 'opacity-20'}`}
@@ -999,7 +1025,7 @@ export function PlayerZone({
                   })}
                 </div>
               </div>
-              <LastLifeImpact active={isLastLifeLoss} />
+              <LastLifeImpact active={isLastLifeLoss} scale={animScale} />
               {/* FIX (pedido do usuário: "ao invés de falar jogador 1 e
                   jogador 2, troque para os respectivos nomes dos
                   personagens") - `playerNumber` (1/2) virou o nome do
@@ -1109,8 +1135,8 @@ export function PlayerZone({
                     {playerState.readyForNextPhase ? 'Pronto!' : 'Pensando...'}
                   </span>
                 </div>
-                <ReadyStamp active={playerState.readyForNextPhase} />
-                <BothReadyPulse active={bothReady} />
+                <ReadyStamp active={playerState.readyForNextPhase} scale={animScale} />
+                <BothReadyPulse active={bothReady} scale={animScale} />
               </div>
             ) : (
               <div className="relative">
@@ -1130,8 +1156,8 @@ export function PlayerZone({
                     </span>
                   </div>
                 </Button>
-                <ReadyStamp active={playerState.readyForNextPhase} />
-                <BothReadyPulse active={bothReady} />
+                <ReadyStamp active={playerState.readyForNextPhase} scale={animScale} />
+                <BothReadyPulse active={bothReady} scale={animScale} />
               </div>
             )}
           </div>

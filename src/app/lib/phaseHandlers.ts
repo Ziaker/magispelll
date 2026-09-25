@@ -209,7 +209,21 @@ export function handleToggleReady(state: GameState, player: PlayerNumber): GameS
     ...state,
     [playerKey]: { ...state[playerKey], readyForNextPhase: newReady },
   };
-  next = { ...next, log: appendLog(state, state.log, 'system', `Jogador ${player} ${newReady ? 'está pronto' : 'não está mais pronto'} para avançar`, { player }) };
+  // Fase 3 do overhaul de animações ("selo de Pronto") - `trigger` distingue
+  // esta entrada das demais `type: 'system'` (ex.: aviso de reembaralhamento)
+  // sem precisar casar o texto "está pronto"/"não está mais pronto" - ver
+  // ReadyStamp.tsx/BothReadyPulse.tsx sobre o consumo visual (hoje ainda por
+  // diff do próprio booleano `readyForNextPhase`, não por este campo - ver
+  // comentário lá sobre o porquê, mesmo raciocínio do life-lost em
+  // combatHandlers.ts).
+  next = {
+    ...next,
+    log: appendLog(state, state.log, 'system', `Jogador ${player} ${newReady ? 'está pronto' : 'não está mais pronto'} para avançar`, {
+      player,
+      source: { kind: 'phase-rule' },
+      trigger: newReady ? 'player-ready' : 'player-unready',
+    }),
+  };
 
   if (!(newReady && next[otherKey].readyForNextPhase)) {
     return next;

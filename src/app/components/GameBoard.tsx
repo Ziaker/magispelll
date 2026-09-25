@@ -1480,7 +1480,24 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       const koPlayer = resolution.coringaKForcedTie.koPlayer;
       triggerSmokeBurst({ player: koPlayer, slotIndex: koPlayer === 1 ? resolution.p1SlotIndex : resolution.p2SlotIndex });
     }
-    const revealBeat = delay(650);
+    // FIX (Fase 3 do overhaul de animações) - antes `revealBeat` era sempre
+    // `delay(650)`, sem relação nenhuma com a duração REAL da quebra de
+    // coração que já começa a tocar no MESMO instante lá em PlayerZone.tsx
+    // (reação própria a `playerState.lives` mudando, mesmo `gameState` deste
+    // dispatch) - o popup de vencedor em tela cheia (`CombatResult`) podia
+    // cobrir a quebra ainda no meio, ou cortar a "câmera lenta" da última
+    // vida (mais lenta, ~1150ms) bem antes dela terminar - pior ainda em
+    // velocidades diferentes de 100%, já que os dois timers escalavam
+    // separadamente (a quebra nem escalava, até esta mesma Fase 3 corrigir
+    // isso em PlayerZone.tsx). Quando esta resolução fecha a disputa
+    // (`disputeWinner` preenchido - alguém realmente perdeu 1 vida), dá
+    // tempo da quebra terminar primeiro, incluindo a versão "última vida".
+    // `gameState.playerN.lives` aqui já reflete o valor PÓS-decremento
+    // (mesmo dispatch de handleResolveCombat) - `loserLives === 0` identifica
+    // a última vida do mesmo jeito que PlayerZone.tsx identifica.
+    const loserLives = resolution.disputeWinner === 1 ? gameState.player2.lives : resolution.disputeWinner === 2 ? gameState.player1.lives : null;
+    const heartBreakMs = loserLives === null ? 0 : Math.round((loserLives === 0 ? 1150 : 650) * animScale);
+    const revealBeat = resolution.disputeWinner ? Math.max(delay(650), heartBreakMs + 100) : delay(650);
     const t1 = setTimeout(() => {
       setShowCombatResult(true);
       setCombatValueReveal(null);

@@ -13,16 +13,21 @@ import { motion, AnimatePresence } from 'motion/react';
  * `position:fixed` documentado em useZoomEscapeFactor.ts (mesma solução já
  * usada em TurnLightSweep.tsx).
  */
-export function LastLifeImpact({ active }: { active: boolean }) {
+export function LastLifeImpact({ active, scale }: { active: boolean; scale: number }) {
+  // FIX (Fase 3 do overhaul de animações) - `settings.animations`/
+  // `settings.animationSpeed` não eram respeitados aqui (mesma classe de gap
+  // já corrigida nas Fases 1 e 2) - `scale === 0` pula a vinheta por
+  // completo (a "câmera lenta" perde o sentido se instantânea); em qualquer
+  // outra velocidade, a duração de 1.4s escala junto com o resto do jogo.
   return (
     <AnimatePresence>
-      {active && (
+      {active && scale > 0 && (
         <motion.div
           className="fixed inset-0 z-[45] pointer-events-none"
           initial={{ opacity: 0 }}
           animate={{ opacity: [0, 1, 0.6, 0] }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 1.4, times: [0, 0.25, 0.6, 1], ease: 'easeOut' }}
+          transition={{ duration: 1.4 * scale, times: [0, 0.25, 0.6, 1], ease: 'easeOut' }}
           style={{
             background: 'radial-gradient(ellipse at center, transparent 40%, rgba(139,0,0,0.55) 100%)',
           }}
