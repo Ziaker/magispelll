@@ -12,7 +12,7 @@ import { AnimatePresence, motion } from 'motion/react';
  * sobrepondo o badge/botão existente por baixo dele - puramente
  * decorativo, nunca substitui o texto "Pronto!"/"Pronto" real.
  */
-export function ReadyStamp({ active }: { active: boolean }) {
+export function ReadyStamp({ active, scale }: { active: boolean; scale: number }) {
   const wasActiveRef = useRef(active);
   const [justStamped, setJustStamped] = useState(false);
   // FIX (pesquisa de bugs: selo ficava preso visível pra sempre) - o timer
@@ -25,16 +25,28 @@ export function ReadyStamp({ active }: { active: boolean }) {
   // precisa acompanhar `active` em tempo real.
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // FIX (Fase 3 do overhaul de animações) - `settings.animations`/
+  // `settings.animationSpeed` não eram respeitados aqui (mesma classe de gap
+  // já corrigida nas Fases 1 e 2). `scale` vem de `getAnimationDurationScale`
+  // (0 quando animações estão desligadas) - com animações desligadas, o
+  // efeito é puramente decorativo demais pra valer a pena até agendar o
+  // timer, então pula o carimbo por completo (o badge por baixo já muda de
+  // cor sozinho, sem precisar de nenhum flourish). `settings.animations` não
+  // é dependência deste efeito de propósito - ver
+  // feedback_review_blocking_timer_useeffect_deps na memória: só `active`
+  // decide SE o efeito deve agir, `scale` é lido via closure no instante em
+  // que ele roda.
   useEffect(() => {
-    if (active && !wasActiveRef.current) {
+    if (active && !wasActiveRef.current && scale > 0) {
       setJustStamped(true);
       if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
         setJustStamped(false);
         timeoutRef.current = null;
-      }, 550);
+      }, Math.round(550 * scale));
     }
     wasActiveRef.current = active;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   useEffect(() => {
@@ -50,21 +62,21 @@ export function ReadyStamp({ active }: { active: boolean }) {
           className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none"
           initial={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
+          transition={{ duration: 0.15 * scale }}
         >
           <motion.div
             className="rounded-md border-2 flex items-center justify-center"
             style={{ borderColor: '#6CC47A', width: '80%', height: '80%' }}
             initial={{ scale: 2.4, rotate: -18, opacity: 0 }}
             animate={{ scale: [2.4, 0.9, 1], rotate: [-18, -18, -8], opacity: [0, 1, 1] }}
-            transition={{ duration: 0.32, ease: 'easeOut' }}
+            transition={{ duration: 0.32 * scale, ease: 'easeOut' }}
           />
           {/* Flash rápido no instante do "impacto" do carimbo. */}
           <motion.div
             className="absolute inset-0 rounded-md"
             initial={{ opacity: 0.7 }}
             animate={{ opacity: 0 }}
-            transition={{ duration: 0.3, delay: 0.15, ease: 'easeOut' }}
+            transition={{ duration: 0.3 * scale, delay: 0.15 * scale, ease: 'easeOut' }}
             style={{ backgroundColor: '#6CC47A', mixBlendMode: 'overlay' }}
           />
         </motion.div>
@@ -82,10 +94,14 @@ export function ReadyStamp({ active }: { active: boolean }) {
  * badge/botão de Pronto, sem precisar de nenhuma coordenação extra além de
  * receber o mesmo booleano.
  */
-export function BothReadyPulse({ active }: { active: boolean }) {
+export function BothReadyPulse({ active, scale }: { active: boolean; scale: number }) {
+  // FIX (Fase 3 do overhaul de animações) - `settings.animations` desligado
+  // (scale === 0) agora realmente pula o pulso, em vez de continuar rodando
+  // ignorando a preferência - os dois badges já verdes por baixo continuam
+  // comunicando "os dois prontos" sem precisar do anel.
   return (
     <AnimatePresence>
-      {active && (
+      {active && scale > 0 && (
         <motion.div
           className="absolute inset-0 z-10 rounded-md pointer-events-none"
           initial={{ boxShadow: '0 0 0 0 rgba(108,196,122,0.6)' }}
@@ -97,7 +113,7 @@ export function BothReadyPulse({ active }: { active: boolean }) {
             ],
           }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.9, repeat: Infinity, ease: 'easeOut' }}
+          transition={{ duration: 0.9 * scale, repeat: Infinity, ease: 'easeOut' }}
         />
       )}
     </AnimatePresence>

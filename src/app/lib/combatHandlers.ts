@@ -248,7 +248,19 @@ export function handleResolveCombat(state: GameState, coringaQCopyTargetId?: str
       disputeWinner = 1;
       player2 = { ...player2, lives: state.player2.lives - 1, combatWins: 0 };
       player1 = { ...player1, combatWins: 0 };
-      log = appendLog(state, log, 'combat', `Jogador 1 vence a DISPUTA! Jogador 2 perde 1 vida`, { player: 1 });
+      // Fase 3 do overhaul de animações ("perda de vida") - `target: 2`
+      // marca quem PERDEU a vida (distinto de `player: 1`, quem venceu e
+      // causou a perda) e `trigger: 'life-lost'` distingue esta entrada
+      // específica das demais `type: 'combat'` (vitória comum, empate) sem
+      // precisar casar o texto "perde 1 vida" - ver LastLifeImpact.tsx/
+      // PlayerZone.tsx sobre o consumo visual (hoje ainda por diff de
+      // `lives`, não por este campo - ver comentário lá sobre o porquê).
+      log = appendLog(state, log, 'combat', `Jogador 1 vence a DISPUTA! Jogador 2 perde 1 vida`, {
+        player: 1,
+        target: 2,
+        source: { kind: 'combat' },
+        trigger: 'life-lost',
+      });
       if (player2.lives <= 0) gameOver = { winner: 1 };
     }
   } else if (p2Total > p1Total) {
@@ -260,7 +272,13 @@ export function handleResolveCombat(state: GameState, coringaQCopyTargetId?: str
       disputeWinner = 2;
       player1 = { ...player1, lives: state.player1.lives - 1, combatWins: 0 };
       player2 = { ...player2, combatWins: 0 };
-      log = appendLog(state, log, 'combat', `Jogador 2 vence a DISPUTA! Jogador 1 perde 1 vida`, { player: 2 });
+      // Ver comentário espelhado acima (branch do Jogador 1 vencendo).
+      log = appendLog(state, log, 'combat', `Jogador 2 vence a DISPUTA! Jogador 1 perde 1 vida`, {
+        player: 2,
+        target: 1,
+        source: { kind: 'combat' },
+        trigger: 'life-lost',
+      });
       if (player1.lives <= 0) gameOver = { winner: 2 };
     }
   } else {
