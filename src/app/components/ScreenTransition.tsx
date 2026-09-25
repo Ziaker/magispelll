@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { useSettings } from '../context/SettingsContext';
+import { getAnimationDurationScale } from '../lib/settings';
 
 /**
  * ScreenTransition - pedido do usuário ("Overhaul de Animações", item 7):
@@ -43,7 +45,8 @@ const EXIT_DURATION_MS = 220;
  * maioria das trocas de tela) o timeout é cancelado por `onExitComplete`
  * antes de disparar, e nada muda visualmente.
  */
-const SAFETY_TIMEOUT_MS = EXIT_DURATION_MS + 500;
+/** Margem fixa (não escalada por `animationSpeed`) além da duração real da saída - tempo de sobra pra ter certeza de que o Framer Motion travou, não só está terminando. */
+const SAFETY_TIMEOUT_MARGIN_MS = 500;
 
 const screenVariants = {
   enter: (direction: number) => ({
@@ -66,7 +69,14 @@ export function ScreenTransition({
   direction: number;
   children: ReactNode;
 }) {
-  // Ver comentário de SAFETY_TIMEOUT_MS acima - `presenceKey` força um
+  // FIX (Fase 2.2 do overhaul de animações, "Wizard") - antes esta duração
+  // (0.22s) era fixa, ignorando `settings.animationSpeed` por completo (mesma
+  // classe de gap já corrigida duas vezes neste roadmap: Fase 1 pro
+  // descarte/reembaralhamento, Fase 2.1 pra transição de fase/turno).
+  const { settings } = useSettings();
+  const scale = getAnimationDurationScale(settings);
+
+  // Ver comentário de SAFETY_TIMEOUT_MARGIN_MS acima - `presenceKey` força um
   // remount completo do AnimatePresence quando a rede de segurança dispara.
   const [presenceKey, setPresenceKey] = useState(0);
   const lastScreenKeyRef = useRef(screenKey);
@@ -79,17 +89,44 @@ export function ScreenTransition({
     }
   };
 
+  // FIX (achado na Fase 2.1, agora aplicado aqui de propósito - ver
+  // feedback_review_blocking_timer_useeffect_deps na memória): este efeito só
+  // deve REAGIR a `screenKey` mudando de verdade - `settings.animations`/
+  // `scale` são lidos aqui dentro via closure (valor fresco no instante em
+  // que o efeito roda), NUNCA como dependências reativas. Colocá-los no
+  // array faria o cleanup (que cancela o `safetyTimeoutRef` pendente de uma
+  // troca de tela ainda em andamento) disparar toda vez que a preferência de
+  // velocidade mudasse no meio de uma transição, sem reagendar nada no lugar
+  // - a mesma classe de bug que travou `showPhaseTransition` pra sempre.
   useEffect(() => {
     if (lastScreenKeyRef.current === screenKey) return;
     lastScreenKeyRef.current = screenKey;
     clearSafetyTimeout();
+    // Sem animação, não existe animação de saída pra travar - a rede de
+    // segurança não tem nada pra proteger aqui.
+    if (!settings.animations) return;
     safetyTimeoutRef.current = window.setTimeout(() => {
       safetyTimeoutRef.current = null;
       setPresenceKey((k) => k + 1);
-    }, SAFETY_TIMEOUT_MS);
+    }, Math.round(EXIT_DURATION_MS * scale) + SAFETY_TIMEOUT_MARGIN_MS);
     return clearSafetyTimeout;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screenKey]);
+
+  // FIX (Fase 2.2): `settings.animations` desligado agora REMOVE a transição
+  // de verdade (troca instantânea, sem AnimatePresence/motion nenhum) - antes
+  // este componente nem checava a preferência, a troca de tela sempre
+  // animava. Mesmo padrão "pula por completo em vez de só encurtar" já
+  // aplicado nas Fases 1 e 2.1. Sem AnimatePresence aqui, a própria rede de
+  // segurança contra saída travada também fica sem propósito (não corre o
+  // risco de nunca disparar `onExitComplete` se não há exit animation).
+  if (!settings.animations) {
+    return (
+      <div key={screenKey} className="size-full">
+        {children}
+      </div>
+    );
+  }
 
   return (
     <AnimatePresence key={presenceKey} mode="wait" custom={direction} onExitComplete={clearSafetyTimeout}>
@@ -100,7 +137,7 @@ export function ScreenTransition({
         initial="enter"
         animate="center"
         exit="exit"
-        transition={{ duration: 0.22, ease: 'easeOut' }}
+        transition={{ duration: 0.22 * scale, ease: 'easeOut' }}
         className="size-full"
       >
         {children}
