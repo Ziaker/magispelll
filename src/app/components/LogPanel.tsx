@@ -14,6 +14,8 @@ interface LogPanelProps {
   player1Character: CharacterId;
   player2Character: CharacterId;
   screenReaderMode?: boolean;
+  /** Fase 5 do overhaul de animações - getAnimationDurationScale(settings), ver GameBoard.tsx. */
+  scale: number;
 }
 
 /**
@@ -34,7 +36,7 @@ interface LogPanelProps {
  *   a reformulação - a organização nova é o que resolve a sensação de
  *   "perder histórico", não um teto maior).
  */
-export function LogPanel({ log, player1Character, player2Character, screenReaderMode }: LogPanelProps) {
+export function LogPanel({ log, player1Character, player2Character, screenReaderMode, scale }: LogPanelProps) {
   const characterOfPlayer = (player: PlayerNumber): CharacterId => (player === 1 ? player1Character : player2Character);
 
   const [playerFilter, setPlayerFilter] = useState<'all' | PlayerNumber>('all');
@@ -59,6 +61,21 @@ export function LogPanel({ log, player1Character, player2Character, screenReader
    * senão trocar um filtro que esconde a entrada mais nova "perderia" o
    * flash dela na próxima vez que ela reaparecesse) pra saber se uma
    * entrada nova de verdade chegou desde o último render.
+   *
+   * FIX (Fase 5 do overhaul de animações) - `settings.animations`/
+   * `settings.animationSpeed` não eram respeitados aqui (mesma classe de
+   * gap já corrigida nas Fases 1-4): o slide-in de cada entrada e o flash
+   * tinham duração fixa (0.25s/0.9s), sem escalar com `animationSpeed`, e
+   * o flash disparava mesmo com `animations` desligado. `scale` (prop, ver
+   * getAnimationDurationScale em GameBoard.tsx) agora multiplica as duas
+   * durações; `scale > 0` abaixo pula o flash inteiro quando desligado (o
+   * slide-in em si não pula - a entrada precisa aparecer de qualquer jeito,
+   * só sem a flourish - duration 0 já a torna instantânea, ver JSX). `scale`
+   * é lido via closure, não é dependência deste efeito - só `log` decide SE
+   * ele deve agir, mesmo princípio de
+   * feedback_review_blocking_timer_useeffect_deps (aqui sem risco de
+   * travar o jogo, já que `flashingEntryId` é puramente decorativo, mas o
+   * mesmo cuidado evita um flash cortado/perdido à toa).
    */
   const lastSeenIdRef = useRef<number>(log.length > 0 ? log[log.length - 1].id : -1);
   const [flashingEntryId, setFlashingEntryId] = useState<number | null>(null);
@@ -66,12 +83,16 @@ export function LogPanel({ log, player1Character, player2Character, screenReader
     if (log.length === 0) return;
     const newestId = log[log.length - 1].id;
     if (newestId > lastSeenIdRef.current) {
-      setFlashingEntryId(newestId);
-      const t = setTimeout(() => setFlashingEntryId(null), 900);
       lastSeenIdRef.current = newestId;
-      return () => clearTimeout(t);
+      if (scale > 0) {
+        setFlashingEntryId(newestId);
+        const t = setTimeout(() => setFlashingEntryId(null), Math.round(900 * scale));
+        return () => clearTimeout(t);
+      }
+      return;
     }
     lastSeenIdRef.current = newestId;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [log]);
 
   const toggleBucket = (id: string) => {
@@ -228,7 +249,7 @@ export function LogPanel({ log, player1Character, player2Character, screenReader
                             initial={{ opacity: 0, x: -14 }}
                             animate={{ opacity: 0.8, x: 0 }}
                             exit={{ opacity: 0 }}
-                            transition={{ duration: 0.25, ease: 'easeOut' }}
+                            transition={{ duration: 0.25 * scale, ease: 'easeOut' }}
                             className="relative text-[11px] text-[#BFB6A6] pl-2 border-l-2 rounded-r"
                             style={{ borderLeftColor: color ?? '#BFB6A625' }}
                           >
@@ -242,7 +263,7 @@ export function LogPanel({ log, player1Character, player2Character, screenReader
                                   initial={{ opacity: 0.6 }}
                                   animate={{ opacity: 0 }}
                                   exit={{ opacity: 0 }}
-                                  transition={{ duration: 0.9, ease: 'easeOut' }}
+                                  transition={{ duration: 0.9 * scale, ease: 'easeOut' }}
                                   style={{ backgroundColor: color ?? '#C59E4F' }}
                                 />
                               )}
