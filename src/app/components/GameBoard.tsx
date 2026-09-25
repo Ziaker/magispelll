@@ -1698,27 +1698,33 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   // que uma magia comum (que só tem o burst local em MagicEffectBurst.tsx).
   useEffect(() => {
     if (!gameState.numeralSpellPending) return;
-    const { playerNumber, character } = gameState.numeralSpellPending;
+    const { playerNumber, character, cardSnapshots } = gameState.numeralSpellPending;
 
     // "Overhaul de Animações", item 8 ("montagem da Magia Numeral, as 3
     // cartas do combo se reunindo antes do efeito disparar") - antes de
-    // qualquer coisa abaixo (popup/som/tremor), 3 cartas-fantasma saem da
-    // mão de quem ativou e convergem pro centro da tela (ver
-    // NumeralSpellAssembly.tsx pro porquê de serem simbólicas, não as
-    // cartas reais). `assemblyDuration` 0 quando `settings.animations`
-    // está desligado - sem montagem nenhuma, popup/som/tremor disparam
-    // imediatamente como sempre disparavam (respeita a preferência global
-    // de "reduzir efeitos" em vez de forçar o atraso mesmo assim).
+    // qualquer coisa abaixo (popup/som/tremor), as 3 cartas reais saem da
+    // própria posição conhecida na mão e convergem pro centro da tela (ver
+    // NumeralSpellAssembly.tsx). `cardSnapshots` vem da Fase 0.2 (contrato
+    // de evento) - cada carta já saiu da mão quando este efeito roda, por
+    // isso a posição de origem tem que vir de `cardPositionsRef` (última
+    // posição real conhecida ANTES da carta sumir), com fallback pro anchor
+    // sintético `hand-pN` quando indisponível (mesmo padrão do flourish da
+    // Besta, mais acima neste arquivo). `assemblyDuration` 0 quando
+    // `settings.animations` está desligado - sem montagem nenhuma,
+    // popup/som/tremor disparam imediatamente como sempre disparavam
+    // (respeita a preferência global de "reduzir efeitos" em vez de forçar
+    // o atraso mesmo assim).
     const assemblyDuration = settings.animations ? 620 : 0;
     if (settings.animations) {
       const handRect = cardPositionsRef.current.get(`hand-p${playerNumber}`);
-      if (handRect) {
-        setNumeralAssemblySpec({
-          character,
-          requiredNumbers: getNumeralSpellInfo(character, { fusionEnabled: gameConfig.fusion }).requiredNumbers,
-          originLeft: handRect.left + handRect.width / 2,
-          originTop: handRect.top + handRect.height / 2,
-        });
+      const [c0, c1, c2] = cardSnapshots.map((snapshot) => {
+        const rect = cardPositionsRef.current.get(snapshot.id) ?? handRect;
+        return rect
+          ? { snapshot, fromLeft: rect.left + rect.width / 2, fromTop: rect.top + rect.height / 2 }
+          : null;
+      });
+      if (c0 && c1 && c2) {
+        setNumeralAssemblySpec({ character, cards: [c0, c1, c2] });
       }
     }
 
@@ -3747,7 +3753,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       <ReactionNegatedBurst spec={reactionNegatedBurst} />
       <BeastBurnFlash specs={beastBurnFlashes} />
       <DeckReshuffleBurst spec={deckReshuffleBurst} />
-      <NumeralSpellAssembly spec={numeralAssemblySpec} />
+      <NumeralSpellAssembly spec={numeralAssemblySpec} scale={animScale} />
       <TurnLightSweep active={showTurnSweep} scale={animScale} />
       <PhaseTransition
         phase={gameState.phase}
