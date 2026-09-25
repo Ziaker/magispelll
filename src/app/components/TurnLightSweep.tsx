@@ -9,8 +9,16 @@ import { motion, AnimatePresence } from 'motion/react';
  * bastante pra não distrair de nada que já esteja acontecendo na tela
  * (fica ATRÁS das cartas/UI, `mix-blend-mode: overlay` em vez de uma cor
  * sólida).
+ *
+ * FIX (Fase 2 do overhaul de animações) - antes a duração (0.7s) era fixa,
+ * ignorando `settings.animationSpeed` (só o timeout de limpeza em
+ * GameBoard.tsx escalava, mesmo gap já corrigido na Fase 1 pro
+ * FlyingDiscardCard/DeckReshuffleBurst) - `scale` (vindo de
+ * `getAnimationDurationScale(settings)`) mantém a varredura e o giro de
+ * dígitos do TurnCounter.tsx andando na MESMA velocidade relativa, como uma
+ * única sequência de "virada de turno".
  */
-export function TurnLightSweep({ active }: { active: boolean }) {
+export function TurnLightSweep({ active, scale }: { active: boolean; scale: number }) {
   return (
     <AnimatePresence>
       {active && (
@@ -29,7 +37,7 @@ export function TurnLightSweep({ active }: { active: boolean }) {
             }}
             initial={{ left: '-40%' }}
             animate={{ left: '110%' }}
-            transition={{ duration: 0.7, ease: 'easeInOut' }}
+            transition={{ duration: 0.7 * scale, ease: 'easeInOut' }}
           />
         </motion.div>
       )}

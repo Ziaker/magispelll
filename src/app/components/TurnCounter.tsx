@@ -8,8 +8,17 @@ import { AnimatePresence, motion } from 'motion/react';
  * deslocamento vertical, como uma roda de hodômetro de verdade) - o antigo
  * "sai por cima" e o novo "entra por baixo" no mesmo instante, `AnimatePresence`
  * cuida da troca via a MUDANÇA da própria `key` (o dígito em si).
+ *
+ * FIX (Fase 2 do overhaul de animações) - antes a duração do giro (0.32s)
+ * era fixa, ignorando `settings.animationSpeed`/`settings.animations` por
+ * completo (o único componente de transição de turno/fase que ainda não
+ * respeitava nenhuma das duas preferências) - `scale` (vindo de
+ * `getAnimationDurationScale(settings)`, `0` quando animações estão
+ * desligadas) mantém o giro do dígito na MESMA velocidade relativa da
+ * varredura de luz (TurnLightSweep.tsx) - as duas nascem do MESMO evento de
+ * troca de turno em GameBoard.tsx.
  */
-function OdometerDigit({ digit }: { digit: string }) {
+function OdometerDigit({ digit, scale }: { digit: string; scale: number }) {
   return (
     <span className="relative inline-block overflow-hidden text-center" style={{ width: '0.62em', height: '1.1em' }}>
       <AnimatePresence mode="popLayout" initial={false}>
@@ -19,7 +28,7 @@ function OdometerDigit({ digit }: { digit: string }) {
           initial={{ y: '70%', rotateX: -70, opacity: 0 }}
           animate={{ y: '0%', rotateX: 0, opacity: 1 }}
           exit={{ y: '-70%', rotateX: 70, opacity: 0 }}
-          transition={{ duration: 0.32, ease: 'easeOut' }}
+          transition={{ duration: 0.32 * scale, ease: 'easeOut' }}
         >
           {digit}
         </motion.span>
@@ -28,7 +37,7 @@ function OdometerDigit({ digit }: { digit: string }) {
   );
 }
 
-export function TurnCounter({ turn }: { turn: number }) {
+export function TurnCounter({ turn, scale }: { turn: number; scale: number }) {
   const digits = String(turn).split('');
   return (
     <span className="inline-flex" style={{ perspective: 240 }}>
@@ -39,7 +48,7 @@ export function TurnCounter({ turn }: { turn: number }) {
           aparece à esquerda, em vez de herdar a identidade de quem já
           estava naquela posição do array. */}
       {digits.map((d, i) => (
-        <OdometerDigit key={digits.length - 1 - i} digit={d} />
+        <OdometerDigit key={digits.length - 1 - i} digit={d} scale={scale} />
       ))}
     </span>
   );
