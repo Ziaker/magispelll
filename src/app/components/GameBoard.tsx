@@ -4037,6 +4037,7 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
                   player1Character={player1Character}
                   player2Character={player2Character}
                   screenReaderMode={settings.screenReader}
+                  scale={animScale}
                 />
               </div>
             )}
