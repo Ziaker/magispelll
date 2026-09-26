@@ -89,16 +89,16 @@ import { MONSTER_ACTIVATION_MODE } from '../lib/activationModes';
 import { getMonsterEffect } from '../lib/monsterCards';
 import type { GameConfig } from '../lib/gameConfig';
 import { useSettings } from '../context/SettingsContext';
-import { getAnimationDurationScale, getAiThinkTimeScale } from '../lib/settings';
+import { getAnimationDurationScale } from '../lib/settings';
 import { soundManager, magicSoundFor, monsterSoundFor, numeralSoundFor } from '../lib/soundManager';
 import { motion } from 'motion/react';
 import { gameReducer, canMagicTriggerReactionAnnouncement } from '../lib/gameEngine';
 import type { CharacterId } from '../lib/characterRegistry';
-import { decideAiAction, decideAiActionTraced, decideReactionToMagic, decideCoringaQCopyTarget } from '../lib/aiPlayer';
-import { evaluateAction } from '../lib/actionValidation';
+import { decideAiActionTraced, decideCoringaQCopyTarget } from '../lib/aiPlayer';
 import { countAllCards } from '../lib/invariants';
 import { decideHandCardSelection, toggleTowerCardSelection, groupCardsForTowerViaDrag } from '../lib/handSelection';
 import { useDebugTools } from './hooks/useDebugTools';
+import { useAiController } from './hooks/useAiController';
 import { useDiscardReshuffleAnimations } from './hooks/useDiscardReshuffleAnimations';
 import { findFieldCardWithStatus, getCombatModifierStatuses, getStatusMagnitude, hasStatus } from '../lib/statusEffects';
 
@@ -205,57 +205,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
   if (initialStateRef.current === null) initialStateRef.current = gameState;
   const recordedActionsRef = useRef<GameAction[]>([]);
   const loadedReplayRef = useRef<{ initialState: GameState; actions: GameAction[] } | null>(null);
-  /**
-   * Rede de segurança GENÉRICA contra a IA propor uma ação que o motor
-   * (gameEngine.ts) REJEITA sem nenhum efeito real (sinal de um bug de
-   * decisão em aiPlayer.ts que escapou das validações - histórico: carta
-   * congelada, torre/Broto sem reforço horizontal, etc., cada um corrigido
-   * na origem quando encontrado, mas esta rede protege qualquer caso FUTURO
-   * equivalente sem precisar conhecer a causa).
-   *
-   * Detecta isso de forma DETERMINÍSTICA via `evaluateAction`, a autoridade
-   * compartilhada de `actionValidation.ts`: ela executa o reducer real contra
-   * o `gameState` ATUAL e considera rejeição qualquer resultado que não altere
-   * gameplay, mesmo quando o motor acrescenta apenas uma linha ao log. Assim
-   * GameBoard, simuladores e action-space usam exatamente a mesma semântica.
-   *
-   * FIX (relatado pelo usuário: "a IA está finalizando sua fase antes de
-   * fazer qualquer ação mínima ou posicionar no mínimo 2 cartas") - a
-   * versão ANTERIOR desta rede (histórico completo: contava quantas vezes
-   * SEGUIDAS a MESMA ação, por conteúdo/JSON.stringify, era DECIDIDA de
-   * novo depois de já ter sido REALMENTE despachada uma vez, forçando
-   * TOGGLE_READY ao bater 3 repetições) tinha um falso positivo real,
-   * encontrado por simulação Coringa vs Anjo: quando o Anjo revela uma
-   * carta-armadilha do Coringa na Estratégia (Visão Celestial), ela volta
-   * pra mão do Coringa OCULTA (`applyCoringaTrapReaction`, gameEngine.ts -
-   * comportamento INTENCIONAL, não um bug, pra impedir o oponente de
-   * rastrear qual carta da mão é aquela). A IA do Coringa então decide
-   * jogar essa MESMA carta (mesmo `cardId`) de novo - um PLAY_CARD
-   * idêntico, em CONTEÚDO, ao que já tinha sido despachado e FUNCIONADO
-   * pouco antes, só desfeito depois pelo Anjo. A rede antiga não distinguia
-   * "ação repetida que só parece igual" de "ação repetida que está sendo
-   * rejeitada de verdade" - contava a primeira como a segunda e desistia da
-   * fase de Estratégia com o campo praticamente vazio, mesmo com uma jogada
-   * perfeitamente válida disponível. Comparar contra o resultado REAL de
-   * `gameReducer` no estado ATUAL elimina essa classe inteira de falso
-   * positivo: não importa quantas vezes uma ação de conteúdo igual já foi
-   * decidida ou despachada antes - só conta como rejeição quando ela
-   * REALMENTE não muda nada AGORA.
-   *
-   * NOTA (custo aceito): quando a ação NÃO é no-op, `evaluateAction` executa
-   * `gameReducer` aqui e o reducer roda de novo no dispatch real logo abaixo
-   * - qualquer `random()` (rng.ts) consumido nesta chamada especulativa é
-   * jogado fora (nunca vira estado de verdade, só compara). Em produção
-   * (`random()` = `Math.random()` cru) isso não importa. Só afeta
-   * reprodutibilidade byte-a-byte quando `window.__debug.setSeed` está
-   * ativo E a ação envolve algo que embaralha (ex.: Rainha/Monstro armadilha
-   * do Coringa revelada, ou o baralho esgotar) - a semente ainda reproduz a
-   * MESMA sequência de decisões da IA (o que importa pra depurar um bug),
-   * só a ordem interna de uma mão embaralhada nesse caso específico pode
-   * variar por execução.
-   */
-  const isNoOpAiAction = (action: GameAction): boolean =>
-    !evaluateAction(gameState, action).accepted;
   const rawDispatch = (action: GameAction) => {
     recordedActionsRef.current.push(action);
     reducerDispatch(action);
@@ -275,19 +224,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
 
   const { settings, updateSetting } = useSettings();
   const animScale = getAnimationDurationScale(settings);
-  /**
-   * FIX (pedido do usuário, QoL: "botão de acelerar pontual durante a vez da
-   * IA, sem mexer na preferência global") - `getAiThinkTimeScale(settings)`
-   * sozinho é a preferência PERSISTIDA (Configurações -> "Velocidade de
-   * Pensamento da IA"), vale a partida inteira. Este estado é só desta
-   * sessão de jogo (nunca gravado em `settings`) - `true` reescala pra 0
-   * (ainda passa pelo piso de 150ms de `delay()` logo abaixo, nunca
-   * literalmente instantâneo) só enquanto o botão "Acelerar" (ver o painel
-   * de IA em PlayerZone.tsx) está ligado, voltando pra preferência normal
-   * assim que desligado - não precisa lembrar de desfazer nada depois.
-   */
-  const [aiSpeedBoost, setAiSpeedBoost] = useState(false);
-  const aiThinkScale = aiSpeedBoost ? 0 : getAiThinkTimeScale(settings);
   // FIX (checagem extensa por bugs): `animScale || 0.35` tratava o `0`
   // devolvido de propósito por getAnimationDurationScale (settings.ts:
   // "efetivamente instantâneo" quando `settings.animations` está desligado)
@@ -371,18 +307,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
    */
   const [cardInspectionCooldownActive, setCardInspectionCooldownActive] = useState(false);
   const cardInspectionCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  /**
-   * Modo Espectador (pedido do usuário: "adicione a opção in-game no modo
-   * espectador, um botão que congele as duas IAs e permita inspecionar uma
-   * carta. as descongela ao apertar ele denovo") - estado LOCAL, mesmo
-   * espírito de `cardInspection`/`postMagicPause` acima: um novo "motivo de
-   * pausa" que entra na mesma lista de guards do loop de decisão da IA
-   * (useEffect mais abaixo), sem tocar em `gameState.paused`/`TOGGLE_PAUSE`.
-   * Só existe/importa no Modo Espectador - resetado a cada partida nova via
-   * a mesma chave de remount do GameBoard (nunca precisa de reset manual).
-   */
-  const [spectatorFrozen, setSpectatorFrozen] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -1355,24 +1279,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState.pendingReaction]);
 
-  // A IA (quando é ELA quem pode reagir) decide sozinha, com um "tempo de
-  // pensar" aleatório dentro da janela de 3s - decideReactionToMagic
-  // (aiPlayer.ts, "aleatório" por pedido do usuário) só devolve uma ação
-  // quando decide reagir; quando não, simplesmente não faz nada e deixa o
-  // timer acima expirar normalmente (RESOLVE_PENDING_REACTION aplica o
-  // efeito, como se ninguém tivesse podido reagir).
-  useEffect(() => {
-    const pending = gameState.pendingReaction;
-    if (!pending) return;
-    const reactor = opponentOf(pending.casterPlayer);
-    if (!isAi(reactor)) return;
-    const reaction = decideReactionToMagic(gameState, reactor);
-    if (!reaction) return;
-    const t = setTimeout(() => handleReactToMagic(reactor, reaction.cardId), delay(800 + Math.random() * 1400));
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState.pendingReaction]);
-
   // FIX (pedido do usuário: "melhore o desempenho do jogo na utilização de
   // magias, tem vezes que quando uma magia é ativada, eu não consigo
   // posicionar uma carta") - este efeito rodava SEM array de dependências,
@@ -1773,180 +1679,6 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
     setPendingMonsterTarget(null);
     setPendingBestaMonsterTarget(null);
   }, [gameState.phase]);
-
-  // Modo "Contra a IA" / Modo Espectador: a cada mudança de estado, pergunta
-  // a lib/aiPlayer.ts qual seria a próxima ação de CADA jogador controlado
-  // pela IA (`aiPlayers` - só um em "Contra a IA", os dois no Espectador) e
-  // despacha depois de um pequeno atraso "pensando..." (reaproveita a mesma
-  // escala de velocidade de animação das Configurações). O efeito refaz essa
-  // pergunta de novo a cada dispatch - da própria IA, do jogador humano (se
-  // houver), ou da OUTRA IA - então cada IA reage automaticamente assim que
-  // for a vez dela agir de novo. Fica parado (sem decidir nada) enquanto
-  // algum popup automático (resultado de combate, magia numeral, pausa, fim
-  // de jogo) ou um assistente de magia do jogador humano estiver na tela,
-  // para não competir por atenção com esses fluxos.
-  //
-  // FIX (pedido do usuário: "modo espectador... IA vs IA") - antes calculava
-  // e agendava a decisão de UM ÚNICO `aiPlayer`; agora itera `aiPlayers` e
-  // agenda um timer PRÓPRIO pra cada um, independente - decideAiAction já é
-  // uma função pura parametrizada por `player` (nunca assumiu que o outro
-  // lado fosse humano, ver lib/aiPlayer.ts), então chamá-la duas vezes aqui
-  // (uma por IA) já basta; nenhuma mudança na lógica de decisão em si. Na
-  // fase de Combate, a própria decideCombatPhase já respeita de quem é a vez
-  // de virar primeiro (`firstToFlip`) - a IA que não é a vez simplesmente
-  // decide 'wait', exatamente como já fazia contra um humano.
-  useEffect(() => {
-    if (aiPlayers.length === 0) return;
-    if (gameState.paused || gameState.gameOver) return;
-    if (gameState.combatResolution || gameState.numeralSpellPending) return;
-    // Modo Reações: enquanto uma magia está anunciada, a decisão da IA (se
-    // ela for quem pode reagir) já tem seu PRÓPRIO useEffect dedicado (ver
-    // acima) - este loop geral de decideAiAction precisa ficar de fora
-    // completamente, senão pediria uma decisão de FASE (draw/strategy/combat)
-    // pra um estado que o motor está bloqueando por completo agora mesmo.
-    if (gameState.pendingReaction) return;
-    if (pendingMagic || pendingAceTransform || pendingMonsterEffect || pendingMonsterTarget || pendingBestaMonsterTarget || pendingCoringaQChoice || pendingUnfreeze) return;
-    if (showPhaseTransition) return; // ver comentário do `dispatch` guardado acima
-    if (postMagicPause) return; // idem - ver comentário do `dispatch` guardado acima
-    if (cardInspection) return; // idem - ver comentário do `dispatch` guardado acima
-    if (spectatorFrozen) return; // idem - botão de Congelar IAs do Modo Espectador (BattleField.tsx)
-
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    for (const ai of aiPlayers) {
-      const decision = decideAiAction(gameState, ai);
-      if (decision.type === 'wait') continue;
-      if (decision.type === 'ready' && gameState[playerKeyOf(ai)].readyForNextPhase) continue;
-
-      // FIX (rede de segurança genérica - ver comentário de isNoOpAiAction
-      // acima): só `type: 'action'` pode propor algo que o motor rejeite
-      // (uma `ready` já é idempotente/segura, e `wait` nem chega aqui).
-      // Comprovado AGORA contra o `gameState` atual - nenhuma repetição
-      // precisa ser observada primeiro.
-      if (decision.type === 'action' && isNoOpAiAction(decision.action)) {
-        // Ação comprovadamente sem efeito contra o estado atual (rejeição
-        // real do motor) - desiste dela e força prontidão pra próxima fase,
-        // mesmo efeito seguro de clicar "Pronto" (handleToggleReady em
-        // gameEngine.ts já sabe lidar com isso em qualquer fase).
-        const t = setTimeout(() => dispatch({ type: 'TOGGLE_READY', player: ai }), delay(450 * aiThinkScale));
-        timers.push(t);
-        continue;
-      }
-
-      // FIX (item 22 do Grupo F, "velocidade de pensamento da IA
-      // configurável"): `aiThinkScale` (settings.ts) reescala TODO atraso de
-      // "pensando..." aqui, no único ponto que os despacha de verdade -
-      // cobre uniformemente os valores fixos (450/700-1200ms padrão) e
-      // qualquer `thinkTimeMs` específico que uma decisão já define (inclusive
-      // 0, que continua instantâneo: 0 × qualquer escala = 0).
-      const baseMs = (decision.type === 'action' ? decision.thinkTimeMs ?? 700 + Math.random() * 500 : 450) * aiThinkScale;
-      const t = setTimeout(() => {
-        if (decision.type === 'action') {
-          // FIX (pedido do usuário: relato de que ativações da IA não tinham
-          // nenhum efeito visual, só a notificação) - dispara a mesma
-          // apresentação (flash/som/estilhaço/roleta) que o clique humano
-          // equivalente dispararia, ANTES do dispatch (mesma ordem já usada
-          // pelos handlers humanos: calcular alvo com o estado ATUAL, só
-          // depois aplicar a mudança) - ver triggerAiActionEffects abaixo.
-          // FIX (checagem extensa por bugs - burst fantasma/duplicado no
-          // Modo Reações): mesma checagem usada nos handlers humanos (ver
-          // canMagicTriggerReactionAnnouncement em gameEngine.ts) - se esta
-          // ação da IA for só um ANÚNCIO, a apresentação NÃO toca aqui, só
-          // depois via o timer de 3s (que já chama triggerAiActionEffects
-          // de novo quando a reação se resolve).
-          const isAnnouncement =
-            (decision.action.type === 'EXECUTE_MAGIC' || decision.action.type === 'ACTIVATE_SIMPLE_MAGIC') &&
-            canMagicTriggerReactionAnnouncement(gameState, decision.action.player, decision.action.cardId);
-          if (!isAnnouncement) {
-            triggerAiActionEffects(decision.action);
-            dispatchWithMagicPause(decision.action, () => dispatchMagicAction(decision.action));
-          } else {
-            dispatchMagicAction(decision.action);
-          }
-        } else {
-          dispatch({ type: 'TOGGLE_READY', player: ai });
-        }
-      }, delay(baseMs));
-      timers.push(t);
-    }
-    return () => timers.forEach(clearTimeout);
-    // FIX (softlock real encontrado - relatado como "a IA trava na fase de
-    // estratégia/combate no modo Espectador"): `showPhaseTransition` já era
-    // CHECADO no início deste efeito (linha do guard acima), mas não estava
-    // na lista de dependências - a intenção óbvia era "não agir enquanto o
-    // popup de transição de fase estiver na tela", mas faltava o complemento
-    // "e reavaliar assim que ele sair". Sem isso, o seguinte podia acontecer:
-    // um timer de ação rápido da IA (ex.: SELECT_COMBAT_SLOT, ~700-1200ms)
-    // disparava e despachava (`dispatch`) exatamente enquanto o popup de
-    // ~900ms de outra transição de fase ainda estava ativo; o dispatch em si
-    // FUNCIONAVA (o guard dentro de `dispatch` fecha sobre o valor de
-    // `showPhaseTransition` do MOMENTO em que este efeito rodou pela última
-    // vez, não o valor ao vivo), então o estado do jogo mudava normalmente e
-    // este efeito rodava de novo (reagindo à mudança de `gameState`) - mas
-    // JUSTO NESSA nova execução, `showPhaseTransition` já tinha virado `true`
-    // (a popup da fase seguinte), e o guard early-return no topo interrompia
-    // a função ANTES do loop (nenhum `scheduling`) e ANTES de registrar uma
-    // nova função de limpeza (`return;` puro, não `return () => ...`). Sem
-    // nenhum timer agendado e sem nenhuma dependência que mudasse depois (o
-    // próprio `showPhaseTransition` voltando a `false` não reexecutava nada,
-    // por não estar aqui), a IA ficava esperando pra sempre por uma ação que
-    // nunca mais seria reavaliada - travamento confirmado ao vivo (ver
-    // instrumentação de depuração usada para achar isso, removida depois).
-    // Agora, ao voltar a `false`, este efeito roda de novo e agenda a próxima
-    // decisão normalmente.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, aiPlayers, pendingMagic, pendingAceTransform, pendingMonsterEffect, pendingMonsterTarget, pendingBestaMonsterTarget, pendingCoringaQChoice, pendingUnfreeze, showPhaseTransition, postMagicPause, cardInspection, spectatorFrozen]);
-
-  // FIX (pedido do usuário: "ainda ocorre softlocks no espectador... adicione
-  // um timer de 10 segundos pra IA rever o que está ou deveria fazer, caso
-  // passe estes 10, a IA avisa prontidão para troca de fase imediatamente") -
-  // rede de segurança GENÉRICA contra qualquer softlock da IA no Modo
-  // Espectador, mesmo uma causa ainda não identificada/corrigida (2 causas
-  // raiz reais já foram encontradas e corrigidas nesta rodada - ver FIX acima
-  // e getUnbattledHorizontalSlots em lib/gameEngine.ts - mas esta rede não
-  // depende de conhecer a causa: só garante que o jogo nunca fique parado pra
-  // sempre). Reinicia a contagem de 10s (tempo REAL de parede, de propósito
-  // SEM usar `delay()` acima - a escala de velocidade de animação das
-  // Configurações não deve mudar quanto tempo o jogo espera antes de decidir
-  // que travou) toda vez que `gameState` muda de verdade; o maior intervalo
-  // LEGÍTIMO sem nenhuma mudança de estado (o popup de resultado de combate
-  // mais lento possível, animação no mínimo/50%) fica em torno de 6.3s -
-  // folga de sobra antes destes 10s. Se eles se esgotarem mesmo assim sem
-  // nenhuma mudança, força TOGGLE_READY em qualquer IA que ainda não esteja
-  // pronta - o mesmo efeito de um jogador clicar "Pronto" manualmente, que já
-  // é seguro em qualquer fase (handleToggleReady em gameEngine.ts: em Combate
-  // descarta o campo e avança o turno; nas outras fases só avança quando os 2
-  // lados estiverem prontos - então mesmo travando só 1 IA, o outro lado (ou
-  // já pronto, ou destravado por este mesmo watchdog) completa o par).
-  //
-  // Restrito a `aiPlayers.length === 2` (só o Modo Espectador, os 2 lados
-  // sempre IA) DE PROPÓSITO: no modo "Contra a IA" o jogador humano pode
-  // ficar mais de 10s parado só pensando (perfeitamente normal), e forçar a
-  // prontidão da IA nesse caso seria um comportamento novo e indesejado -
-  // atropelaria uma partida que não travou, só está esperando o humano.
-  useEffect(() => {
-    if (aiPlayers.length !== 2) return;
-    if (gameState.paused || gameState.gameOver) return;
-    // Interface de Inspeção de Carta: uma partida IA vs IA parada porque o
-    // ESPECTADOR está inspecionando uma carta não é um travamento - nunca
-    // deveria forçar TOGGLE_READY nas duas IAs só por causa disso.
-    if (cardInspection) return;
-    // FIX (mesmo motivo do guard de cardInspection acima): o botão "Congelar
-    // IAs" (BattleField.tsx) é uma pausa INTENCIONAL do espectador, não um
-    // travamento - sem este guard, congelar por mais de 10s forçaria
-    // TOGGLE_READY nas duas IAs sozinho, descongelando na prática por trás
-    // do botão ainda mostrando "congelado".
-    if (spectatorFrozen) return;
-
-    const t = setTimeout(() => {
-      for (const ai of aiPlayers) {
-        if (!gameState[playerKeyOf(ai)].readyForNextPhase) {
-          dispatch({ type: 'TOGGLE_READY', player: ai });
-        }
-      }
-    }, 10000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, aiPlayers, cardInspection, spectatorFrozen]);
 
   // ----- Handlers: traduzem interação do usuário em dispatch() -----
 
@@ -2995,6 +2727,36 @@ export function GameBoard({ onBack, player1Character, player2Character, gameConf
       setTimeout(() => soundManager.play('ace-transform'), delay(ROULETTE_DURATION_MS));
     }
   };
+
+  // GameBoard Overhaul (item 6 do roadmap arquitetural) - extração
+  // comportamentalmente neutra de toda a orquestração de decisão da IA (loop
+  // principal, decisão de Modo Reações, watchdog de 10s do Espectador) pra
+  // useAiController.ts. Precisa vir DEPOIS de dispatchWithMagicPause/
+  // dispatchMagicAction/triggerAiActionEffects (passadas por referência) -
+  // ver o comentário completo no próprio hook sobre o que ficou de fora de
+  // propósito (aiPlayers/isAi, aiInspectorTraces, o ramo de IA dentro do
+  // efeito de resolução de combate) e por quê.
+  const { spectatorFrozen, setSpectatorFrozen, aiSpeedBoost, setAiSpeedBoost } = useAiController({
+    gameState,
+    aiPlayers,
+    settings,
+    dispatch,
+    dispatchWithMagicPause,
+    dispatchMagicAction,
+    triggerAiActionEffects,
+    handleReactToMagic,
+    delay,
+    showPhaseTransition,
+    postMagicPause,
+    cardInspection,
+    pendingMagic,
+    pendingAceTransform,
+    pendingMonsterEffect,
+    pendingMonsterTarget,
+    pendingBestaMonsterTarget,
+    pendingCoringaQChoice,
+    pendingUnfreeze,
+  });
 
   // FIX (itens 4 e 7 da 3ª rodada): o Monstro deixou de ocupar um dos 3 slots
   // de combate (por isso não há mais um "slotIndex" próprio para clicar em
